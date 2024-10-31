@@ -113,12 +113,31 @@ module.exports = {
     );
 },
    addUpdateProjectChild : async  (projectId, childId, childData)=>{
-    return await mongo.Projects.findOneAndUpdate({_id:ObjectId(projectId),"children._id":ObjectId(childId)},
-    {
-        $set:{
-            "children.$":childData
+    var found = await mongo.Projects.findOne({_id:ObjectId(projectId),"children._id":ObjectId(childId)});
+    if(found){
+        try {
+            var result =  await mongo.Projects.findOneAndUpdate({_id:ObjectId(projectId),"children._id":ObjectId(childId)},
+        {
+            $set:{
+                "children.$":childData
+            }
+        },{upsert:true}
+        );
+        return result;
         }
-    },{upsert:true}
-    );
+    catch (error) {
+        
+    }
+}else{
+    return await mongo.Projects.updateOne({ _id: new ObjectId(projectId) }, {
+        $push: {
+            children: {
+                "_id": new ObjectId(childId),
+                ...childData
+            }
+        }
+    });
+}
+    
 }    
 };
