@@ -285,6 +285,7 @@ router.route("/update").post(async function (req, res) {
   try {
     // Get user input
     const user = req.body;
+    const companyIdentifier = req.user.company;
     //check if the count is exceeding the limit
     var tenant = Tenants.getTenantByCompanyIdentifier(companyIdentifier);
     var users = result.users.filter(
