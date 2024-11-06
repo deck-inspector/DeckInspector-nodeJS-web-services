@@ -288,39 +288,48 @@ router.route("/update").post(async function (req, res) {
     const companyIdentifier = req.user.company;
     //check if the count is exceeding the limit
     var tenant = Tenants.getTenantByCompanyIdentifier(companyIdentifier);
-    var users = result.users.filter(
-      (user) =>
-        user.companyIdentifier && user.companyIdentifier === companyIdentifier
-    );
-    //res.status(result.status).json(result.users);
-    switch (access_type) {
-      case "both":
-        if (tenant.bothUserCount < users.filter((user) => user.bothUserCount)) {
-          res
-            .status(409)
-            .send("Cannot update, limit reached. Please contact system admin");
-          return;
+    
+    users.getAllUser(function (err, result) {
+      if (err) {
+        res.status(err.status).send(err.message);
+      } else {
+        // console.debug(result);
+        var users = result.users.filter(
+          (user) => user.companyIdentifier === companyIdentifier
+        );
+        switch (access_type) {
+          case "both":
+            if (tenant.bothUserCount < users.filter((user) => user.bothUserCount)) {
+              res
+                .status(409)
+                .send("Cannot update, limit reached. Please contact system admin");
+              return;
+            }
+            break;
+          case "mobile":
+            if (
+              tenant.mobileUserCount < users.filter((user) => user.mobileUserCount)
+            ) {
+              res
+                .status(409)
+                .send("Cannot update, limit reached. Please contact system admin");
+              return;
+            }
+            break;
+          case "web":
+            if (tenant.webUserCount < users.filter((user) => user.webUserCount)) {
+              res
+                .status(409)
+                .send("Cannot update, limit reached. Please contact system admin");
+              return;
+            }
+            break;
         }
-        break;
-      case "mobile":
-        if (
-          tenant.mobileUserCount < users.filter((user) => user.mobileUserCount)
-        ) {
-          res
-            .status(409)
-            .send("Cannot update, limit reached. Please contact system admin");
-          return;
-        }
-        break;
-      case "web":
-        if (tenant.webUserCount < users.filter((user) => user.webUserCount)) {
-          res
-            .status(409)
-            .send("Cannot update, limit reached. Please contact system admin");
-          return;
-        }
-        break;
-    }
+      }
+    });
+
+    
+    
     if ("password" in user)
       user.password = await bcrypt.hash(user.password, 10);
     users.updateUser(user, function (err, result) {

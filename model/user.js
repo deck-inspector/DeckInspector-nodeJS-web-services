@@ -244,7 +244,7 @@ var updateUser = async function (user, callback) {
 };
 
 var getAllUser = async function (callback) {
-  var result = await mongo.Users.find({}).limit(50).toArray();
+  var result = await mongo.Users.find({}).limit(500).toArray();
   if (result === null) {
     var error = new Error(
       "getAllUser(). \nMessage: No Users Found. All Requested."
