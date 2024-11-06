@@ -297,7 +297,7 @@ router.route("/update").post(async function (req, res) {
         var users = result.users.filter(
           (user) => user.companyIdentifier === companyIdentifier
         );
-        switch (access_type) {
+        switch (user.access_type) {
           case "both":
             if (tenant.bothUserCount < users.filter((user) => user.bothUserCount)) {
               res
