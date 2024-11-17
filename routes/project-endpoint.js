@@ -416,7 +416,8 @@ router.route('/finalreport')
     .post(async function (req, res){
       try{
         const {companyName} = req.body;
-        const absolutePath = path.join(__dirname, '..', (companyName === 'Wicr')? 'WICR_FinalTemplate.docx' :'Deck_FinalTemplate.docx');
+        const cleanName = companyName.replaceAll(/\s/g, "").replace('.ondeckinspectors.com','');
+        const absolutePath = path.join(__dirname, '..', `${cleanName}_FinalTemplate.docx`);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         res.sendFile(absolutePath, {}, (err) => {
           if (err) {
@@ -436,9 +437,9 @@ router.route('/finalreport')
 router.route('/replacefinalreporttemplate')
     .post(upload.single('file'), async function (req, res){
       try{
-        console.log("started upload");
+        
         const uploadedFile = req.file;
-
+        //var companyIdentifier = req.user.company;
         if (!uploadedFile) {
           return res.status(400).json({ message: 'No file uploaded.' });
         }
@@ -448,8 +449,8 @@ router.route('/replacefinalreporttemplate')
         if (!companyName) {
           return res.status(400).json({ message: 'Company name is missing.' });
         }
-
-        const existingFileName = (companyName === 'Wicr')? 'WICR_FinalTemplate.docx' :'Deck_FinalTemplate.docx';
+        const cleanName = companyName.replaceAll(/\s/g, "").replace('.ondeckinspectors.com','');
+        const existingFileName = `${cleanName}_FinalTemplate.docx`;
         const filePath = path.join(__dirname, '..', existingFileName);
 
         // Check if the file to be replaced exists
