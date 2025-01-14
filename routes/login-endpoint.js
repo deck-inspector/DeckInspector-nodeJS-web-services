@@ -45,6 +45,11 @@ router.route("/login").post(async function (req, res) {
       if (err) {
         res.status(err.status).send(err.message);
       } else {
+
+        if (record && record.isActive === false) {
+          res.status(409).send("User is not active.");
+          return;         
+        }  
         if (record && (await bcrypt.compare(password, record.password))) {
           // Create token
           const { password, ...user } = record;

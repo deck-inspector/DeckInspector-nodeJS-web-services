@@ -184,6 +184,10 @@ router.route("/login").post(async function (req, res) {
       if (err) {
         res.status(err.status).send(err.message);
       } else {
+        if (record && record.isActive === false) {
+          res.status(401).send("User is not active.");
+          return;         
+        }
         if (record && (await bcrypt.compare(password, record.password))) {
           // Create token
           const { password, ...user } = record;
@@ -194,7 +198,7 @@ router.route("/login").post(async function (req, res) {
           );
           if (loginAllowed.success) {
             if (!loginAllowed.allowLogin) {
-              res.status(401).send("Invalid Credentials");
+              res.status(401).send("Client has been deleted/deactivated, please contact system admin.");
               return;
             }
           } else {
@@ -413,6 +417,24 @@ router
     try {
       const username = req.params.username;
       users.getUserbyUsername(username, async function (err, record) {
+        if (err) {
+          res.status(err.status).send(err.message);
+        } else {
+          if (record) {
+            const { password, ...user } = record;
+            res.status(201).json(user);
+          } else res.status(401).send("user not found.");
+        }
+      });
+    } catch {
+      res.status(500).send("Internal server error.");
+    }
+  })
+  .put(async function (req, res) {
+    try {
+      const username = req.params.username;
+      const isActive = req.body.isActive;
+      users.updateUserStatus(username,isActive, async function (err, record) {
         if (err) {
           res.status(err.status).send(err.message);
         } else {

@@ -188,6 +188,21 @@ var updateDevideId = async function ( username,deviceId, callback){
       });
   }
 }
+var updateUserStatus = async function ( username,status, callback){
+  var result = await mongo.Users.updateOne({username:username}, {$set:{isActive:status}});
+  if (result.modifiedCount) {
+    callback(null, {
+      status: 201,
+      message: "User status updated successfully.",
+    });
+  }else{
+    
+      callback(null, {
+        status: 409,
+        message: "Failed to update the user status.",
+      });
+  }
+}
 var updateSession = async function ( username,callback){
   var result = await mongo.Users.updateOne({username:username}, {$set:{hasActiveSession:true}});
   if (result.modifiedCount) {
@@ -436,5 +451,6 @@ module.exports = {
   addSuperUser,
   updateSession,
   clearSession,
-  updateDevideId
+  updateDevideId,
+  updateUserStatus
 };
