@@ -62,12 +62,25 @@ module.exports = {
     },
 
     deleteTenantPermanently: async (id) => {
+        var tenant = await mongo.Tenants.findOne({ _id: new ObjectId(id) });
+        try {
+            await mongo.Users.deleteMany({ companyIdentifier: tenant.companyIdentifier });
+        } catch (error) {
+            console.log(error);
+        }
         return await mongo.Tenants.deleteOne({ _id: new ObjectId(id) });
     }, 
     deleteTenant: async (id) => {
+        var tenant = await mongo.Tenants.findOne({ _id: new ObjectId(id) });
+        try {
+            await mongo.Users.deleteMany({ companyIdentifier: tenant.companyIdentifier });
+        } catch (error) {
+            console.log(error);
+        }
+        
         return await mongo.Tenants.updateOne({ _id: new ObjectId(id) }, { $set: { isDeleted: true }});
     },    
-
+    
     updateAddIconsForTenant:async (id,iconsData)=>{
         try {
             return await mongo.Tenants.updateOne({ _id: new ObjectId(id)},{$set:{icons:iconsData}});
