@@ -411,6 +411,24 @@ router.route("/allusersbytenant").get(async function (req, res) {
 });
 
 //#endregion
+router.route("/deviceId")
+  .put(async function (req, res) {
+    try {
+      const {username, deviceId} = req.body;
+      users.updateDevideId(username,deviceId,function(err,result){
+        if (err) {
+          console.log(err);
+          res.status(500).send('internal server error');
+        }
+        else{
+          res.status(201).json(result);
+        }
+        });
+    } catch {
+      res.status(500).send("Internal server error.");
+    }
+  });
+  
 router
   .route("/:username")
   .get(async function (req, res) {
@@ -610,22 +628,6 @@ router.route("/loginSuperUser").post(async function (req, res) {
   }
 });
 
-router.route("/deviceId")
-  .put(async function (req, res) {
-    try {
-      const {username, deviceId} = req.body;
-      users.updateDevideId(username,deviceId,function(err,result){
-        if (err) {
-          console.log(err);
-          res.status(500).send('internal server error');
-        }
-        else{
-          res.status(201).json(result);
-        }
-        });
-    } catch {
-      res.status(500).send("Internal server error.");
-    }
-  });
+
 
 module.exports = router;
