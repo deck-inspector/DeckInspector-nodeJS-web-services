@@ -22,7 +22,7 @@ router.route('/add')
     .post(async function (req, res) {
       try {
         // Get user input
-        const { name, description, address, createdBy, url, assignedTo, projecttype, editedat } = req.body;
+        const { name, description, address, createdBy, url, assignedTo, projecttype, editedat,formId } = req.body;
         const companyIdentifier = req.user.company;
         // Validate user input
         if (!name) {
@@ -46,7 +46,8 @@ router.route('/add')
           "createdat": new Date(editedat).toISOString(),
           "iscomplete":false,
           "isInvasive":false,
-          "companyIdentifier": companyIdentifier
+          "companyIdentifier": companyIdentifier,
+          "formId": formId
         }
 
         // Save the new project to the database
