@@ -17,6 +17,7 @@ const {v4 : uuidv4} = require('uuid');
 var uploadBlob = require('../database/uploadimage');
 const projectReports = require("../model/projectReports");
 const {generateLocationReportDoc} = require("../service/projectreportgeneration");
+const ObjectId = require('mongodb').ObjectId;
 
 router.route('/add')
     .post(async function (req, res) {
