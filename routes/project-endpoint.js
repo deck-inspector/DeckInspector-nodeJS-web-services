@@ -48,7 +48,7 @@ router.route('/add')
           "iscomplete":false,
           "isInvasive":false,
           "companyIdentifier": companyIdentifier,
-          "formId": ObjectId(formId)
+          "formId": formId==null?null:ObjectId(formId)
         }
 
         // Save the new project to the database
