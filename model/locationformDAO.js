@@ -14,7 +14,9 @@ module.exports = {
         return await mongo.LocationsForms.findOne({ _id: new ObjectId(id) });
     },
     editLocationForm: async (id, newData) => {
-        return await mongo.LocationsForms.updateOne({ _id: new ObjectId(id) }, { $set: newData },{upsert:false});
+        var updatedQuestions=newData.questions.map(obj => ({ ...obj, "_id": new ObjectId(_id) }))
+        return await mongo.LocationsForms.updateOne({ _id: new ObjectId(id) },
+         { $set: { questions: newData.questions } }, { upsert: false });
     },
     deleteLocationForm: async (id) => {
         return await mongo.LocationsForms.deleteOne({ _id:  ObjectId(id) });
