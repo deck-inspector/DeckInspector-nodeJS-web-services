@@ -11,11 +11,11 @@ module.exports = {
         return await mongo.LocationsForms.find({companyIdentifier:companyIdentifier}).sort({"_id": -1}).toArray();
     },
     getLocationFormById: async (id) => {
-        return await mongo.LocationsForms.findOne({ _id: new ObjectId(id) });
+        return await mongo.LocationsForms.findOne({ _id:  ObjectId(id) });
     },
     editLocationForm: async (id, newData) => {
         var updatedQuestions=newData.questions.map(obj => ({ ...obj, "_id": new ObjectId(obj._id) }))
-        return await mongo.LocationsForms.updateOne({ _id: new ObjectId(id) },
+        return await mongo.LocationsForms.updateOne({ _id:  ObjectId(id) },
          { $set: { questions: updatedQuestions } }, { upsert: false });
     },
     deleteLocationForm: async (id) => {
