@@ -163,7 +163,7 @@ router.route('/:id')
       try {
         var errResponse;
         const newData = req.body;
-        newData.formId=ObjectId(newData.formId);
+        newData.formId=newData.formId==null?null:ObjectId(newData.formId);
         const projectId = req.params.id;
         // Validate user input
         var result = await projectService.editProject(projectId,newData);
