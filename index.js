@@ -3,34 +3,27 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
 const express = require('express');
 const http = require('http');
-const socketIO = require('socket.io'); // Import Socket.IO
-
+const WebSocket = require('ws');
 const app = express();
-app.set('port', process.env.PORT || 3000);
- // Import HTTP module
-const server = http.createServer(app); // Create HTTP server
 
+const server = http.createServer(app); // Create HTTP server
+const wss = new WebSocket.Server({server}); // Attach WebSocket server to HTTP server
 var path = require('path');
 var bodyParser = require('body-parser');
 const cors = require('cors');
 var mongo = require('./database/mongo');
 const projectSocketHandler = require('./sync-services/projectSocketHandler');
-
-const io =  socketIO(server,{
-  cors: {
-      origin: "*", // Allow all origins (adjust for security)
-      methods: ["GET", "POST"]
-  }
-}); // Initialize Socket.IO with the HTTP server
+const subProjectSocketHandler = require('./sync-services/subProjectSocketHandler');
+const locationSocketHandler = require('./sync-services/locationSocketHandler');
+const visualSectionSocketHandler = require('./sync-services/visualSectionSocketHandler');
+const invasiveSectionSocketHandler = require('./sync-services/invasiveSectionSocketHandler');
+const dynamicSectionSocketHandler = require('./sync-services/dynamicSectionSocketHandler');
 
 app.use(cors());
+app.use(bodyParser.json());
 app.timeout = 600000;
 
 require('./routes')(app);
-app.get("/", (req, res) => {
-  res.send("Hello from Express!");
-});
-app.use(bodyParser.json());
 
 // Swagger details
 const options = {
@@ -69,23 +62,61 @@ mongo.Connect();
 
 
 // Socket.IO connection handling
-io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
-    // Attach projectSocketHandler to handle project-related socket events
-    projectSocketHandler(socket, io);
+wss.on("connection", (ws, req) => {
+  console.log("🟢 Client connected");
+  ws._socket.setKeepAlive(true, 60000);
+  ws.on("message", async (message) => {
+    console.log("📩 Received:", message);
+    try{
+    const parsedMessage = JSON.parse(message);
 
-    socket.on('test', (data) => {
-      console.log('Test event received:', data);
-      socket.emit('testResponse', { message: 'Test successful!' })
-    });
-    socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
-    });
+    // Route the message to the appropriate handler based on the collection
+    switch (parsedMessage.collection) {
+      case 'project':
+        await projectSocketHandler(message, ws,app);
+        break;
+      case 'subProject':
+        await subProjectSocketHandler(message, ws,app);
+        break;
+      case 'location':
+        await locationSocketHandler(message, ws,app);
+        break;
+      case 'visualSection':
+        await visualSectionSocketHandler(message, ws,app);
+        break;
+      case 'invasiveSection':
+        await invasiveSectionSocketHandler(message, ws,app);
+        break;
+      case 'dynamicSection':
+        await dynamicSectionSocketHandler(message, ws,app);
+        break;
+      case 'conclusiveSection':
+        await dynamicSectionSocketHandler(message, ws,app);
+        break;
+      default:
+        ws.send(JSON.stringify({ status: 'error', message: 'Unknown collection' }));
+    }
+  } catch (error) {
+    console.error('Error processing message:', error);
+    ws.send(JSON.stringify({ status: 'error', message: 'Invalid message format' }));
+  }
   });
 
+  ws.on("close", () => {
+    console.log("🔴 Client disconnected");
+  });
 
+  ws.on("error", (err) => {
+    console.error("⚠️ WebSocket error:", err);
+  });
+  ws.cors = {
+    origin: '*',
+  };
+});
+
+app.set('port', process.env.PORT || 3000);
 // Start the server
-server.listen(app.get('port'), async function () {
+server.listen(app.get('port'),"0.0.0.0", ()=> {
     console.log('Express server listening on port ' + server.address().port);
 });
 
