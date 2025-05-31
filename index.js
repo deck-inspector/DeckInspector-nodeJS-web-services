@@ -66,12 +66,14 @@ wss.on("connection", (ws, req) => {
   console.log("🟢 Client connected");
   ws._socket.setKeepAlive(true, 60000);
   ws.on("message", async (message) => {
-    console.log("📩 Received:", message);
+    //console.log("📩 Received:", message);
     try{
     const parsedMessage = JSON.parse(message);
-
+    console.log("Collection Name: ", parsedMessage.collectionName);
+    console.log("Event Name: ", parsedMessage.action);
     // Route the message to the appropriate handler based on the collection
-    switch (parsedMessage.collection) {
+    switch (parsedMessage.collectionName) {
+      
       case 'project':
         await projectSocketHandler(message, ws,app);
         break;

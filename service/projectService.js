@@ -296,6 +296,27 @@ var toggleProjectstatus = async function (projectId,iscomplete) {
     }
 };
 
+var addUpdateProjectChild = async function (projectId, childId, newData) {
+  try {
+    const result = await ProjectDAO.addUpdateProjectChild(
+      projectId,
+      childId,
+      newData
+    );
+    if (result.modifiedCount === 1) {
+      return {
+        success: true,
+      };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No project found with the given ID",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+}
 
 const handleError = (error) => {
   console.error("An error occurred:", error);
@@ -318,5 +339,6 @@ module.exports = {
   getProjectByAssignedToUserId,
   getProjectsByNameCreatedOnIsCompletedAndDeleted,
   toggleProjectstatus,
-  archiveProject
+  archiveProject,
+  addUpdateProjectChild
 };

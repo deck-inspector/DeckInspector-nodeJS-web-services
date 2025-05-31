@@ -135,10 +135,30 @@ const handleError = (error) => {
   };
 };
 
+const addUpdateLocationChild = async (locationId, childId, childData) => {
+  try {
+    const result = await LocationDAO.addUpdateLocationChild(locationId, childId, childData);
+    if (result) {
+      
+      return {
+        success: true,
+      };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No location found with the given ID",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
 module.exports = {
   addLocation,
   getLocationById,
   deleteLocationPermanently,
   getLocationsByParentId,
   editLocation,
+  addUpdateLocationChild
 };

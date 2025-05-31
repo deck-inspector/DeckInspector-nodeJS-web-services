@@ -6,33 +6,34 @@ const { ObjectId } = require('mongodb');
 module.exports = async function projectSocketHandler(message, ws) {
     try {
         const parsedMessage = JSON.parse(message);
-
+        var messageId = parsedMessage.messageId;
         // Example: Handle different actions for the "projects" collection
         switch (parsedMessage.action) {
             case 'create':
                 try {
                     // Get user input
-                    const { name, description, address, createdBy, url, assignedTo, projecttype, editedat,formId,companyIdentifier } = parsedMessage.data;
+                    const { name, description, address, createdby, url, assignedto,createdat, projecttype, editedat,formId,companyIdentifier ,id} = JSON.parse(parsedMessage.data);
                     
                     // Validate user input
                     if (!name || !companyIdentifier) {                      
-                      ws.send(JSON.stringify({ status: 'error', code:400, message:'Name/Company is required' }));
+                      ws.send(JSON.stringify({ status: 'error', code:400,messageId, message:'Name/Company is required' }));
                       return;
                     }
             
                     // Create a new project object
                     var newProject = {
+                      "_id":ObjectId(id),
                       "name": name,
                       "description": description,
                       "address": address,
-                      "createdby": createdBy,
+                      "createdby": createdby,
                       "url": url,
-                      "lasteditedby": createdBy,
-                      "assignedto": assignedTo,
-                      "editedat": new Date(editedat).toISOString(),
+                      "lasteditedby": createdby,
+                      "assignedto": assignedto,
+                      "editedat": editedat,
                       "children": [],
                       "projecttype": projecttype,
-                      "createdat": new Date(editedat).toISOString(),
+                      "createdat": createdat,
                       "iscomplete":false,
                       "isInvasive":false,
                       "companyIdentifier": companyIdentifier,
@@ -44,18 +45,18 @@ module.exports = async function projectSocketHandler(message, ws) {
             
                     if (result.reason) {
                       
-                      ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
                       return;
                     }
                     if (result) {
                       
-                      ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
+                      ws.send(JSON.stringify({ status: 'success', messageId,code:201, message:result }));
                       return;
                     }
                   }
                   catch (exception) {
                     console.error(exception);
-                    ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                     return ;
                   }
                 break;
@@ -63,51 +64,80 @@ module.exports = async function projectSocketHandler(message, ws) {
             case 'update':
                 try {
             
-                    const {projectId,...newData} = parsedMessage.data;
+                    const {id,...newData} = JSON.parse(parsedMessage.data);
                     newData.formId=newData.formId==null?null:ObjectId(newData.formId);
                     
                     // Validate user input
-                    var result = await projectService.editProject(projectId,newData);
+                    var result = await projectService.editProject(id,newData);
                     if (result.reason) {
                       
-                      ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
                     }
                     if (result) {
                       //console.debug(result);
                       ///return res.status(201).json(result);
-                      ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
+                      ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
                     }
                   }
                   catch (exception) {
                     console.error(exception);                   
-                    ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
+                  }
+                break;
+            case 'updateImageCount':
+                try {
+                    const { id, childId, count,coverUrl } = JSON.parse(parsedMessage.data);
+                    
+                    // Validate user input
+                    if (!id || !childId) {
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:400, message: 'ID and Child ID are required' }));
+                      return;
+                    }
+            
+                    // Update the project in the database
+                    var result = await projectService.addUpdateProjectChild(id, childId, {"count": count, "coverUrl": coverUrl});
+
+                    if (result.reason) {
+                      
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
+                      return;
+                    }
+                    if (result) {
+                      
+                      ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
+                      return;
+                    }
+                  }
+                  catch (exception) {
+                    console.error(exception);                   
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                   }
                 break;
 
             case 'delete':
                 try {
                     
-                    const projectId = parsedMessage.data.projectId;
+                    const projectId = JSON.parse(parsedMessage.data).id;
                     var result = await projectService.deleteProjectPermanently(projectId);
                     if (result.reason) {                 
-                        ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
+                        ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
                     }
                     if (result) {
                     
-                    ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
+                    ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
                     }
                   }
                   catch (exception) {
                     console.error(exception);                   
-                    ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                   }
                 break;
 
             default:
-                ws.send(JSON.stringify({ status: 'error', message: 'Unknown action' }));
+                ws.send(JSON.stringify({ status: 'error',messageId, message: 'Unknown action' }));
         }
     } catch (error) {
         console.error('Error handling project message:', error);
-        ws.send(JSON.stringify({ status: 'error', message: 'Failed to process project message', details: error.message }));
+        ws.send(JSON.stringify({ status: 'error',messageId, message: 'Failed to process project message', details: error.message }));
     }
 };
