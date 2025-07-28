@@ -17,7 +17,7 @@ module.exports = async function projectSocketHandler(message, ws) {
                     // Validate user input
                     if (!name || !companyIdentifier) {                      
                       ws.send(JSON.stringify({ status: 'error', code:400,messageId, message:'Name/Company is required' }));
-                      return;
+                      return false;
                     }
             
                     // Create a new project object
@@ -46,18 +46,17 @@ module.exports = async function projectSocketHandler(message, ws) {
                     if (result.reason) {
                       
                       ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
-                      return;
+                      return false;
                     }
-                    if (result) {
-                      
+                    if (result) {  
                       ws.send(JSON.stringify({ status: 'success', messageId,code:201, message:result }));
-                      return;
+                      return true;
                     }
                   }
                   catch (exception) {
                     console.error(exception);
                     ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
-                    return ;
+                    return false;
                   }
                 break;
 
@@ -72,16 +71,19 @@ module.exports = async function projectSocketHandler(message, ws) {
                     if (result.reason) {
                       
                       ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
+                      return false;
                     }
                     if (result) {
                       //console.debug(result);
                       ///return res.status(201).json(result);
                       ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
+                      return true;
                     }
                   }
                   catch (exception) {
                     console.error(exception);                   
                     ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
+                    return false;
                   }
                 break;
             case 'updateImageCount':
@@ -91,7 +93,7 @@ module.exports = async function projectSocketHandler(message, ws) {
                     // Validate user input
                     if (!id || !childId) {
                       ws.send(JSON.stringify({ status: 'error',messageId, code:400, message: 'ID and Child ID are required' }));
-                      return;
+                      return false;
                     }
             
                     // Update the project in the database
@@ -100,17 +102,18 @@ module.exports = async function projectSocketHandler(message, ws) {
                     if (result.reason) {
                       
                       ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
-                      return;
+                      return false;
                     }
                     if (result) {
                       
                       ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
-                      return;
+                      return true;
                     }
                   }
                   catch (exception) {
                     console.error(exception);                   
                     ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
+                    return false;
                   }
                 break;
 
@@ -121,23 +124,30 @@ module.exports = async function projectSocketHandler(message, ws) {
                     var result = await projectService.deleteProjectPermanently(projectId);
                     if (result.reason) {                 
                         ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
+                        return false;
                     }
                     if (result) {
                     
-                    ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
+                      ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
+                      return true;
                     }
                   }
                   catch (exception) {
                     console.error(exception);                   
                     ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
+                    return false;
                   }
                 break;
 
             default:
                 ws.send(JSON.stringify({ status: 'error',messageId, message: 'Unknown action' }));
+                return false;
+                
+          
         }
     } catch (error) {
         console.error('Error handling project message:', error);
         ws.send(JSON.stringify({ status: 'error',messageId, message: 'Failed to process project message', details: error.message }));
+        return false;
     }
 };

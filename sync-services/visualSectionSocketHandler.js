@@ -20,7 +20,7 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                       // Validate user input
                       if (!(name && parentid)) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: 400, message: 'Name and parentid is required' }));
-                        return;
+                        return false;
                       }
                       //var creationtime= (new Date(Date.now())).toISOString();
                       var newSection = {
@@ -51,17 +51,17 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: result.code, message: result.reason }));
-                        return;
+                        return false;
                     }
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success',messageId, code: 201, message: result }));
-                        return;
+                        return true;
                     }
                 }
                 catch (exception) {
                     console.error(exception);
                     ws.send(JSON.stringify({ status: 'error',messageId, code: 500, message: exception.message }));
-                    return;
+                    return false;
                 }
                 break;
             case 'update':
@@ -72,24 +72,24 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                     // Validate user input
                     if (!id) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: 400, message: 'ID is required' }));
-                        return;
+                        return false;
                     }
                     // Update the subproject in the database
                     var result = await SectionService.editSetion(id, updates);
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: result.code, message: result.reason }));
-                        return;
+                        return false;
                     }
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success', messageId, code: 200, message: result }));
-                        return;
+                        return true;
                     }
                 }
                 catch (exception) {
                     console.error(exception);
                     ws.send(JSON.stringify({ status: 'error', messageId, code: 500, message: exception.message }));
-                    return;
+                    return false;
                 }
                 break;
             case 'addImage':
@@ -100,24 +100,24 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                     // Validate user input
                     if (!sectionId || !imageUrl) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: 400, message: 'Section ID and Image URL are required' }));
-                        return;
+                        return false;
                     }
                     // Add image to the section in the database
                     var result = await SectionService.addImageInSection(sectionId, imageUrl);
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: result.code, message: result.reason }));
-                        return;
+                        return false;
                     }
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success', messageId, code: 200, message: result }));
-                        return;
+                        return true;
                     }
                 }
                 catch (exception) {
                     console.error(exception);
                     ws.send(JSON.stringify({ status: 'error', messageId, code: 500, message: exception.message }));
-                    return;
+                    return false;
                 }
                 break;
             case 'delete':
@@ -128,33 +128,34 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                     // Validate user input
                     if (!id) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: 400, message: 'ID is required' }));
-                        return;
+                        return false;
                     }
                     // Delete the subproject from the database
                     var result = await SectionService.deleteSectionPermanently(id);
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: result.code, message: result.reason }));
-                        return;
+                        return false;
                     }
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success', messageId, code: 200, message: result }));
-                        return;
+                        return true;
                     }
                 }
                 catch (exception) {
                     console.error(exception);
                     ws.send(JSON.stringify({ status: 'error', messageId, code: 500, message: exception.message }));
-                    return;
+                    return false;
                 }
                 break;
             default:
                 ws.send(JSON.stringify({ status: 'error', messageId, code: 400, message: 'Unknown action' }));
-                return;
+                return false;
         }
     }
     catch (error) {
         console.error('Error processing message:', error);
         ws.send(JSON.stringify({ status: 'error', messageId, code: 500, message: 'Internal server error' }));
+        return false;
     }
 }

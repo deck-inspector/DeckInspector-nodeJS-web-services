@@ -16,7 +16,7 @@ module.exports = async function subProjectSocketHandler(message, ws) {
                     const { id,name, description, parentid, parenttype, isInvasive, url, assignedto, createdby,companyIdentifier, sequenceNo,createdat,editedat,lasteditedby } = JSON.parse(parsedMessage.data); 
                     if (!(name && parentid)) {
                         ws.send(JSON.stringify({ status: 'error', code: 400,messageId, message: 'Name and parentid are required' }));
-                        return;
+                        return false;
                     }
 
                     // Create a new subproject object
@@ -45,17 +45,17 @@ module.exports = async function subProjectSocketHandler(message, ws) {
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: result.code, message: result.reason }));
-                        return;
+                        return false;
                     }
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success',messageId, code: 201, message: result }));
-                        return;
+                        return true;
                     }
                 }
                 catch (exception) {
                     console.error(exception);
                     ws.send(JSON.stringify({ status: 'error',messageId, code: 500, message: exception.message }));
-                    return;
+                    return false;
                 }
                 break;
             case 'update':
@@ -68,7 +68,7 @@ module.exports = async function subProjectSocketHandler(message, ws) {
                     // Validate user input
                     if (!id) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: 400, message: 'ID is required' }));
-                        return;
+                        return false;
                     }
 
                     // Update the subproject in the database
@@ -76,17 +76,17 @@ module.exports = async function subProjectSocketHandler(message, ws) {
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: result.code, message: result.reason }));
-                        return;
+                        return false;
                     }
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success',messageId, code: 200, message: result }));
-                        return;
+                        return true;
                     }        
                 }
                 catch (exception) {
                     console.error(exception);
                     ws.send(JSON.stringify({ status: 'error',messageId, code: 500, message: exception.message }));
-                    return;
+                    return false;
                 }
                 break;
             case 'delete':
@@ -97,7 +97,7 @@ module.exports = async function subProjectSocketHandler(message, ws) {
                     // Validate user input
                     if (!id) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: 400, message: 'ID is required' }));
-                        return;
+                        return false;
                     }
 
                     // Delete the subproject from the database
@@ -105,26 +105,27 @@ module.exports = async function subProjectSocketHandler(message, ws) {
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: result.code, message: result.reason }));
-                        return;
+                        return false;
                     }
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success',messageId, code: 200, message: result }));
-                        return;
+                        return true;
                     }
                 }
                 catch (exception) {
                     console.error(exception);
                     ws.send(JSON.stringify({ status: 'error',messageId, code: 500, message: exception.message }));
-                    return;
+                    return false;
                 }
                 break;
             default:
                 ws.send(JSON.stringify({ status: 'error',messageId, code: 400, message: 'Unknown action' }));
-                return;
+                return false;
         }
     }
     catch (error) {
         console.error('Error processing message:', error);
         ws.send(JSON.stringify({ status: 'error', code: 500, message: 'Internal server error' }));
+        return false;
     }
 }

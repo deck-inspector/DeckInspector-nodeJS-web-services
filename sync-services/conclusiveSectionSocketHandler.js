@@ -19,7 +19,7 @@ module.exports = async function conclusiveSectionSocketHandler(message, ws) {
                     // Validate user input
                     if (!(parentid)) {
                       ws.send(JSON.stringify({ status: 'error', code:400, message:'parentid is required' }));
-                      return;
+                      return false;
                     }
                     var newConclusiveSection = {
                         "aweconclusive":aweconclusive,
@@ -35,19 +35,19 @@ module.exports = async function conclusiveSectionSocketHandler(message, ws) {
                     if (result.reason) {
                       
                       ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
-                        return;
+                        return false;
                     }
                     if (result) {
                       //console.debug(result);
                       //return res.status(201).json(result);
                       ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
-                      return;
+                      return true;
                     }
                   }
                   catch (exception) {
             
                     ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
-                    return ;
+                    return false;
                   }
             case 'update':  
                 try{
@@ -70,18 +70,18 @@ module.exports = async function conclusiveSectionSocketHandler(message, ws) {
                     
                     if (result.reason) {
                       ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
-                      return;
+                      return false;
                     }
                     if (result) {
                       //console.debug(result);
                       //return res.status(201).json(result);
                       ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
-                      return;
+                      return true;
                     }
                   }
                   catch (exception) {
                     ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
-                    return ;
+                    return false;
                   }
             case 'delete':
                 try{
@@ -89,25 +89,26 @@ module.exports = async function conclusiveSectionSocketHandler(message, ws) {
                     var result = await ConclusiveSectionService.archiveConclusiveSection(conclusiveSectionId);
                     if (result.reason) {                 
                       ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
-                      return;
+                      return false;
                     }
                     if (result) {
                       ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
-                      return;
+                      return true;
                     }
                   }
                   catch (exception) {
             
                     ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
-                    return ;
+                    return false;
                   }
             default:
                 ws.send(JSON.stringify({ status: 'error', code:400, message:'Invalid action' }));
-                return;
+                return false;
         }
     }
     catch (error) {
         console.error('Error processing message:', error);
         ws.send(JSON.stringify({ status: 'error', code:500, message:'Invalid message format' }));
+        return false;
     }
 }

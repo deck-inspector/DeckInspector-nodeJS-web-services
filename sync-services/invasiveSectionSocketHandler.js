@@ -20,7 +20,7 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
                 if (!(parentid)) {
                 
                     ws.send(JSON.stringify({ status: 'error', code:400, message:'parentid is required' }));
-                  return;
+                  return false;
                 }
                 var newInvasiveSection = {
                     "invasiveDescription":invasiveDescription,
@@ -32,18 +32,18 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
                   if (result.reason) {
                     
                     ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));  
-                    return;
+                    return false;
                   }
                   if (result) {
                     
                     ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
-                    return;
+                    return true;
                   }
                 }
                 catch (exception) {
                   
                   ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
-                  return ;
+                  return false;
                 }
                 break;
             case 'edit':
@@ -51,7 +51,7 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
                     const { invasivesectionId } = parsedMessage.data;
                     if (!invasivesectionId) {
                       ws.send(JSON.stringify({ status: 'error', code:400, message:'invasivesectionId is required' }));
-                      return;
+                      return false;
                     }
                     var newData = parsedMessage.data;
                     if (newData.parentid) {
@@ -68,15 +68,16 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
                     );
                 
                     if (result.reason) {
+                      ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason })); 
                       return  res.status(result.code).json(result);
                     }
                     if (result) {
-                      //console.debug(result);
-                      return res.status(201).json(result);
+                      ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
+                      return true;
                     }
                   } catch (exception) {
-                    errResponse = new newErrorResponse(500, false, exception);
-                    return res.status(500).json(errResponse);
+                     ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    return false;
                   }
                 break;
             case 'delete':
@@ -85,29 +86,35 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
                     const invasivesectionId = parsedMessage.data.invasivesectionId;
                     if (!invasivesectionId) {
                       ws.send(JSON.stringify({ status: 'error', code:400, message:'invasivesectionId is required' }));
-                      return;
+                      return false;
                     }
                     var result = await InvasiveSectionService.deleteInvasiveSectionPermanently(invasivesectionId);
                     if (result.reason) {                 
                         ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
+                        return false;
                     }
                     if (result) {
                     
                     ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
+                    return true;
                     }
                   }
                   catch (exception) {
                     console.error(exception);                   
                     ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    return false;
                   }
                 break;
             default:
                 ws.send(JSON.stringify({ status: 'error', code:400, message:'Invalid action' }));
-                break;
+                return false;
+                
+                
         }
     }
     catch (error) {
         console.error('Error processing message:', error);
         ws.send(JSON.stringify({ status: 'error', code:500, message:'Internal server error' }));
+        return false;
     }
 }

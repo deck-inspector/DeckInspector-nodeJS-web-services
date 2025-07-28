@@ -6,7 +6,7 @@ const { ObjectId } = require('mongodb');
 module.exports = async function dynamicSectionSocketHandler(message, ws) {
     try {
         const parsedMessage = JSON.parse(message);
-
+        var isSuccess =false;
         // Example: Handle different actions for the "projects" collection
         switch (parsedMessage.action) {
             case 'create':
@@ -21,7 +21,7 @@ module.exports = async function dynamicSectionSocketHandler(message, ws) {
                     if (!(name&&parentid)) {
                 
                       ws.send(JSON.stringify({ status: 'error', code:400, message:'Name and ParentId is required' }));
-                      return;
+                      return false;
                     }
                     //var creationtime= (new Date(Date.now())).toISOString();
                     var newSection = {
@@ -44,18 +44,18 @@ module.exports = async function dynamicSectionSocketHandler(message, ws) {
                     if (result.reason) {
                       
                       ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
-                      return;
+                      return false;
                     }
                     if (result) {
                       //console.debug(result);
                       
                       ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
-                      return;
+                      return true;
                     }
                     }
                     catch (exception) {
                     ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
-                    return ;
+                    return false;
                     }
                 break;
             case 'update':
@@ -63,17 +63,20 @@ module.exports = async function dynamicSectionSocketHandler(message, ws) {
                     const { id, updates } = parsedMessage.data;
                     if (!id || !updates) {
                         ws.send(JSON.stringify({ status: 'error', message: 'ID and updates are required' }));
-                        return;
+                        return false;
                     }
                     
                     const result = await DynamicSectionService.editSetion(id, updates);
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success', message: 'Section updated successfully' }));
+                        return true;
                     } else {
                         ws.send(JSON.stringify({ status: 'error', message: 'Failed to update section' }));
+                        return false;
                     }
                 } catch (exception) {
                     ws.send(JSON.stringify({ status: 'error', message: exception.message }));
+                    return false;
                 }
                 break;
             case 'delete':
@@ -81,25 +84,30 @@ module.exports = async function dynamicSectionSocketHandler(message, ws) {
                     const { id } = parsedMessage.data;
                     if (!id) {
                         ws.send(JSON.stringify({ status: 'error', message: 'ID is required' }));
-                        return;
+                        return false;
                     }
                     
                     const result = await DynamicSectionService.deleteSection(id);
                     if (result) {
                         ws.send(JSON.stringify({ status: 'success', message: 'Section deleted successfully' }));
+                        return true;
                     } else {
                         ws.send(JSON.stringify({ status: 'error', message: 'Failed to delete section' }));
+                        return false;
                     }
                 } catch (exception) {
                     ws.send(JSON.stringify({ status: 'error', message: exception.message }));
+                    return false;
                 }
                 break;
             default:
                 ws.send(JSON.stringify({ status: 'error', message: 'Unknown action' }));
+                return false;
         }
     }   
     catch (error) {
         console.error("Error in dynamicSectionSocketHandler:", error);
         ws.send(JSON.stringify({ status: 'error', message: 'Internal server error' }));
+        return false;
     }
 }
