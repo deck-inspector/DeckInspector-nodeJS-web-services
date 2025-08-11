@@ -26,6 +26,7 @@ if (!(name&&parentid)) {
   return;
 }
 var creationtime= (new Date(Date.now())).toISOString();
+const companyIdentifier = req.user.company;
 var newSection = {
     "additionalconsiderations":additionalconsiderations,
     "additionalconsiderationshtml":additionalconsiderationshtml? additionalconsiderationshtml: "",
@@ -40,6 +41,7 @@ var newSection = {
     "furtherinvasivereviewrequired":furtherinvasivereviewrequired.toLowerCase()==='true',
     "lbc": lbc,
     "name":name,
+    "companyIdentifier": companyIdentifier,
     "parentid": new ObjectId(parentid),
     "parenttype":parenttype,
     "visualreview":visualreview,

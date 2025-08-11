@@ -67,7 +67,7 @@ module.exports = async function projectSocketHandler(message, ws) {
                     newData.formId=newData.formId==null?null:ObjectId(newData.formId);
                     
                     // Validate user input
-                    var result = await projectService.editProject(id,newData);
+                    var result = await projectService.editAddProject(id,newData);
                     if (result.reason) {
                       
                       ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));

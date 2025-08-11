@@ -24,12 +24,12 @@ module.exports = function(app) {
   app.use("/api/projectreports", projectReportsRouter);  
   app.use("/api/image", authenticateToken, imageRouter);  
   app.use("/api/project", authenticateToken, projectRouter);
-  app.use("/api/subproject", subprojectRouter);
-  app.use("/api/location", locationRouter);
-  app.use("/api/section", sectionRouter);
-  app.use("/api/dynamicsection", dynamicSectionRouter);
-  app.use("/api/invasivesection", invasivesectionRouter);
-  app.use("/api/conclusivesection", conclusiveSectionRouter);
+  app.use("/api/subproject", authenticateToken, subprojectRouter);
+  app.use("/api/location", authenticateToken, locationRouter);
+  app.use("/api/section", authenticateToken, sectionRouter);
+  app.use("/api/dynamicsection", authenticateToken, dynamicSectionRouter);
+  app.use("/api/invasivesection", authenticateToken, invasivesectionRouter);
+  app.use("/api/conclusivesection", authenticateToken, conclusiveSectionRouter);
   app.use("/api/tenants", authenticateToken,tenantRouter);
   app.use("/api/login", loginRouter);
   app.use("/api/locationforms",locationFormRouter);

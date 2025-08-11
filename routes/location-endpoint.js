@@ -26,6 +26,7 @@ if (!(name&&parentid)) {
   return;
 }
 var creationtime= (new Date(Date.now())).toISOString();
+const companyIdentifier = req.user.company;
 try{
   var newLocation = {
       "name":name,
@@ -40,7 +41,8 @@ try{
       "lasteditedBy":createdBy,
       "editedat":creationtime,
       "isInvasive":isInvasive,
-      "sequenceNo": sequenceNo
+      "sequenceNo": sequenceNo,
+      "companyIdentifier": companyIdentifier
   }
 }catch(ex){
   console.log(ex);

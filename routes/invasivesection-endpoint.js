@@ -80,6 +80,7 @@ router.route('/add')
     res.status(400).json(errResponse);
     return;
   }
+  const companyIdentifier = req.user.company;
   var newInvasiveSection = {
       "invasiveDescription":invasiveDescription,
       "parentid": new ObjectId(parentid), 

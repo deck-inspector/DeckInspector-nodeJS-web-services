@@ -41,6 +41,9 @@ module.exports = {
     editProject: async (projectId, newData) => {
         return await mongo.Projects.updateOne({ _id: new ObjectId(projectId) }, { $set: newData },{upsert:false});
     },
+    editAddProject: async (projectId, newData) => {
+        return await mongo.Projects.updateOne({ _id: new ObjectId(projectId) }, { $set: newData },{upsert:true});
+    },
 
     updateProjectVisibilityStatus: async (id, isVisible) => {
         return await mongo.Projects.updateOne({ _id: new ObjectId(id) }, { $set: { isdeleted: isVisible } });

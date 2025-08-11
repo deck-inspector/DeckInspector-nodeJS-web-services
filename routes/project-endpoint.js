@@ -23,7 +23,7 @@ router.route('/add')
     .post(async function (req, res) {
       try {
         // Get user input
-        const { name, description, address, createdBy, url, assignedTo, projecttype, editedat,formId } = req.body;
+        const { name, description, address, createdBy, url, assignedto, projecttype, editedat,formId } = req.body;
         const companyIdentifier = req.user.company;
         // Validate user input
         if (!name) {
@@ -40,7 +40,7 @@ router.route('/add')
           "createdby": createdBy,
           "url": url,
           "lasteditedby": createdBy,
-          "assignedto": assignedTo,
+          "assignedto": assignedto,
           "editedat": new Date(editedat).toISOString(),
           "children": [],
           "projecttype": projecttype,

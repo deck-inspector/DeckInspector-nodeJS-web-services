@@ -51,6 +51,7 @@ if(!parentProject.data){
 }
 
 var creationtime= new Date(Date.now()).toISOString();
+const companyIdentifier = req.user.company;
 //console.log(creationtime);
 try{
   var newSubProject = {
@@ -66,6 +67,7 @@ try{
       "editedat":creationtime ,
       "lasteditedby":createdBy,
       "children":[],
+      "companyIdentifier": companyIdentifier,
       "isInvasive": isInvasive,
       "sequenceNo": sequenceNo
     } 

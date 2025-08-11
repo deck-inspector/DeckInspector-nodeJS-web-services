@@ -6,6 +6,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const redisManager = require('./sync-services/redisService');
 const app = express();
+const { startAllCollectionStreams } = require('./sync-services/collectionStreamer');
 
 
 const server = http.createServer(app); // Create HTTP server
@@ -62,7 +63,9 @@ const specs = swaggerJsdoc(options);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
 
 // Initialize SERVER & DB connection once
-mongo.Connect();
+(async () => {await mongo.Connect();
+  startAllCollectionStreams();
+})();
 
 (async () => {
   await redisManager.connectRedis();
@@ -79,19 +82,21 @@ wss.on("connection", (ws, req) => {
   ws._socket.setKeepAlive(true, 60000);
   ws.once("message", async (initMessage) => {
     let clientId;
+    let companyIdentifier;
     try {
       const initData = JSON.parse(initMessage);
       clientId = initData.clientId;
-      if (!clientId) {
-        ws.send(JSON.stringify({ status: 'error', message: 'clientId required on connect' }));
+      companyIdentifier = initData.companyIdentifier;
+      if (!clientId || !companyIdentifier) {
+        ws.send(JSON.stringify({ status: 'error', message: 'clientId and companyIdentifier required on connect' }));
         ws.close();
         return;
       }
       ws.clientId = clientId;
-      redisManager.addClient(clientId, ws);
+      redisManager.addClient(clientId,companyIdentifier, ws);
 
       // Deliver any queued messages from Redis Stream
-      await redisManager.deliverQueuedMessages(clientId, ws);
+      await redisManager.deliverQueuedMessages(clientId,companyIdentifier, ws);
       
     } catch (e) {
       ws.send(JSON.stringify({ status: 'error', message: 'Invalid init message' }));
@@ -135,7 +140,7 @@ wss.on("connection", (ws, req) => {
       }
       if (updateResult) {
         //broadcast to all clients
-        redisManager.broadcastToOthers(parsedMessage.clientId,message)
+        redisManager.broadcastToOthers(parsedMessage.clientId,parsedMessage.companyIdentifier,message)
       }
     } catch (error) {
       console.error('Error processing message:', error);
@@ -162,4 +167,5 @@ app.set('port', process.env.PORT || 3000);
 server.listen(app.get('port'),"0.0.0.0", ()=> {
     console.log('Express server listening on port ' + server.address().port);
 });
+
 

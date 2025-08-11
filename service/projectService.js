@@ -189,6 +189,23 @@ var editProject = async function (projectId, newData) {
     return handleError(error);
   }
 };
+var editAddProject = async function (projectId, newData) {
+  try {
+    const result = await ProjectDAO.editAddProject(projectId, newData);
+    if (result.modifiedCount === 1||result.matchedCount === 1) {
+      return {
+        success: true,
+      };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No project found with the given ID",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
 
 var assignProjectToUser = async function (projectId, username) {
   try {
@@ -340,5 +357,6 @@ module.exports = {
   getProjectsByNameCreatedOnIsCompletedAndDeleted,
   toggleProjectstatus,
   archiveProject,
-  addUpdateProjectChild
+  addUpdateProjectChild,
+  editAddProject
 };

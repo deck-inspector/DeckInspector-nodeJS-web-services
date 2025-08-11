@@ -73,6 +73,7 @@ router.route('/add')
           res.status(400).json(errResponse);
           return;
         }
+        const companyIdentifier = req.user.company;
         var newConclusiveSection = {
             "aweconclusive":aweconclusive,
             "conclusiveconsiderations" :conclusiveconsiderations,
@@ -81,7 +82,8 @@ router.route('/add')
             "parentid": new ObjectId(parentid), 
             "propowneragreed": propowneragreed.toLowerCase()==='true',
             "conclusiveimages":conclusiveimages,
-            "lbcconclusive":lbcconclusive
+            "lbcconclusive":lbcconclusive,
+            "companyIdentifier": companyIdentifier
         } 
         var result = await ConclusiveSectionService.addConclusiveSection(newConclusiveSection);    
         if (result.reason) {
