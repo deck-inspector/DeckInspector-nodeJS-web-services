@@ -111,6 +111,11 @@ wss.on("connection", (ws, req) => {
         console.log("Collection Name: ", parsedMessage.collectionName);
         console.log("Event Name: ", parsedMessage.action);
         let updateResult =false;
+        if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {
+             const clientId = ws.clientId + '.' + companyIdentifier;
+             await redisManager.deleteQueuedMessage(clientId, parsedMessage.redisEntryId);
+             return;
+        }
         // Route the message to the appropriate handler based on the collection
         switch (parsedMessage.collectionName) {
         
@@ -140,7 +145,7 @@ wss.on("connection", (ws, req) => {
       }
       if (updateResult) {
         //broadcast to all clients
-        redisManager.broadcastToOthers(parsedMessage.clientId,parsedMessage.companyIdentifier,message)
+        redisManager.reliableBroadcastToAllClients(message);
       }
     } catch (error) {
       console.error('Error processing message:', error);

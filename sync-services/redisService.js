@@ -35,15 +35,18 @@ async function queueMessage(clientId, message) {
   const companyIdentifier = message.companyIdentifier;
   try {
     if (clientId.includes(companyIdentifier)) {
-      await redisClient.xAdd(
-      REDIS_STREAM_PREFIX + clientId,
-      '*',
-      { message: typeof message === 'string' ? message : JSON.stringify(message) }
+      // xAdd returns the entry ID
+      const entryId = await redisClient.xAdd(
+        REDIS_STREAM_PREFIX + clientId,
+        '*',
+        { message: typeof message === 'string' ? message : JSON.stringify(message) }
       );
+      return entryId;
     }
   } catch (error) {
     console.error('Error queuing message for client:', clientId, error);
-  }  
+  }
+  return null;
 }
 
 async function reliableBroadcastToAllClients(message) {
@@ -51,21 +54,27 @@ async function reliableBroadcastToAllClients(message) {
   const allClientIds = await getAllClientIds(); // Get all possible client IDs
 
   for (const clientId of allClientIds) {
-    // Always queue in Redis for offline delivery
-    await queueMessage(clientId, msgString);
+    // Always queue in Redis for offline delivery, get entryId
+    const entryId = await queueMessage(clientId, message);
 
-    // If online, send immediately
+    // If online, send immediately with entryId for ack
     const ws = clients.get(clientId);
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(msgString);
+      let msgObj;
+      try {
+        msgObj = typeof message === 'string' ? JSON.parse(message) : { ...message };
+      } catch {
+        msgObj = message;
+      }
+      msgObj.redisEntryId = entryId;
+      ws.send(JSON.stringify(msgObj));
     }
   }
 }
 
 // Helper: Deliver queued messages from Redis Stream to client
 async function deliverQueuedMessages(clientId,companyIdentifier, ws) {
-  const streamKey = REDIS_STREAM_PREFIX + clientId+ '.' + companyIdentifier;
-  // Read all messages from the stream
+  const streamKey = REDIS_STREAM_PREFIX + clientId + '.' + companyIdentifier;
   let lastId = '0-0';
   while (true) {
     const entries = await redisClient.xRead(
@@ -74,13 +83,34 @@ async function deliverQueuedMessages(clientId,companyIdentifier, ws) {
     );
     if (!entries || entries.length === 0) break;
     for (const entry of entries[0].messages) {
-      const msg = entry.message.message;
-      ws.send(msg);
+      let msgObj;
+      try {
+        msgObj = JSON.parse(entry.message.message);
+      } catch {
+        msgObj = entry.message.message;
+      }
+      msgObj.redisEntryId = entry.id;
+      ws.send(JSON.stringify(msgObj));
       lastId = entry.id;
     }
   }
-  // Delete the stream after delivery
-  await redisClient.del(streamKey);
+  // Do not delete the stream here; delete entries after ack
+}
+
+// Helper: Delete a specific entry from Redis stream after ack
+async function deleteQueuedMessage(clientId, redisEntryId) {
+  const streamKey = REDIS_STREAM_PREFIX + clientId;
+  try {
+    await redisClient.xDel(streamKey, redisEntryId);
+    // Check if stream is empty, then delete the stream for cleanup
+    const streamLen = await redisClient.xLen(streamKey);
+    if (streamLen === 0) {
+      await redisClient.del(streamKey);
+      console.log(`Cleaned up empty Redis stream: ${streamKey}`);
+    }
+  } catch (error) {
+    console.error('Error deleting message from Redis stream:', streamKey, redisEntryId, error);
+  }
 }
 
 // Map to track connected clients: clientId -> ws
@@ -93,42 +123,31 @@ function addClient(clientId,companyIdentifier, ws) {
 function removeClient(clientId,companyIdentifier){
     clients.delete(`${clientId}.${companyIdentifier}`);
 }
-// Example broadcast function (call this in your handlers as needed)
-async function broadcastToOthers(senderId,companyIdentifier, message) {
-  for (const [clientId, ws] of clients.entries()) {
-    if (clientId !== `${senderId}.${companyIdentifier}` && ws.readyState === WebSocket.OPEN) {
-      ws.send(message);
-    } else if (clientId !== `${senderId}.${companyIdentifier}`) {
-      await queueMessage(clientId, message);
-    }
-  }
-}
-async function broadcastToAllClients( message) {
-  try{
-    const msgString = typeof message === 'string' ? message : JSON.stringify(message);
-    for (const [clientId, ws] of clients.entries()) {
-    if (clientId.includes(message.fullDocument.companyIdentifier) && ws.readyState === WebSocket.OPEN) {
-      ws.send(msgString);
-    } else if (clientId.includes(message.fullDocument.companyIdentifier)) {
-      await queueMessage(clientId, msgString);
-    }
-  }
-  }
-  catch (error) {
-    console.error('Error broadcasting to all clients:', error);
-  }
-  finally {
-    console.log('Broadcast completed');
-  }
-}
+// async function broadcastToAllClients( message) {
+//   try{
+//     const msgString = typeof message === 'string' ? message : JSON.stringify(message);
+//     for (const [clientId, ws] of clients.entries()) {
+//     if (clientId.includes(message.fullDocument.companyIdentifier) && ws.readyState === WebSocket.OPEN) {
+//       ws.send(msgString);
+//     } else if (clientId.includes(message.fullDocument.companyIdentifier)) {
+//       await queueMessage(clientId, msgString);
+//     }
+//   }
+//   }
+//   catch (error) {
+//     console.error('Error broadcasting to all clients:', error);
+//   }
+//   finally {
+//     console.log('Broadcast completed');
+//   }
+// }
 
 module.exports={
     redisClient,
     connectRedis,
-    broadcastToOthers,
     deliverQueuedMessages,
     addClient,
     removeClient,
-    broadcastToAllClients,
+    deleteQueuedMessage,
     reliableBroadcastToAllClients
 }
