@@ -110,10 +110,10 @@ wss.on("connection", (ws, req) => {
         const parsedMessage = JSON.parse(message);
         console.log("Collection Name: ", parsedMessage.collectionName);
         console.log("Event Name: ", parsedMessage.action);
+        const compId = ws.clientId + '.' + companyIdentifier;
         let updateResult =false;
-        if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {
-             const clientId = ws.clientId + '.' + companyIdentifier;
-             await redisManager.deleteQueuedMessage(clientId, parsedMessage.redisEntryId);
+        if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {     
+             await redisManager.deleteQueuedMessage(compId, parsedMessage.redisEntryId);
              return;
         }
         // Route the message to the appropriate handler based on the collection
@@ -144,8 +144,8 @@ wss.on("connection", (ws, req) => {
           ws.send(JSON.stringify({ status: 'error', message: 'Unknown collection' }));
       }
       if (updateResult) {
-        //broadcast to all clients
-        redisManager.reliableBroadcastToAllClients(message);
+        // Broadcast to all clients except the sender
+        redisManager.reliableBroadcastToAllClients(message, compId);
       }
     } catch (error) {
       console.error('Error processing message:', error);

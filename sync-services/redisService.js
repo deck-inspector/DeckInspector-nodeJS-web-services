@@ -49,26 +49,40 @@ async function queueMessage(clientId, message) {
   return null;
 }
 
-async function reliableBroadcastToAllClients(message) {
+
+async function reliableBroadcastToAllClients(message, clientId) {
   const msgString = typeof message === 'string' ? message : JSON.stringify(message);
-  const allClientIds = await getAllClientIds(); // Get all possible client IDs
+  let allClientIds = await getAllClientIds();
+  allClientIds = allClientIds.filter(id => id !== clientId);
 
-  for (const clientId of allClientIds) {
-    // Always queue in Redis for offline delivery, get entryId
-    const entryId = await queueMessage(clientId, message);
+  // Batch size for processing clients in chunks
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < allClientIds.length; i += BATCH_SIZE) {
+    const batch = allClientIds.slice(i, i + BATCH_SIZE);
 
-    // If online, send immediately with entryId for ack
-    const ws = clients.get(clientId);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      let msgObj;
-      try {
-        msgObj = typeof message === 'string' ? JSON.parse(message) : { ...message };
-      } catch {
-        msgObj = message;
-      }
-      msgObj.redisEntryId = entryId;
-      ws.send(JSON.stringify(msgObj));
-    }
+    // Queue messages in Redis in parallel for the batch
+    const queuePromises = batch.map(clientId => queueMessage(clientId, message));
+    const entryIds = await Promise.allSettled(queuePromises);
+
+    // Send to online clients in parallel for the batch
+    await Promise.allSettled(
+      batch.map((clientId, idx) => {
+        const ws = clients.get(clientId);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          let msgObj;
+          try {
+            msgObj = typeof message === 'string' ? JSON.parse(message) : { ...message };
+          } catch {
+            msgObj = message;
+          }
+          // Use entryId if queueMessage succeeded
+          if (entryIds[idx].status === 'fulfilled') {
+            msgObj.redisEntryId = entryIds[idx].value;
+          }
+          ws.send(JSON.stringify(msgObj));
+        }
+      })
+    );
   }
 }
 

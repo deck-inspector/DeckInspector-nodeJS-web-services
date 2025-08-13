@@ -86,6 +86,7 @@ router.route('/add')
       "parentid": new ObjectId(parentid), 
       "postinvasiverepairsrequired":postinvasiverepairsrequired.toLowerCase()==='true' ,
       "invasiveimages":invasiveimages,
+      "companyIdentifier": companyIdentifier
   } 
   var result = await InvasiveSectionService.addInvasiveSection(newInvasiveSection);    
     if (result.reason) {
