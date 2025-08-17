@@ -23,6 +23,8 @@ const invasiveSectionSocketHandler = require('./sync-services/invasiveSectionSoc
 const dynamicSectionSocketHandler = require('./sync-services/dynamicSectionSocketHandler');
 const conclusiveSectionSocketHandler = require('./sync-services/conclusiveSectionSocketHandler');
 const { measureMemory } = require('vm');
+const fs = require('fs').promises;
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -63,7 +65,7 @@ const specs = swaggerJsdoc(options);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
 
 // Initialize SERVER & DB connection once
-(async () => {await mongo.Connect();
+(async () => {await cleanUploadsDir(); await mongo.Connect();
   startAllCollectionStreams();
 })();
 
@@ -74,6 +76,22 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
   const value = await redisManager.redisClient.get('test-key');
   console.log('Value from Redis:', value);
 })();
+
+async function cleanUploadsDir() {
+  try {
+    // Ensure uploads dir exists
+    await fs.mkdir(UPLOADS_DIR, { recursive: true });
+    const entries = await fs.readdir(UPLOADS_DIR, { withFileTypes: true });
+    await Promise.all(entries.map(async (entry) => {
+      const fullPath = path.join(UPLOADS_DIR, entry.name);
+      // remove files or directories
+      await fs.rm(fullPath, { recursive: true, force: true });
+    }));
+    console.log('✅ Uploads folder cleaned');
+  } catch (err) {
+    console.error('Failed to clean uploads folder:', err);
+  }
+}
 
 
 // Socket.IO connection handling
