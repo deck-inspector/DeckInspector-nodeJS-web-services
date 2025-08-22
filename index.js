@@ -126,14 +126,15 @@ wss.on("connection", (ws, req) => {
       //console.log("📩 Received:", message);
       try {
         const parsedMessage = JSON.parse(message);
-        console.log("Collection Name: ", parsedMessage.collectionName);
-        console.log("Event Name: ", parsedMessage.action);
+        
         const compId = ws.clientId + '.' + companyIdentifier;
         let updateResult =false;
         if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {     
              await redisManager.deleteQueuedMessage(compId, parsedMessage.redisEntryId);
              return;
         }
+        console.log("Collection Name: ", parsedMessage.collectionName);
+        console.log("Event Name: ", parsedMessage.action);
         // Route the message to the appropriate handler based on the collection
         switch (parsedMessage.collectionName) {
         
