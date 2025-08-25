@@ -3,6 +3,8 @@
 const express = require('express');
 const { ObjectId } = require('mongodb');
 const SectionService = require("../service/sectionService");
+const { v4: uuidv4 } = require('uuid');
+const redisManager = require('./redisService');
 
 module.exports = async function visualSectionSocketHandler(message, ws) {
     try {
@@ -47,6 +49,12 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                           "unitUnavailable": unitUnavailable,
                           "isuploading":false,
                       } 
+
+                      // attach op metadata
+                      const opId = uuidv4();
+                      newSection.__lastOpId = opId;
+                      newSection.__lastOpClient = `${ws.clientId}.${JSON.parse(parsedMessage.data).companyIdentifier}`;
+
                       var result = await SectionService.addSection(newSection);
 
                     if (result.reason) {
@@ -68,6 +76,11 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                 try {
                     // Get user input
                     const { id, ...updates } = JSON.parse(parsedMessage.data);
+
+                    // attach op metadata
+                    const opId = uuidv4();
+                    updates.__lastOpId = opId;
+                    updates.__lastOpClient = `${ws.clientId}.${JSON.parse(parsedMessage.data).companyIdentifier}`;
 
                     // Validate user input
                     if (!id) {
@@ -95,15 +108,15 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
             case 'addImage':
                 try {
                     // Get user input
-                    const { sectionId, imageUrl } = JSON.parse(parsedMessage.data);
+                    const { id, images } = JSON.parse(parsedMessage.data);
 
                     // Validate user input
-                    if (!sectionId || !imageUrl) {
-                        ws.send(JSON.stringify({ status: 'error', messageId, code: 400, message: 'Section ID and Image URL are required' }));
+                    if (!id || !images || !Array.isArray(images)) {
+                        ws.send(JSON.stringify({ status: 'error', messageId, code: 400, message: 'ID and Images are required' }));
                         return false;
                     }
                     // Add image to the section in the database
-                    var result = await SectionService.addImageInSection(sectionId, imageUrl);
+                    var result = await SectionService.addMultipleImagesInSection(id, images);
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: result.code, message: result.reason }));

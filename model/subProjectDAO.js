@@ -18,7 +18,9 @@ module.exports = {
     findSubProjectsByParentId: async (parentId) => {
         return await mongo.SubProjects.find({ parentid: new ObjectId(parentId) }).toArray();
     },
-
+    updateImageUrl: async (id, imageUrl) => {
+        return await mongo.SubProjects.updateOne({ _id: new ObjectId(id) }, { $set: { url: imageUrl } });
+    },
     addSubProjectChild: async (subProjectId, childId,childData) => {
         return await mongo.SubProjects.updateOne(
             { 

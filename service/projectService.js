@@ -335,6 +335,27 @@ var addUpdateProjectChild = async function (projectId, childId, newData) {
   }
 }
 
+//add method to update imageUrl of project
+var updateImageUrl = async function (projectId, imageUrl) {
+  try {
+    const result = await ProjectDAO.updateImageUrl(
+      projectId,
+      imageUrl
+    );
+    if (result.modifiedCount === 1) {
+      return {
+        success: true,
+      };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No project found with the given ID",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
 const handleError = (error) => {
   console.error("An error occurred:", error);
   return {
@@ -346,6 +367,7 @@ const handleError = (error) => {
 
 module.exports = {
   addProject,
+  updateImageUrl,
   getProjectById,
   deleteProjectPermanently,
   getProjectsByUser,

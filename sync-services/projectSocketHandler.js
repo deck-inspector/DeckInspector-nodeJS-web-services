@@ -2,6 +2,8 @@
 const projectService = require('../service/projectService');
 const express = require('express');
 const { ObjectId } = require('mongodb');
+const { v4: uuidv4 } = require('uuid');
+const redisManager = require('./redisService');
 
 module.exports = async function projectSocketHandler(message, ws) {
     try {
@@ -12,7 +14,7 @@ module.exports = async function projectSocketHandler(message, ws) {
             case 'create':
                 try {
                     // Get user input
-                    const { name, description, address, createdby, url, assignedto,createdat, projecttype, editedat,formId,companyIdentifier ,id} = JSON.parse(parsedMessage.data);
+                    const { name, description, address, createdby, url, assignedto,createdat, projecttype, editedat,formId,companyIdentifier ,id } = JSON.parse(parsedMessage.data);
                     
                     // Validate user input
                     if (!name || !companyIdentifier) {                      
@@ -39,6 +41,11 @@ module.exports = async function projectSocketHandler(message, ws) {
                       "companyIdentifier": companyIdentifier,
                       "formId": formId==null?null:ObjectId(formId)
                     }
+
+                    // attach op metadata so change stream can identify origin
+                    const opId = uuidv4();
+                    newProject.__lastOpId = opId;
+                    newProject.__lastOpClient = `${ws.clientId}.${companyIdentifier}`;
             
                     // Save the new project to the database
                     var result = await projectService.addProject(newProject);
@@ -59,15 +66,49 @@ module.exports = async function projectSocketHandler(message, ws) {
                     return false;
                   }
                 break;
-
+            
             case 'update':
                 try {
             
                     const {id,...newData} = JSON.parse(parsedMessage.data);
                     newData.formId=newData.formId==null?null:ObjectId(newData.formId);
                     
+                    // attach op metadata
+                    const opId = uuidv4();
+                    newData.__lastOpId = opId;
+                    newData.__lastOpClient = `${ws.clientId}.${newData.companyIdentifier}`;
+                    
                     // Validate user input
                     var result = await projectService.editAddProject(id,newData);
+                    if (result.reason) {
+                      
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
+                      return false;
+                    }
+                    if (result) {
+                      //console.debug(result);
+                      ///return res.status(201).json(result);
+                      ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
+                      return true;
+                    }
+                  }
+                  catch (exception) {
+                    console.error(exception);                   
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
+                    return false;
+                  }
+                break;
+            case 'updateImageUrl':
+              try {
+                    const {id,url,companyIdentifier} = JSON.parse(parsedMessage.data);
+
+                    // attach op metadata
+                    const opId = uuidv4();
+                    // newData.__lastOpId = opId;
+                    // newData.__lastOpClient = `${ws.clientId}.${companyIdentifier}`;
+                    
+                    // Validate user input
+                    var result = await projectService.updateImageUrl(id,url);
                     if (result.reason) {
                       
                       ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
@@ -121,6 +162,10 @@ module.exports = async function projectSocketHandler(message, ws) {
                 try {
                     
                     const projectId = JSON.parse(parsedMessage.data).id;
+                    // mark pending origin so change stream can read origin for deletes
+                    const origin = `${ws.clientId}.${JSON.parse(parsedMessage.data).companyIdentifier}`;
+                    await redisManager.markPendingOrigin('project', projectId, origin, 60);
+
                     var result = await projectService.deleteProjectPermanently(projectId);
                     if (result.reason) {                 
                         ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));

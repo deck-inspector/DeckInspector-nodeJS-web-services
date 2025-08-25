@@ -162,10 +162,10 @@ wss.on("connection", (ws, req) => {
         default:
           ws.send(JSON.stringify({ status: 'error', message: 'Unknown collection' }));
       }
-      if (updateResult) {
-        // Broadcast to all clients except the sender
-        redisManager.reliableBroadcastToAllClients(message, compId);
-      }
+      // if (updateResult) {
+      //   // Broadcast to all clients except the sender
+      //   redisManager.reliableBroadcastToAllClients(message, compId);
+      // }
     } catch (error) {
       console.error('Error processing message:', error);
       ws.send(JSON.stringify({ status: 'error', message: 'Invalid message format' }));

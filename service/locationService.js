@@ -5,6 +5,7 @@ const subProjectDAO = require("../model/subProjectDAO");
 const SectionService = require("../service/sectionService");
 const InvasiveUtil = require("../service/invasiveUtil");
 const updateParentHelper = require("../service/updateParentHelper");
+const imagehandler = require('../model/image');
 
 const addLocation = async (location) => {
   try {
@@ -153,6 +154,27 @@ const addUpdateLocationChild = async (locationId, childId, childData) => {
     return handleError(error);
   }
 }
+var updateImageUrl = async function (subProjectId, imageUrl, lasteditedby, editedat, type, parenttype) {
+  try {
+
+    var response = await  imagehandler.updateImageURL(subProjectId, imageUrl, lasteditedby, editedat, type, parenttype);
+    if (response.data) {
+        return {
+            success: true,
+            data: response.message
+        };
+    }
+    if (response.error) {
+        return {
+            code: response.error.code,
+            message: response.error.message,
+            success: false
+        };
+    }
+  } catch (error) {
+    return handleError(error);
+  }
+};
 
 module.exports = {
   addLocation,
@@ -160,5 +182,6 @@ module.exports = {
   deleteLocationPermanently,
   getLocationsByParentId,
   editLocation,
+  updateImageUrl,
   addUpdateLocationChild
 };

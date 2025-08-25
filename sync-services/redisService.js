@@ -1,4 +1,3 @@
-
 const redis = require('redis');
 const { promisify } = require('util');
 const WebSocket = require('ws');
@@ -50,23 +49,32 @@ async function queueMessage(clientId, message) {
 }
 
 
-async function reliableBroadcastToAllClients(message, clientId) {
+async function reliableBroadcastToAllClients(message, senderClientId) {
   const msgString = typeof message === 'string' ? message : JSON.stringify(message);
   let allClientIds = await getAllClientIds();
-  allClientIds = allClientIds.filter(id => id !== clientId);
+  // defensive: ensure senderClientId is string
+  if (senderClientId == null) senderClientId = '';
+  allClientIds = allClientIds.filter(id => id !== senderClientId);
 
   // Batch size for processing clients in chunks
   const BATCH_SIZE = 100;
   for (let i = 0; i < allClientIds.length; i += BATCH_SIZE) {
     const batch = allClientIds.slice(i, i + BATCH_SIZE);
 
-    // Queue messages in Redis in parallel for the batch
-    const queuePromises = batch.map(clientId => queueMessage(clientId, message));
+    // Queue messages in Redis in parallel for the batch. Skip sender defensively.
+    const queuePromises = batch.map(clientId => {
+      if (clientId === senderClientId) {
+        // skip queuing for sender
+        return Promise.resolve(null);
+      }
+      return queueMessage(clientId, message);
+    });
     const entryIds = await Promise.allSettled(queuePromises);
 
     // Send to online clients in parallel for the batch
     await Promise.allSettled(
       batch.map((clientId, idx) => {
+        if (clientId === senderClientId) return Promise.resolve();
         const ws = clients.get(clientId);
         if (ws && ws.readyState === WebSocket.OPEN) {
           let msgObj;
@@ -76,10 +84,14 @@ async function reliableBroadcastToAllClients(message, clientId) {
             msgObj = message;
           }
           // Use entryId if queueMessage succeeded
-          if (entryIds[idx].status === 'fulfilled') {
+          if (entryIds[idx] && entryIds[idx].status === 'fulfilled') {
             msgObj.redisEntryId = entryIds[idx].value;
           }
-          ws.send(JSON.stringify(msgObj));
+          try {
+            ws.send(JSON.stringify(msgObj));
+          } catch (err) {
+            console.error('Failed sending immediate broadcast to client', clientId, err);
+          }
         }
       })
     );
@@ -88,7 +100,8 @@ async function reliableBroadcastToAllClients(message, clientId) {
 
 // Helper: Deliver queued messages from Redis Stream to client
 async function deliverQueuedMessages(clientId,companyIdentifier, ws) {
-  const streamKey = REDIS_STREAM_PREFIX + clientId + '.' + companyIdentifier;
+  const compId = `${clientId}.${companyIdentifier}`;
+  const streamKey = REDIS_STREAM_PREFIX + compId;
   let lastId = '0-0';
   while (true) {
     const entries = await redisClient.xRead(
@@ -104,27 +117,50 @@ async function deliverQueuedMessages(clientId,companyIdentifier, ws) {
         msgObj = entry.message.message;
       }
       msgObj.redisEntryId = entry.id;
-      ws.send(JSON.stringify(msgObj));
+      try {
+        ws.send(JSON.stringify(msgObj));
+      } catch (sendErr) {
+        // If sending fails, log and continue; do not delete entry so it can be retried later
+        console.error('Failed to send queued message to client, will retry later:', compId, entry.id, sendErr);
+        continue;
+      }
+      // Do not delete the entry here — wait for client ack which will call deleteQueuedMessage
       lastId = entry.id;
     }
   }
-  // Do not delete the stream here; delete entries after ack
+  // Entries persist until client acknowledges them with an ack containing redisEntryId
 }
 
 // Helper: Delete a specific entry from Redis stream after ack
+// Queue for pending delete requests
+const deleteQueue = [];
+let isProcessingDeleteQueue = false;
+
+// Enqueue delete requests instead of processing immediately
 async function deleteQueuedMessage(clientId, redisEntryId) {
-  const streamKey = REDIS_STREAM_PREFIX + clientId;
-  try {
-    await redisClient.xDel(streamKey, redisEntryId);
-    // Check if stream is empty, then delete the stream for cleanup
-    const streamLen = await redisClient.xLen(streamKey);
-    if (streamLen === 0) {
-      await redisClient.del(streamKey);
-      console.log(`Cleaned up empty Redis stream: ${streamKey}`);
+  deleteQueue.push({ clientId, redisEntryId });
+  processDeleteQueue();
+}
+
+// Process the delete queue sequentially
+async function processDeleteQueue() {
+  if (isProcessingDeleteQueue) return;
+  isProcessingDeleteQueue = true;
+  while (deleteQueue.length > 0) {
+    const { clientId, redisEntryId } = deleteQueue.shift();
+    const streamKey = REDIS_STREAM_PREFIX + clientId;
+    try {
+      await redisClient.xDel(streamKey, redisEntryId);
+      const streamLen = await redisClient.xLen(streamKey);
+      if (streamLen === 0) {
+        await redisClient.del(streamKey);
+        console.log(`Cleaned up empty Redis stream: ${streamKey}`);
+      }
+    } catch (error) {
+      console.error('Error deleting message from Redis stream:', streamKey, redisEntryId, error);
     }
-  } catch (error) {
-    console.error('Error deleting message from Redis stream:', streamKey, redisEntryId, error);
   }
+  isProcessingDeleteQueue = false;
 }
 
 // Map to track connected clients: clientId -> ws
@@ -156,6 +192,31 @@ function removeClient(clientId,companyIdentifier){
 //   }
 // }
 
+// Mark a pending origin for a document (used to identify sender for delete operations)
+async function markPendingOrigin(collectionName, docId, origin, ttlSeconds = 60) {
+  try {
+    const key = `pending_origin:${collectionName}:${docId}`;
+    await redisClient.set(key, origin, { EX: ttlSeconds });
+  } catch (err) {
+    console.error('Error marking pending origin in Redis:', collectionName, docId, err);
+  }
+}
+
+// Get and clear pending origin for a document
+async function getAndClearPendingOrigin(collectionName, docId) {
+  const key = `pending_origin:${collectionName}:${docId}`;
+  try {
+    const val = await redisClient.get(key);
+    if (val) {
+      await redisClient.del(key);
+    }
+    return val;
+  } catch (err) {
+    console.error('Error reading/clearing pending origin in Redis:', collectionName, docId, err);
+    return null;
+  }
+}
+
 module.exports={
     redisClient,
     connectRedis,
@@ -163,5 +224,7 @@ module.exports={
     addClient,
     removeClient,
     deleteQueuedMessage,
-    reliableBroadcastToAllClients
+    reliableBroadcastToAllClients,
+    markPendingOrigin,
+    getAndClearPendingOrigin
 }

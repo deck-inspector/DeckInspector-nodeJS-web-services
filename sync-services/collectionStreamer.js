@@ -1,4 +1,3 @@
-
 const mongo = require('../database/mongo');
 const redisManager = require('./redisService');
 
@@ -9,18 +8,33 @@ function watchCollection(collection, collectionName) {
     changeStream.on('change', async (change) => {
       // Prepare message for queue
       console.log(`Change detected in ${collectionName}`);
-    const broadcastData = {
+      const messageId = change.documentKey && change.documentKey._id ? String(change.documentKey._id) : null;
+      const broadcastData = {
         collectionName,
         action: change.operationType, // 'insert', 'update', 'replace', 'delete'
-        messageId: change.documentKey && change.documentKey._id ? String(change.documentKey._id) : null,
+        messageId,
         fullDocument: change.fullDocument || null,
         companyIdentifier: change.fullDocument ? change.fullDocument.companyIdentifier : null,
         updateDescription: change.updateDescription || null,
         servermessage: 'sync_with_server',
         timestamp: Date.now()
-    };
-      // Add to Redis queue for offline clients
-      await redisManager.reliableBroadcastToAllClients(broadcastData);
+      };
+
+      // Determine origin (sender) to exclude from broadcast
+      let originClientId = null;
+      try {
+        if (change.operationType === 'delete') {
+          // For deletes fullDocument is null; use pending origin stored at delete time
+          originClientId = await redisManager.getAndClearPendingOrigin(collectionName, messageId);
+        } else if (change.fullDocument && change.fullDocument.__lastOpClient) {
+          originClientId = change.fullDocument.__lastOpClient;
+        }
+      } catch (err) {
+        console.error('Error resolving origin for change event:', err);
+      }
+
+      // Add to Redis queue for offline clients and broadcast to others, excluding origin
+      await redisManager.reliableBroadcastToAllClients(broadcastData, originClientId);
     });
     changeStream.on('error', (err) => {
       console.error(`ChangeStream error for ${collectionName}:`, err);

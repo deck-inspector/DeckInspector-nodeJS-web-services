@@ -23,6 +23,9 @@ module.exports = {
     addImageInSection : async (sectionId, url) => {
         await mongo.Sections.updateOne({ _id: new ObjectId(sectionId) }, { $push: { images: url } });
     },
+    addMultipleImagesInSection : async (sectionId, urls) => {
+        return await mongo.Sections.updateOne({ _id: new ObjectId(sectionId) }, { $push: { images: { $each: urls } } });
+    },
     removeImageInSection :  async (sectionId, url) => {
         await mongo.Sections.updateOne({ _id: new ObjectId(sectionId) }, { $pull: { images: url } });
     }

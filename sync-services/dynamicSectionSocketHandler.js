@@ -2,112 +2,116 @@
 const DynamicSectionService = require("../service/dynamicSectionService");
 const express = require('express');
 const { ObjectId } = require('mongodb');
+const { v4: uuidv4 } = require('uuid');
+const redisManager = require('./redisService');
 
 module.exports = async function dynamicSectionSocketHandler(message, ws) {
     try {
         const parsedMessage = JSON.parse(message);
-        var isSuccess =false;
-        // Example: Handle different actions for the "projects" collection
+        var messageId = parsedMessage.messageId;
+        // Handle different actions for dynamic sections
         switch (parsedMessage.action) {
             case 'create':
                 try{
-                    var errResponse; 
-                    // Get user input
-                    
-                    const { name,additionalconsiderations, questions,
-                      additionalconsiderationshtml,furtherinvasivereviewrequired,images,createdby,parentid,parenttype,unitUnavailable, companyIdentifier,creationtime } = req.body;
-                    
-                    // Validate user input
-                    if (!(name&&parentid)) {
-                
-                      ws.send(JSON.stringify({ status: 'error', code:400, message:'Name and ParentId is required' }));
+                    const data = typeof parsedMessage.data === 'string' ? JSON.parse(parsedMessage.data) : parsedMessage.data || {};
+                    const { name, additionalconsiderations, questions, additionalconsiderationshtml, furtherinvasivereviewrequired, images, createdby, parentid, parenttype, unitUnavailable, companyIdentifier, creationtime, id } = data;
+                    if (!(name && parentid)) {
+                      ws.send(JSON.stringify({ status: 'error', code:400,messageId, message:'Name and ParentId are required' }));
                       return false;
                     }
-                    //var creationtime= (new Date(Date.now())).toISOString();
-                    var newSection = {
-                        "additionalconsiderations":additionalconsiderations,
-                        "additionalconsiderationshtml":additionalconsiderationshtml? additionalconsiderationshtml: "",
-                        "createdat":creationtime,
-                        "createdby":createdby,
-                        "editedat":creationtime,
-                        "lasteditedby":createdby,
-                        "furtherinvasivereviewrequired":furtherinvasivereviewrequired.toLowerCase()==='true',
-                        "name":name,
-                        "parentid": new ObjectId(parentid),
-                        "parenttype":parenttype,
-                        "images":images,
-                        "questions": questions,
-                        "unitUnavailable": unitUnavailable,
-                        "companyIdentifier": companyIdentifier
-                    } 
-                    var result = await DynamicSectionService.addSection(newSection);    
+                    const newSection = {
+                        additionalconsiderations: additionalconsiderations,
+                        additionalconsiderationshtml: additionalconsiderationshtml || "",
+                        createdat: creationtime,
+                        createdby: createdby,
+                        editedat: creationtime,
+                        lasteditedby: createdby,
+                        furtherinvasivereviewrequired: (String(furtherinvasivereviewrequired || '').toLowerCase() === 'true'),
+                        name: name,
+                        parentid: new ObjectId(parentid),
+                        parenttype: parenttype,
+                        images: images,
+                        questions: questions,
+                        unitUnavailable: unitUnavailable,
+                        companyIdentifier: companyIdentifier,
+                        _id: id ? new ObjectId(id) : undefined
+                    };
+
+                    // attach op metadata
+                    const opId = uuidv4();
+                    newSection.__lastOpId = opId;
+                    newSection.__lastOpClient = `${ws.clientId}.${companyIdentifier}`;
+
+                    const result = await DynamicSectionService.addSection(newSection);
                     if (result.reason) {
-                      
-                      ws.send(JSON.stringify({ status: 'error', code:result.code, message:result.reason }));
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
                       return false;
                     }
-                    if (result) {
-                      //console.debug(result);
-                      
-                      ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
-                      return true;
-                    }
-                    }
-                    catch (exception) {
-                    ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
+                    return true;
+                } catch (exception) {
+                    console.error(exception);
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                     return false;
-                    }
-                break;
+                }
             case 'update':
                 try {
-                    const { id, updates } = parsedMessage.data;
-                    if (!id || !updates) {
-                        ws.send(JSON.stringify({ status: 'error', message: 'ID and updates are required' }));
-                        return false;
+                    const data = typeof parsedMessage.data === 'string' ? JSON.parse(parsedMessage.data) : parsedMessage.data || {};
+                    const { id, updates } = data;
+                    if (!id) {
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:400, message:'ID is required' }));
+                      return false;
                     }
-                    
-                    const result = await DynamicSectionService.editSetion(id, updates);
-                    if (result) {
-                        ws.send(JSON.stringify({ status: 'success', message: 'Section updated successfully' }));
-                        return true;
-                    } else {
-                        ws.send(JSON.stringify({ status: 'error', message: 'Failed to update section' }));
-                        return false;
+                    let newData = updates || data.updates || data;
+                    // attach op metadata
+                    const opId2 = uuidv4();
+                    newData.__lastOpId = opId2;
+                    newData.__lastOpClient = `${ws.clientId}.${newData.companyIdentifier || data.companyIdentifier}`;
+
+                    const result = await DynamicSectionService.editSetion(id, newData);
+                    if (result.reason) {
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
+                      return false;
                     }
+                    ws.send(JSON.stringify({ status: 'success',messageId, code:200, message:result }));
+                    return true;
                 } catch (exception) {
-                    ws.send(JSON.stringify({ status: 'error', message: exception.message }));
+                    console.error(exception);
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                     return false;
                 }
-                break;
             case 'delete':
                 try {
-                    const { id } = parsedMessage.data;
+                    const data = typeof parsedMessage.data === 'string' ? JSON.parse(parsedMessage.data) : parsedMessage.data || {};
+                    const id = data.id || data.dynamicSectionId || null;
+                    const companyIdentifier = data.companyIdentifier;
                     if (!id) {
-                        ws.send(JSON.stringify({ status: 'error', message: 'ID is required' }));
-                        return false;
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:400, message:'ID is required' }));
+                      return false;
                     }
-                    
+                    // mark pending origin so change stream can read origin for deletes
+                    const origin = `${ws.clientId}.${companyIdentifier}`;
+                    await redisManager.markPendingOrigin('dynamicSection', id, origin, 60);
+
                     const result = await DynamicSectionService.deleteSection(id);
-                    if (result) {
-                        ws.send(JSON.stringify({ status: 'success', message: 'Section deleted successfully' }));
-                        return true;
-                    } else {
-                        ws.send(JSON.stringify({ status: 'error', message: 'Failed to delete section' }));
-                        return false;
+                    if (result.reason) {
+                      ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
+                      return false;
                     }
+                    ws.send(JSON.stringify({ status: 'success',messageId, code:200, message:result }));
+                    return true;
                 } catch (exception) {
-                    ws.send(JSON.stringify({ status: 'error', message: exception.message }));
+                    console.error(exception);
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                     return false;
                 }
-                break;
             default:
-                ws.send(JSON.stringify({ status: 'error', message: 'Unknown action' }));
+                ws.send(JSON.stringify({ status: 'error',messageId, code:400, message:'Unknown action' }));
                 return false;
         }
-    }   
-    catch (error) {
+    } catch (error) {
         console.error("Error in dynamicSectionSocketHandler:", error);
-        ws.send(JSON.stringify({ status: 'error', message: 'Internal server error' }));
+        ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:'Internal server error' }));
         return false;
     }
 }

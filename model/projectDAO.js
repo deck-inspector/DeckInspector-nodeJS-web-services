@@ -48,7 +48,9 @@ module.exports = {
     updateProjectVisibilityStatus: async (id, isVisible) => {
         return await mongo.Projects.updateOne({ _id: new ObjectId(id) }, { $set: { isdeleted: isVisible } });
     },
-
+    updateImageUrl: async (id, imageUrl) => {
+        return await mongo.Projects.updateOne({ _id: new ObjectId(id) }, { $set: { url: imageUrl } });
+    },  
     updateProjectStatus: async (id, isComplete) => {
         return await mongo.Projects.updateOne({ _id: new ObjectId(id) }, { $set: { iscomplete: isComplete } });
     },

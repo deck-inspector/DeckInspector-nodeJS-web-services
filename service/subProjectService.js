@@ -4,7 +4,7 @@ const subProjectDAO = require('../model/subProjectDAO');
 const LocationService = require('../service/locationService');
 const InvasiveUtil = require('../service/invasiveUtil');
 const updateParentHelper = require('../service/updateParentHelper');
-
+const imagehandler = require('../model/image');
 const addSubProject = async (subproject) => {
     try {
         const result = await subProjectDAO.insertSubProject(subproject);
@@ -142,7 +142,27 @@ var unAssignSubProjectFromUser = async function (id, username) {
         return handleError(error);
     }
 };
+var updateImageUrl = async function (subProjectId, imageUrl, lasteditedby, editedat, type, parenttype) {
+  try {
 
+    var response = await  imagehandler.updateImageURL(subProjectId, imageUrl, lasteditedby, editedat, type, parenttype);
+    if (response.data) {
+        return {
+            success: true,
+            data: response.message
+        };
+    }
+    if (response.error) {
+        return {
+            code: response.error.code,
+            message: response.error.message,
+            success: false
+        };
+    }
+  } catch (error) {
+    return handleError(error);
+  }
+};
 const editSubProject = async (subProjectId,subproject) => {
     try {
         const result = await subProjectDAO.editSubProject(subProjectId, subproject);
@@ -183,6 +203,7 @@ const handleError = (error) => {
 
 module.exports = {
     addSubProject,
+    updateImageUrl,
     getSubProjectById,
     deleteSubProjectPermanently,
     getSubProjectByParentId,

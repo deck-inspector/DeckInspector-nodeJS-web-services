@@ -3,6 +3,8 @@
 const express = require('express');
 const { ObjectId } = require('mongodb');
 const LocationService = require('../service/locationService');
+const { v4: uuidv4 } = require('uuid');
+const redisManager = require('./redisService');
 
 module.exports = async function locationSocketHandler(message, ws) {
     try {
@@ -40,6 +42,11 @@ module.exports = async function locationSocketHandler(message, ws) {
                         "companyIdentifier": companyIdentifier
                     }
 
+                    // attach op metadata
+                    const opId = uuidv4();
+                    newLocation.__lastOpId = opId;
+                    newLocation.__lastOpClient = `${ws.clientId}.${companyIdentifier}`;
+
                     // Save the new subproject to the database
                     var result = await LocationService.addLocation(newLocation);  
 
@@ -65,6 +72,11 @@ module.exports = async function locationSocketHandler(message, ws) {
                     if(newData.parentid){
                         newData.parentid = new ObjectId(newData.parentid);
                       }
+                    // attach op metadata
+                    const opId = uuidv4();
+                    newData.__lastOpId = opId;
+                    newData.__lastOpClient = `${ws.clientId}.${newData.companyIdentifier}`;
+                    
                     // Validate user input
                     if (!id) {
                         ws.send(JSON.stringify({ status: 'error', messageId,code: 400, message: 'ID is required' }));
@@ -89,6 +101,36 @@ module.exports = async function locationSocketHandler(message, ws) {
                     ws.send(JSON.stringify({ status: 'error',messageId, code: 500, message: exception.message }));
                     return false;
                 }
+                break;
+            case 'updateImageUrl':
+                try {
+                    const {id,url,parenttype,companyIdentifier} = JSON.parse(parsedMessage.data);
+
+                    // attach op metadata
+                    const opId = uuidv4();
+                    // newData.__lastOpId = opId;
+                    // newData.__lastOpClient = `${ws.clientId}.${companyIdentifier}`;
+                    
+                    // Validate user input
+                    var editedat = (new Date(Date.now())).toISOString();
+                    var result = await LocationService.updateImageUrl(id,url,ws.clientId,editedat,'location',parenttype);
+                    if (result.reason) {
+                        
+                        ws.send(JSON.stringify({ status: 'error',messageId, code:result.code, message:result.reason }));
+                        return false;
+                    }
+                    if (result) {
+                        //console.debug(result);
+                        ///return res.status(201).json(result);
+                        ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
+                        return true;
+                    }
+                    }
+                    catch (exception) {
+                    console.error(exception);                   
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
+                    return false;
+                    }
                 break;
             case 'updateImageCount':
                 try {
@@ -128,6 +170,10 @@ module.exports = async function locationSocketHandler(message, ws) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: 400, message: 'ID is required' }));
                         return false;
                     }
+
+                    // mark pending origin so change stream can read origin for deletes
+                    const origin = `${ws.clientId}.${JSON.parse(parsedMessage.data).companyIdentifier}`;
+                    await redisManager.markPendingOrigin('location', id, origin, 60);
 
                     // Delete the subproject from the database
                     var result = await LocationService.deleteLocationPermanently(id);
