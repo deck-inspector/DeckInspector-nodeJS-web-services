@@ -7,7 +7,7 @@ function watchCollection(collection, collectionName) {
     const changeStream = collection.watch([], { fullDocument: 'updateLookup' });
     changeStream.on('change', async (change) => {
       // Prepare message for queue
-      console.log(`Change detected in ${collectionName}`);
+      console.log(`collectionstreamer: Change detected in ${collectionName}`);
       const messageId = change.documentKey && change.documentKey._id ? String(change.documentKey._id) : null;
       const broadcastData = {
         collectionName,

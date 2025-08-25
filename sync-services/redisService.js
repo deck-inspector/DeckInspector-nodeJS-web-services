@@ -173,47 +173,70 @@ function addClient(clientId,companyIdentifier, ws) {
 function removeClient(clientId,companyIdentifier){
     clients.delete(`${clientId}.${companyIdentifier}`);
 }
-// async function broadcastToAllClients( message) {
-//   try{
-//     const msgString = typeof message === 'string' ? message : JSON.stringify(message);
-//     for (const [clientId, ws] of clients.entries()) {
-//     if (clientId.includes(message.fullDocument.companyIdentifier) && ws.readyState === WebSocket.OPEN) {
-//       ws.send(msgString);
-//     } else if (clientId.includes(message.fullDocument.companyIdentifier)) {
-//       await queueMessage(clientId, msgString);
-//     }
-//   }
-//   }
-//   catch (error) {
-//     console.error('Error broadcasting to all clients:', error);
-//   }
-//   finally {
-//     console.log('Broadcast completed');
-//   }
-// }
+
+//add  a local map to track pending origins
+const pendingOrigins = new Map();
 
 // Mark a pending origin for a document (used to identify sender for delete operations)
 async function markPendingOrigin(collectionName, docId, origin, ttlSeconds = 60) {
   try {
     const key = `pending_origin:${collectionName}:${docId}`;
-    await redisClient.set(key, origin, { EX: ttlSeconds });
+    pendingOrigins.set(key, origin);
+    
+    return true;
   } catch (err) {
     console.error('Error marking pending origin in Redis:', collectionName, docId, err);
+    return false;
   }
 }
 
 // Get and clear pending origin for a document
 async function getAndClearPendingOrigin(collectionName, docId) {
   const key = `pending_origin:${collectionName}:${docId}`;
+  const origin = pendingOrigins.get(key);
+  pendingOrigins.delete(key);
+  return origin;
+}
+
+// Debug helper: list all pending_origin keys and values (optimized)
+async function listPendingOrigins() {
   try {
-    const val = await redisClient.get(key);
-    if (val) {
-      await redisClient.del(key);
+    console.log('Scanning pending_origin keys (optimized)...');
+    if (!redisClient || !redisClient.isOpen) {
+      console.warn('Redis client not open when listing pending origins, attempting to connect...');
+      try { await redisClient.connect(); } catch (e) { console.error('Failed to connect Redis in listPendingOrigins', e); return; }
     }
-    return val;
+
+    const iter = redisClient.scanIterator({ MATCH: 'pending_origin:*', COUNT: 1000 });
+    const BATCH_SIZE = 500;
+    let batch = [];
+    let total = 0;
+
+    const flushBatch = async (keys) => {
+      if (!keys.length) return;
+      // Use mGet to fetch many keys at once
+      try {
+        const results = await redisClient.mGet(keys);
+        for (let i = 0; i < keys.length; i++) {
+          console.log(keys[i], '->', results ? results[i] : null);
+        }
+      } catch (err) {
+        console.error('Failed to mGet pending origin keys batch:', err);
+      }
+    };
+
+    for await (const key of iter) {
+      batch.push(key);
+      total++;
+      if (batch.length >= BATCH_SIZE) {
+        await flushBatch(batch);
+        batch = [];
+      }
+    }
+    if (batch.length) await flushBatch(batch);
+    console.log(`Done scanning pending_origin keys in Redis. Total keys: ${total}`);
   } catch (err) {
-    console.error('Error reading/clearing pending origin in Redis:', collectionName, docId, err);
-    return null;
+    console.error('Error listing pending origins:', err);
   }
 }
 
@@ -226,5 +249,6 @@ module.exports={
     deleteQueuedMessage,
     reliableBroadcastToAllClients,
     markPendingOrigin,
-    getAndClearPendingOrigin
+    getAndClearPendingOrigin,
+    listPendingOrigins
 }
