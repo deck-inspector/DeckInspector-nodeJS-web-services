@@ -20,4 +20,7 @@ module.exports = {
     getInvasiveSectionByParentId: async (parentId) => {
         return await mongo.InvasiveSections.find({ parentid: new ObjectId(parentId) }).toArray();
     },
+    addImagesInInvasiveSection : async (invasiveSectionId, urls) => {
+        return await mongo.InvasiveSections.updateOne({ _id: new ObjectId(invasiveSectionId) }, { $set: { invasiveimages: urls } });
+    },
 }

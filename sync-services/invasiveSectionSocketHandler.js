@@ -9,7 +9,14 @@ const redisManager = require('./redisService');
 module.exports = async function invasiveSectionSocketHandler(message, ws) {
     try {
         const parsedMessage = JSON.parse(message);
-
+        //check if section is existing if not update the action to create
+        var id = parsedMessage.id;
+        var existingSection = await InvasiveSectionService.getInvasiveSectionById(id);
+        if (!existingSection.success) {
+            parsedMessage.action = 'create';
+        }
+        var messageId = parsedMessage.messageId;
+        messageId;
         switch (parsedMessage.action) {
             case 'create':
                 try{
@@ -18,7 +25,7 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
 
                     // Validate user input
                     if (!parentid) {
-                        ws.send(JSON.stringify({ status: 'error', code:400, message:'parentid is required' }));
+                        ws.send(JSON.stringify({ status: 'error',messageId, code:400, message:'parentid is required' }));
                         return false;
                     }
 
@@ -42,23 +49,23 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
 
                     const result = await InvasiveSectionService.addInvasiveSection(newInvasiveSection);
                     if (result && result.reason) {
-                        ws.send(JSON.stringify({ status: 'error', code: result.code, message: result.reason }));
+                        ws.send(JSON.stringify({ status: 'error',messageId, code: result.code, message: result.reason }));
                         return false;
                     }
-                    ws.send(JSON.stringify({ status: 'success', code:201, message:result }));
+                    ws.send(JSON.stringify({ status: 'success',messageId, code:201, message:result }));
                     return true;
                 }
                 catch (exception) {
                     console.error(exception);
-                    ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                     return false;
                 }
-            case 'edit':
+            case 'update':
                 try {
                     const data = typeof parsedMessage.data === 'string' ? JSON.parse(parsedMessage.data) : parsedMessage.data || {};
-                    const { invasivesectionId, ...newDataRaw } = data;
-                    if (!invasivesectionId) {
-                        ws.send(JSON.stringify({ status: 'error', code:400, message:'invasivesectionId is required' }));
+                    const { id, ...newDataRaw } = data;
+                    if (!id) {
+                        ws.send(JSON.stringify({ status: 'error',messageId, code:400, message:'invasivesectionId is required' }));
                         return false;
                     }
                     let newData = typeof newDataRaw === 'string' ? JSON.parse(newDataRaw) : newDataRaw;
@@ -67,27 +74,56 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
                         try { newData.parentid = new ObjectId(newData.parentid); } catch (e) { /* ignore invalid id */ }
                     }
 
-                    if (newData.postinvasiverepairsrequired !== undefined) {
-                        newData.postinvasiverepairsrequired = String(newData.postinvasiverepairsrequired).toLowerCase() === 'true';
+                    if (newData.postinvasiveRepairsRequired !== undefined) {
+                        newData.postinvasiveRepairsRequired = String(newData.postinvasiveRepairsRequired).toLowerCase() === 'true';
                     }
 
                     // attach op metadata
                     const opId2 = uuidv4();
                     newData.__lastOpId = opId2;
                     newData.__lastOpClient = `${ws.clientId}.${newData.companyIdentifier || data.companyIdentifier}`;
-
-                    const result = await InvasiveSectionService.editInvasiveSection(invasivesectionId, newData);
+                    //check if its existing
+                    
+                    const result = await InvasiveSectionService.editInvasiveSection(id, newData);
                     if (result && result.reason) {
-                        ws.send(JSON.stringify({ status: 'error', code: result.code, message: result.reason }));
+                        ws.send(JSON.stringify({ status: 'error',messageId, code: result.code, message: result.reason }));
                         return false;
                     }
-                    ws.send(JSON.stringify({ status: 'success', code:200, message:result }));
+                    ws.send(JSON.stringify({ status: 'success',messageId, code:200, message:result }));
                     return true;
                 } catch (exception) {
                     console.error(exception);
-                    ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                     return false;
                 }
+            case 'addImages':
+                try {
+                    // Get user input
+                    const { id, images } = JSON.parse(parsedMessage.data);
+
+                    // Validate user input
+                    if (!id || !images || !Array.isArray(images)) {
+                        ws.send(JSON.stringify({ status: 'error', messageId, code: 400, message: 'ID and Images are required' }));
+                        return false;
+                    }
+                    // Add image to the section in the database
+                    var result = await InvasiveSectionService.addImagesInInvasiveSection(id, images);
+
+                    if (result.reason) {
+                        ws.send(JSON.stringify({ status: 'error', messageId, code: result.code, message: result.reason }));
+                        return false;
+                    }
+                    if (result) {
+                        ws.send(JSON.stringify({ status: 'success', messageId, code: 200, message: result }));
+                        return true;
+                    }
+                }
+                catch (exception) {
+                    console.error(exception);
+                    ws.send(JSON.stringify({ status: 'error', messageId, code: 500, message: exception.message }));
+                    return false;
+                }
+                break;
             case 'delete':
                 try {
                     const parsedData = typeof parsedMessage.data === 'string' ? JSON.parse(parsedMessage.data) : parsedMessage.data || {};
@@ -95,7 +131,7 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
                     const companyIdentifier = parsedData.companyIdentifier;
 
                     if (!invasivesectionId) {
-                        ws.send(JSON.stringify({ status: 'error', code:400, message:'invasivesectionId is required' }));
+                        ws.send(JSON.stringify({ status: 'error',messageId, code:400, message:'invasivesectionId is required' }));
                         return false;
                     }
 
@@ -105,25 +141,25 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
 
                     const result = await InvasiveSectionService.deleteInvasiveSectionPermanently(invasivesectionId);
                     if (result && result.reason) {
-                        ws.send(JSON.stringify({ status: 'error', code: result.code, message: result.reason }));
+                        ws.send(JSON.stringify({ status: 'error',messageId, code: result.code, message: result.reason }));
                         return false;
                     }
-                    ws.send(JSON.stringify({ status: 'success', code:200, message:result }));
+                    ws.send(JSON.stringify({ status: 'success',messageId, code:200, message:result }));
                     return true;
                 }
                 catch (exception) {
                     console.error(exception);
-                    ws.send(JSON.stringify({ status: 'error', code:500, message:exception.message }));
+                    ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:exception.message }));
                     return false;
                 }
             default:
-                ws.send(JSON.stringify({ status: 'error', code:400, message:'Invalid action' }));
+                ws.send(JSON.stringify({ status: 'error',messageId, code:400, message:'Invalid action' }));
                 return false;
         }
     }
     catch (error) {
         console.error('Error processing message:', error);
-        ws.send(JSON.stringify({ status: 'error', code:500, message:'Internal server error' }));
+        ws.send(JSON.stringify({ status: 'error',messageId, code:500, message:'Internal server error' }));
         return false;
     }
 }

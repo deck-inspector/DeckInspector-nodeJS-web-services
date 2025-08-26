@@ -127,7 +127,27 @@ const handleError = (error) => {
     return word ? "Yes" : "No";
   };
   
-  
+  const addImagesInConclusiveSection = async (conclusiveSectionId, urls) => {
+    try {
+      const result = await ConclusiveSectionDAO.addImagesInConclusiveSection(
+        conclusiveSectionId,
+        urls
+      );
+      if (result.modifiedCount === 1) {
+        return {
+          success: true,
+          id: conclusiveSectionId,
+        };
+      }
+      return {
+        code: 401,
+        success: false,
+        reason: "No conclusive Section found with the given ID",
+      };
+    } catch (error) {
+      return handleError(error);
+    }
+  };
   
   var capitalizeWords = function (word) {
     if (word) {
@@ -141,6 +161,7 @@ const handleError = (error) => {
 module.exports = {
     getConclusiveSectionById,
     addConclusiveSection,
+    addImagesInConclusiveSection,
     editConclusiveSection,
     getConclusiveSectionByParentId,
     deleteConclusiveSectionPermanently

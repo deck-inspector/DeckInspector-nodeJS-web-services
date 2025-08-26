@@ -129,7 +129,27 @@ var convertBooleanToString = function (word) {
   return word ? "Yes" : "No";
 };
 
-
+const addImagesInInvasiveSection = async (invasiveSectionId, urls) => {
+  try {
+    const result = await InvasiveSectionDAO.addImagesInInvasiveSection(
+      invasiveSectionId,
+      urls
+    );
+    if (result.modifiedCount === 1) {
+      return {
+        success: true,
+        id: invasiveSectionId,
+      };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No Invasive Section found with the given ID",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
 
 var capitalizeWords = function (word) {
   if (word) {
@@ -145,4 +165,5 @@ module.exports = {
   getInvasiveSectionByParentId,
   deleteInvasiveSectionPermanently,
   editInvasiveSection,
+  addImagesInInvasiveSection
 };

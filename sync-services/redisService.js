@@ -2,7 +2,7 @@ const redis = require('redis');
 const { promisify } = require('util');
 const WebSocket = require('ws');
 const mongo = require('../database/mongo');
-//require('dotenv').config();
+require('dotenv').config();
 
 const redisHost = process.env.REDIS_HOST; 
 const redisPassword = process.env.REDIS_KEY;

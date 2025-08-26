@@ -20,4 +20,7 @@ module.exports = {
     getConclusiveSectionByParentId: async (parentId) => {
         return await mongo.ConclusiveSections.find({ parentid: new ObjectId(parentId) }).toArray();
     },
+    addImagesInConclusiveSection : async (conclusiveSectionId, urls) => {
+        return await mongo.ConclusiveSections.updateOne({ _id: new ObjectId(conclusiveSectionId) }, { $set: { conclusiveimages: urls } });
+    },
 }

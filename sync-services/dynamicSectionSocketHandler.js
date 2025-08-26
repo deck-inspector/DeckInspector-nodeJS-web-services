@@ -9,6 +9,11 @@ module.exports = async function dynamicSectionSocketHandler(message, ws) {
     try {
         const parsedMessage = JSON.parse(message);
         var messageId = parsedMessage.messageId;
+        var id = parsedMessage.id;
+        var existingSection = await DynamicSectionService.getSectionById(id);
+        if (!existingSection.success) {
+            parsedMessage.action = 'create';
+        }
         // Handle different actions for dynamic sections
         switch (parsedMessage.action) {
             case 'create':
