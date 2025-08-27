@@ -134,74 +134,10 @@ var getSectionsByParentId = async function (parentId) {
   }
 };
 
-const editSetion = async (sectionId, section) => {
-  // Helper: check plain object
-  const isObject = (obj) => obj && typeof obj === 'object' && !Array.isArray(obj);
-
-  // Deep merge: existing <- updates (updates win)
-  const deepMerge = (existing, updates) => {
-    const out = Array.isArray(existing) ? [...existing] : { ...existing };
-    for (const k of Object.keys(updates || {})) {
-      const v = updates[k];
-      if (isObject(v) && isObject(existing ? existing[k] : undefined)) {
-        out[k] = deepMerge(existing[k], v);
-      } else {
-        out[k] = v;
-      }
-    }
-    return out;
-  };
-
-  // Compute diff from oldObj -> newObj, return flat map with dotted paths for $set
-  const computeDiff = (oldObj, newObj, path = '', out = {}) => {
-    // handle keys present in newObj
-    for (const key of Object.keys(newObj || {})) {
-      const fullPath = path ? `${path}.${key}` : key;
-      const newVal = newObj[key];
-      const oldVal = oldObj ? oldObj[key] : undefined;
-
-      if (isObject(newVal) && isObject(oldVal)) {
-        computeDiff(oldVal, newVal, fullPath, out);
-      } else if (Array.isArray(newVal) && Array.isArray(oldVal)) {
-        // simple array comparison (replace if different length or any item differs)
-        const same = newVal.length === oldVal.length && newVal.every((v, i) => {
-          try { return JSON.stringify(v) === JSON.stringify(oldVal[i]); } catch { return false; }
-        });
-        if (!same) out[fullPath] = newVal;
-      } else {
-        // primitive or differing types
-        const equal = (() => {
-          try { return JSON.stringify(newVal) === JSON.stringify(oldVal); } catch { return newVal === oldVal; }
-        })();
-        if (!equal) out[fullPath] = newVal;
-      }
-    }
-    return out;
-  };
-
+const editSection = async (sectionId, section) => {
   try {
-    const existing = await SectionDAO.getSectionById(sectionId);
-    if (!existing) {
-      return {
-        code: 401,
-        success: false,
-        reason: 'No Section found with the given ID',
-      };
-    }
-
-    // Merge existing and incoming partial update
-    const merged = deepMerge(existing, section);
-
-    // Compute minimal $set patch
-    const patch = computeDiff(existing, merged);
-
-    // If nothing changed, return success
-    if (Object.keys(patch).length === 0) {
-      return { success: true };
-    }
-
     // Call DAO.editSection which performs {$set: newData}
-    const result = await SectionDAO.editSection(sectionId, patch);
+    const result = await SectionDAO.editSection(sectionId, section);
 
     if (result.modifiedCount === 1) {
       const sectionFromDB = await SectionDAO.getSectionById(sectionId);
@@ -330,7 +266,7 @@ module.exports = {
   getSectionById,
   deleteSectionPermanently,
   getSectionsByParentId,
-  editSetion,
+  editSection,
   addImageInSection,
   removeImageFromSection,
   addMultipleImagesInSection

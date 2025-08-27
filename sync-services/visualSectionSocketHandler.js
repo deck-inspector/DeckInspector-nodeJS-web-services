@@ -10,6 +10,10 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
     try {
         const parsedMessage = JSON.parse(message);
         var messageId = parsedMessage.messageId;
+        var existingSection = await SectionService.getSectionById(parsedMessage.id);
+        if (!existingSection.success) {
+            parsedMessage.action = 'create';
+        }
         // Example: Handle different actions for the "locations" collection
         switch (parsedMessage.action) {
             case 'create':
@@ -88,7 +92,7 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                         return false;
                     }
                     // Update the subproject in the database
-                    var result = await SectionService.editSetion(id, updates);
+                    var result = await SectionService.editSection(id, updates);
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: result.code, message: result.reason }));
@@ -105,7 +109,7 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                     return false;
                 }
                 break;
-            case 'addImage':
+            case 'addImages':
                 try {
                     // Get user input
                     const { id, images } = JSON.parse(parsedMessage.data);
