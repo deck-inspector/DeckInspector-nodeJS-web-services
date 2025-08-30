@@ -69,7 +69,8 @@ try{
       "children":[],
       "companyIdentifier": companyIdentifier,
       "isInvasive": isInvasive,
-      "sequenceNo": sequenceNo
+      "sequenceNo": sequenceNo,
+      "__lastOpClient": "webapp"
     } 
 }catch(ex){
   console.log(ex);
@@ -125,6 +126,7 @@ router.route('/:id')
     if(newData.parentid){
       newData.parentid = new ObjectId(newData.parentid);
     }
+    newData.__lastOpClient = "webapp";
     var result = await SubProjectService.editSubProject(subprojectId,newData);
     if (result.reason) {
       return res.status(result.code).json(result);

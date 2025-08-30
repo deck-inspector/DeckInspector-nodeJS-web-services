@@ -50,6 +50,7 @@ var newSection = {
     "images":images,
     "unitUnavailable": unitUnavailable,
     "isuploading":false,
+    "__lastOpClient": "webapp"
 } 
 var result = await SectionService.addSection(newSection);    
 if (result.reason) {
@@ -96,7 +97,7 @@ router.route('/:id')
     if(newData.parentid){
       newData.parentid = new ObjectId(newData.parentid);
     }
-
+    newData.__lastOpClient = "webapp";
     if(newData.furtherinvasivereviewrequired){
       newData.furtherinvasivereviewrequired = newData.furtherinvasivereviewrequired.toLowerCase()==='true'
     }

@@ -83,7 +83,8 @@ router.route('/add')
             "propowneragreed": propowneragreed.toLowerCase()==='true',
             "conclusiveimages":conclusiveimages,
             "lbcconclusive":lbcconclusive,
-            "companyIdentifier": companyIdentifier
+            "companyIdentifier": companyIdentifier,
+            "__lastOpClient": "webapp"
         } 
         var result = await ConclusiveSectionService.addConclusiveSection(newConclusiveSection);    
         if (result.reason) {
@@ -110,7 +111,7 @@ router.route('/:id')
       if(newData.parentid){
         newData.parentid = new ObjectId(newData.parentid);
       }
-
+      newData.__lastOpClient = "webapp";
       if(newData.propowneragreed){
         newData.propowneragreed = newData.propowneragreed.toLowerCase()==='true' ;
       }

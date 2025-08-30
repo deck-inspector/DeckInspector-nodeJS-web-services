@@ -48,7 +48,8 @@ router.route('/add')
           "iscomplete":false,
           "isInvasive":false,
           "companyIdentifier": companyIdentifier,
-          "formId": formId==null?null:ObjectId(formId)
+          "formId": formId==null?null:ObjectId(formId),
+          "__lastOpClient": "webapp"
         }
 
         // Save the new project to the database
@@ -165,6 +166,7 @@ router.route('/:id')
         const newData = req.body;
         newData.formId=newData.formId==null?null:ObjectId(newData.formId);
         const projectId = req.params.id;
+        newData.__lastOpClient = "webapp";
         // Validate user input
         var result = await projectService.editProject(projectId,newData);
         if (result.reason) {

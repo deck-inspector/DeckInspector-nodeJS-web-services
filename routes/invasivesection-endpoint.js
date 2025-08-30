@@ -42,7 +42,7 @@ router.route("/:id").put(async function (req, res) {
     if (newData.parentid) {
       newData.parentid = new ObjectId(newData.parentid);
     }
-
+    newData.__lastOpClient = "webapp";
     if(newData.postinvasiverepairsrequired){
       newData.postinvasiverepairsrequired = newData.postinvasiverepairsrequired.toLowerCase()==='true' ;
     }
@@ -86,7 +86,8 @@ router.route('/add')
       "parentid": new ObjectId(parentid), 
       "postinvasiverepairsrequired":postinvasiverepairsrequired.toLowerCase()==='true' ,
       "invasiveimages":invasiveimages,
-      "companyIdentifier": companyIdentifier
+      "companyIdentifier": companyIdentifier,
+      "__lastOpClient": "webapp"
   } 
   var result = await InvasiveSectionService.addInvasiveSection(newInvasiveSection);    
     if (result.reason) {

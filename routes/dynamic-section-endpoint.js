@@ -39,7 +39,8 @@ var newSection = {
     "images":images,
     "questions": questions,
     "unitUnavailable": unitUnavailable,
-    "companyIdentifier": companyIdentifier
+    "companyIdentifier": companyIdentifier,
+    "__lastOpClient": "webapp"
 } 
 var result = await DynamicSectionService.addSection(newSection);    
 if (result.reason) {
@@ -86,11 +87,11 @@ router.route('/:id')
     if(newData.parentid){
       newData.parentid = new ObjectId(newData.parentid);
     }
-
+    newData.__lastOpClient = "webapp";
     if(newData.furtherinvasivereviewrequired){
       newData.furtherinvasivereviewrequired = newData.furtherinvasivereviewrequired.toLowerCase()==='true'
     }
-
+    
     var result = await DynamicSectionService.editSetion(sectionId,newData);
 
     if (result.reason) {

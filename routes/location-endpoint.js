@@ -42,7 +42,8 @@ try{
       "editedat":creationtime,
       "isInvasive":isInvasive,
       "sequenceNo": sequenceNo,
-      "companyIdentifier": companyIdentifier
+      "companyIdentifier": companyIdentifier,
+      "__lastOpClient": "webapp"
   }
 }catch(ex){
   console.log(ex);
@@ -95,6 +96,7 @@ router.route('/:id')
     if(newData.parentid){
       newData.parentid = new ObjectId(newData.parentid);
     }
+    newData.__lastOpClient = "webapp";
     var result = await LocationService.editLocation(locationId,newData);
     if (result.reason) {
       return res.status(result.code).json(result);
