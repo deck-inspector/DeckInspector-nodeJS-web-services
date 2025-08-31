@@ -143,7 +143,7 @@ module.exports = async function locationSocketHandler(message, ws) {
                     }
 
                     // Update the project in the database
-                    var result = await LocationService.addUpdateLocationChild(id, childId, {"count": count, "coverUrl": coverUrl});
+                    var result = await LocationService.updateImageCount(id, childId, {"count": count, "coverUrl": coverUrl});
 
                     if (result.reason) {
                         ws.send(JSON.stringify({ status: 'error',messageId, code: result.code, message: result.reason }));

@@ -41,5 +41,15 @@ module.exports = {
             }
         },{upsert:true}
         );
+    },
+    updateSectionImageCount:async  (locationId, childId, childData)=>{
+        return await mongo.Locations.findOneAndUpdate({_id:ObjectId(locationId),"sections._id":ObjectId(childId)},
+        {
+            $set:{
+                "count":childData.count,
+                "coverUrl":childData.coverUrl
+            }
+        },{upsert:true}
+        );
     }
 }

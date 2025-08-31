@@ -128,7 +128,7 @@ wss.on("connection", (ws, req) => {
     ws._processingQueue = false;
 
     // retry configuration
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 2;
     const RETRY_BASE_MS = 1000; // base backoff in ms
 
     ws.on("message", (message) => {

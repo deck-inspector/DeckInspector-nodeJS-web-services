@@ -154,6 +154,23 @@ const addUpdateLocationChild = async (locationId, childId, childData) => {
     return handleError(error);
   }
 }
+const updateImageCount = async (locationId, childId, childData) => {
+  try {
+    const result = await LocationDAO.updateSectionImageCount(locationId, childId, childData);
+    if (result) {
+      return {
+        success: true,
+      };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No location found with the given ID",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
 var updateImageUrl = async function (subProjectId, imageUrl, lasteditedby, editedat, type, parenttype) {
   try {
 
@@ -183,5 +200,6 @@ module.exports = {
   getLocationsByParentId,
   editLocation,
   updateImageUrl,
-  addUpdateLocationChild
+  addUpdateLocationChild,
+  updateImageCount
 };
