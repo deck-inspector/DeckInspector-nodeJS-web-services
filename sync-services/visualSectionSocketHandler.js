@@ -147,6 +147,9 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                         ws.send(JSON.stringify({ status: 'error', messageId, code: 400, message: 'ID is required' }));
                         return false;
                     }
+                    const origin = `${ws.clientId}.${JSON.parse(parsedMessage.data).companyIdentifier}`;
+                    await redisManager.markPendingOrigin('visualSection', id, origin, 60);
+
                     // Delete the subproject from the database
                     var result = await SectionService.deleteSectionPermanently(id);
 

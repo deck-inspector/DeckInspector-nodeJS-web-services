@@ -342,7 +342,8 @@ var updateImageUrl = async function (projectId, imageUrl) {
       projectId,
       imageUrl
     );
-    if (result.modifiedCount === 1) {
+    if (result.modifiedCount === 1||
+matchedCount === 1) {
       return {
         success: true,
       };

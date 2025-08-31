@@ -127,6 +127,10 @@ wss.on("connection", (ws, req) => {
     ws._deferredQueue = [];
     ws._processingQueue = false;
 
+    // retry configuration
+    const MAX_RETRIES = 3;
+    const RETRY_BASE_MS = 1000; // base backoff in ms
+
     ws.on("message", (message) => {
       // classify and enqueue message
       let parsed;
@@ -134,18 +138,18 @@ wss.on("connection", (ws, req) => {
         parsed = JSON.parse(message);
       } catch (e) {
         // on parse failure, push to main queue so processor can report error
-        ws._messageQueue.push({ raw: message, parsed: null });
+        ws._messageQueue.push({ raw: message, parsed: null, retries: 0, deferred: false });
         startProcessorIfNeeded();
         return;
       }
 
       // events to defer to the end
       const DEFER_EVENTS = new Set(['addImageCount', 'addImages']);
-      if (parsed && DEFER_EVENTS.has(parsed.action)) {
-        ws._deferredQueue.push({ raw: message, parsed });
-      } else {
-        ws._messageQueue.push({ raw: message, parsed });
-      }
+      const isDeferred = parsed && DEFER_EVENTS.has(parsed.action);
+      const item = { raw: message, parsed, retries: 0, deferred: isDeferred };
+
+      if (isDeferred) ws._deferredQueue.push(item);
+      else ws._messageQueue.push(item);
 
       // protect against unbounded queue growth across both queues
       const MAX_QUEUE = 5000;
@@ -170,16 +174,41 @@ wss.on("connection", (ws, req) => {
       // process main queue first
       while (ws._messageQueue.length > 0) {
         const item = ws._messageQueue.shift();
-        await processQueueItem(item);
+        const success = await processQueueItem(item);
+        if (!success) {
+          // schedule retry or drop
+          await handleFailedItem(item);
+        }
       }
 
       // after main queue drained, process deferred items in order
       while (ws._deferredQueue.length > 0) {
         const item = ws._deferredQueue.shift();
-        await processQueueItem(item);
+        const success = await processQueueItem(item);
+        if (!success) {
+          await handleFailedItem(item);
+        }
       }
 
       ws._processingQueue = false;
+    }
+
+    async function handleFailedItem(item) {
+      item.retries = (item.retries || 0) + 1;
+      if (item.retries > MAX_RETRIES) {
+        console.warn(`Dropping message for client ${ws.clientId} after ${item.retries - 1} retries`, item.parsed ? item.parsed.action : 'raw');
+        try { ws.send(JSON.stringify({ status: 'error', message: 'Message dropped after retries', action: item.parsed ? item.parsed.action : null })); } catch(_){}
+        return;
+      }
+      // schedule re-enqueue with exponential backoff
+      const backoff = RETRY_BASE_MS * Math.pow(2, item.retries - 1);
+      setTimeout(() => {
+        if (item.deferred) ws._deferredQueue.push(item);
+        else ws._messageQueue.push(item);
+        // if processor is not running, start it
+        startProcessorIfNeeded();
+      }, backoff);
+      console.log(`Scheduled retry ${item.retries} for client ${ws.clientId} in ${backoff}ms for action`, item.parsed ? item.parsed.action : 'raw');
     }
 
     async function processQueueItem(item) {
@@ -191,7 +220,7 @@ wss.on("connection", (ws, req) => {
         // ack handling
         if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {
           await redisManager.deleteQueuedMessage(compId, parsedMessage.redisEntryId);
-          return;
+          return true;
         }
 
         console.log('Collection Name: ', parsedMessage.collectionName);
@@ -224,9 +253,17 @@ wss.on("connection", (ws, req) => {
             try { ws.send(JSON.stringify({ status: 'error', message: 'Unknown collection' })); } catch(e){}
         }
 
+        // treat undefined/false updateResult as failure to trigger retry
+        if (updateResult === false || updateResult === undefined) {
+          // some handlers may return truthy on success; allow that
+          return false;
+        }
+
+        return true;
       } catch (err) {
         console.error('Error processing queued message for', ws.clientId, err);
         try { ws.send(JSON.stringify({ status: 'error', message: 'Invalid message format' })); } catch (_) {}
+        return false;
       }
     }
     
