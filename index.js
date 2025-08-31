@@ -122,55 +122,79 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
-    ws.on("message", async (message) => {
-      //console.log("📩 Received:", message);
-      try {
-        const parsedMessage = JSON.parse(message);
-        
-        const compId = ws.clientId + '.' + companyIdentifier;
-        let updateResult =false;
-        if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {     
-             await redisManager.deleteQueuedMessage(compId, parsedMessage.redisEntryId);
-             return;
-        }
-        console.log("Collection Name: ", parsedMessage.collectionName);
-        console.log("Event Name: ", parsedMessage.action);
-        // Route the message to the appropriate handler based on the collection
-        switch (parsedMessage.collectionName) {
-        
-        case 'project':
-          updateResult= await projectSocketHandler(message, ws,app);
-          break;
-        case 'subProject':
-          updateResult= await subProjectSocketHandler(message, ws,app);
-          break;
-        case 'location':
-          updateResult= await locationSocketHandler(message, ws,app);
-          break;
-        case 'visualSection':
-          updateResult= await visualSectionSocketHandler(message, ws,app);
-          break;
-        case 'invasiveSection':
-          updateResult= await invasiveSectionSocketHandler(message, ws,app);
-          break;
-        case 'dynamicSection':
-          updateResult= await dynamicSectionSocketHandler(message, ws,app);
-          break;
-        case 'conclusiveSection':
-          updateResult= await conclusiveSectionSocketHandler(message, ws,app);
-          break;
-        default:
-          ws.send(JSON.stringify({ status: 'error', message: 'Unknown collection' }));
+    // replace original on-message handler with queued sequential processor
+    ws._messageQueue = [];
+    ws._processingQueue = false;
+
+    ws.on("message", (message) => {
+      // enqueue raw message
+      ws._messageQueue.push(message);
+
+      // protect against unbounded queue growth
+      const MAX_QUEUE = 5000;
+      if (ws._messageQueue.length > MAX_QUEUE) {
+        console.warn(`Message queue exceeded ${MAX_QUEUE} for client ${ws.clientId}, dropping oldest message`);
+        ws._messageQueue.shift();
       }
-      // if (updateResult) {
-      //   // Broadcast to all clients except the sender
-      //   redisManager.reliableBroadcastToAllClients(message, compId);
-      // }
-    } catch (error) {
-      console.error('Error processing message:', error);
-      ws.send(JSON.stringify({ status: 'error', message: 'Invalid message format' }));
-    }
+
+      // start processor if not running
+      if (!ws._processingQueue) {
+        processQueue().catch(err => console.error('Queue processor error:', err));
+      }
     });
+
+    async function processQueue() {
+      ws._processingQueue = true;
+      while (ws._messageQueue.length > 0) {
+        const message = ws._messageQueue.shift();
+        try {
+          const parsedMessage = JSON.parse(message);
+          const compId = ws.clientId + '.' + companyIdentifier;
+
+          // ack handling
+          if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {
+            await redisManager.deleteQueuedMessage(compId, parsedMessage.redisEntryId);
+            continue;
+          }
+
+          console.log('Collection Name: ', parsedMessage.collectionName);
+          console.log('Event Name: ', parsedMessage.action);
+
+          let updateResult = false;
+          switch (parsedMessage.collectionName) {
+            case 'project':
+              updateResult = await projectSocketHandler(message, ws, app);
+              break;
+            case 'subProject':
+              updateResult = await subProjectSocketHandler(message, ws, app);
+              break;
+            case 'location':
+              updateResult = await locationSocketHandler(message, ws, app);
+              break;
+            case 'visualSection':
+              updateResult = await visualSectionSocketHandler(message, ws, app);
+              break;
+            case 'invasiveSection':
+              updateResult = await invasiveSectionSocketHandler(message, ws, app);
+              break;
+            case 'dynamicSection':
+              updateResult = await dynamicSectionSocketHandler(message, ws, app);
+              break;
+            case 'conclusiveSection':
+              updateResult = await conclusiveSectionSocketHandler(message, ws, app);
+              break;
+            default:
+              try { ws.send(JSON.stringify({ status: 'error', message: 'Unknown collection' })); } catch(e){}
+          }
+
+          // change-stream broadcasting will handle notifications; no immediate broadcast here
+        } catch (err) {
+          console.error('Error processing queued message for', ws.clientId, err);
+          try { ws.send(JSON.stringify({ status: 'error', message: 'Invalid message format' })); } catch (_) {}
+        }
+      }
+      ws._processingQueue = false;
+    }
     
     ws.on("close", () => {
       redisManager.removeClient(clientId);
