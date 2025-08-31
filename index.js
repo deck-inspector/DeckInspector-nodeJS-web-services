@@ -124,76 +124,110 @@ wss.on("connection", (ws, req) => {
 
     // replace original on-message handler with queued sequential processor
     ws._messageQueue = [];
+    ws._deferredQueue = [];
     ws._processingQueue = false;
 
     ws.on("message", (message) => {
-      // enqueue raw message
-      ws._messageQueue.push(message);
-
-      // protect against unbounded queue growth
-      const MAX_QUEUE = 5000;
-      if (ws._messageQueue.length > MAX_QUEUE) {
-        console.warn(`Message queue exceeded ${MAX_QUEUE} for client ${ws.clientId}, dropping oldest message`);
-        ws._messageQueue.shift();
+      // classify and enqueue message
+      let parsed;
+      try {
+        parsed = JSON.parse(message);
+      } catch (e) {
+        // on parse failure, push to main queue so processor can report error
+        ws._messageQueue.push({ raw: message, parsed: null });
+        startProcessorIfNeeded();
+        return;
       }
 
-      // start processor if not running
+      // events to defer to the end
+      const DEFER_EVENTS = new Set(['addImageCount', 'addImages']);
+      if (parsed && DEFER_EVENTS.has(parsed.action)) {
+        ws._deferredQueue.push({ raw: message, parsed });
+      } else {
+        ws._messageQueue.push({ raw: message, parsed });
+      }
+
+      // protect against unbounded queue growth across both queues
+      const MAX_QUEUE = 5000;
+      if (ws._messageQueue.length + ws._deferredQueue.length > MAX_QUEUE) {
+        console.warn(`Message queue exceeded ${MAX_QUEUE} for client ${ws.clientId}, dropping oldest message`);
+        // drop from main queue first, otherwise from deferred
+        if (ws._messageQueue.length > 0) ws._messageQueue.shift();
+        else ws._deferredQueue.shift();
+      }
+
+      startProcessorIfNeeded();
+    });
+
+    function startProcessorIfNeeded() {
       if (!ws._processingQueue) {
         processQueue().catch(err => console.error('Queue processor error:', err));
       }
-    });
+    }
 
     async function processQueue() {
       ws._processingQueue = true;
+      // process main queue first
       while (ws._messageQueue.length > 0) {
-        const message = ws._messageQueue.shift();
-        try {
-          const parsedMessage = JSON.parse(message);
-          const compId = ws.clientId + '.' + companyIdentifier;
-
-          // ack handling
-          if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {
-            await redisManager.deleteQueuedMessage(compId, parsedMessage.redisEntryId);
-            continue;
-          }
-
-          console.log('Collection Name: ', parsedMessage.collectionName);
-          console.log('Event Name: ', parsedMessage.action);
-
-          let updateResult = false;
-          switch (parsedMessage.collectionName) {
-            case 'project':
-              updateResult = await projectSocketHandler(message, ws, app);
-              break;
-            case 'subProject':
-              updateResult = await subProjectSocketHandler(message, ws, app);
-              break;
-            case 'location':
-              updateResult = await locationSocketHandler(message, ws, app);
-              break;
-            case 'visualSection':
-              updateResult = await visualSectionSocketHandler(message, ws, app);
-              break;
-            case 'invasiveSection':
-              updateResult = await invasiveSectionSocketHandler(message, ws, app);
-              break;
-            case 'dynamicSection':
-              updateResult = await dynamicSectionSocketHandler(message, ws, app);
-              break;
-            case 'conclusiveSection':
-              updateResult = await conclusiveSectionSocketHandler(message, ws, app);
-              break;
-            default:
-              try { ws.send(JSON.stringify({ status: 'error', message: 'Unknown collection' })); } catch(e){}
-          }
-
-          // change-stream broadcasting will handle notifications; no immediate broadcast here
-        } catch (err) {
-          console.error('Error processing queued message for', ws.clientId, err);
-          try { ws.send(JSON.stringify({ status: 'error', message: 'Invalid message format' })); } catch (_) {}
-        }
+        const item = ws._messageQueue.shift();
+        await processQueueItem(item);
       }
+
+      // after main queue drained, process deferred items in order
+      while (ws._deferredQueue.length > 0) {
+        const item = ws._deferredQueue.shift();
+        await processQueueItem(item);
+      }
+
       ws._processingQueue = false;
+    }
+
+    async function processQueueItem(item) {
+      const { raw, parsed } = item;
+      try {
+        const parsedMessage = parsed || JSON.parse(raw);
+        const compId = ws.clientId + '.' + companyIdentifier;
+
+        // ack handling
+        if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {
+          await redisManager.deleteQueuedMessage(compId, parsedMessage.redisEntryId);
+          return;
+        }
+
+        console.log('Collection Name: ', parsedMessage.collectionName);
+        console.log('Event Name: ', parsedMessage.action);
+
+        let updateResult = false;
+        switch (parsedMessage.collectionName) {
+          case 'project':
+            updateResult = await projectSocketHandler(raw, ws, app);
+            break;
+          case 'subProject':
+            updateResult = await subProjectSocketHandler(raw, ws, app);
+            break;
+          case 'location':
+            updateResult = await locationSocketHandler(raw, ws, app);
+            break;
+          case 'visualSection':
+            updateResult = await visualSectionSocketHandler(raw, ws, app);
+            break;
+          case 'invasiveSection':
+            updateResult = await invasiveSectionSocketHandler(raw, ws, app);
+            break;
+          case 'dynamicSection':
+            updateResult = await dynamicSectionSocketHandler(raw, ws, app);
+            break;
+          case 'conclusiveSection':
+            updateResult = await conclusiveSectionSocketHandler(raw, ws, app);
+            break;
+          default:
+            try { ws.send(JSON.stringify({ status: 'error', message: 'Unknown collection' })); } catch(e){}
+        }
+
+      } catch (err) {
+        console.error('Error processing queued message for', ws.clientId, err);
+        try { ws.send(JSON.stringify({ status: 'error', message: 'Invalid message format' })); } catch (_) {}
+      }
     }
     
     ws.on("close", () => {
