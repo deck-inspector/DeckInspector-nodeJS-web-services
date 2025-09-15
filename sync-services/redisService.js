@@ -4,6 +4,9 @@ const WebSocket = require('ws');
 const mongo = require('../database/mongo');
 require('dotenv').config();
 
+// Enable verbose Redis stream debug logging when DEBUG=1 or DEBUG=true
+const DEBUG = process.env.DEBUG === '1' || process.env.DEBUG === 'true';
+
 const redisHost = process.env.REDIS_HOST; 
 const redisPassword = process.env.REDIS_KEY;
 const redisClient = redis.createClient({
@@ -29,23 +32,35 @@ async function getAllClientIds() {
 }
 const REDIS_STREAM_PREFIX = 'ws_offline_';
 
-// Helper: Add message to Redis Stream for a client
-async function queueMessage(clientId, message) {
-  const companyIdentifier = message.companyIdentifier;
+// Helper: Add message to Redis Stream for a client (simple xAdd)
+async function queueMessage(clientId, message,senderClientId) {
   try {
-    if (clientId.includes(companyIdentifier)) {
-      // xAdd returns the entry ID
-      const entryId = await redisClient.xAdd(
-        REDIS_STREAM_PREFIX + clientId,
-        '*',
-        { message: typeof message === 'string' ? message : JSON.stringify(message) }
-      );
-      return entryId;
+    let companyIdentifier = message && message.companyIdentifier;
+    if(companyIdentifier==null){
+      // Extract companyIdentifier from senderClientId (e.g., "webapp.point5nyble.ondeckinspectors.com")
+      const firstDotIdx = senderClientId.indexOf('.');
+      if (firstDotIdx !== -1) {
+        // Use everything after the first dot as companyIdentifier (e.g., "point5nyble.ondeckinspectors.com")
+        companyIdentifier = senderClientId.substring(firstDotIdx + 1);
+      } else {
+        companyIdentifier = senderClientId;
+      }
     }
+    if (!companyIdentifier || !String(clientId).includes(companyIdentifier)) {
+      // Client doesn't belong to this company identifier or message missing companyIdentifier
+      return null;
+    }
+
+    const streamKey = REDIS_STREAM_PREFIX + clientId;
+    const payload = { message: typeof message === 'string' ? message : JSON.stringify(message) };
+    if (DEBUG) console.debug('[DEBUG][redisService] xAdd ->', { streamKey, payload });
+    const entryId = await redisClient.xAdd(streamKey, '*', payload);
+    if (DEBUG) console.debug('[DEBUG][redisService] xAdd returned entryId ->', { streamKey, entryId });
+    return entryId;
   } catch (error) {
     console.error('Error queuing message for client:', clientId, error);
+    return null;
   }
-  return null;
 }
 
 
@@ -54,26 +69,52 @@ async function reliableBroadcastToAllClients(message, senderClientId) {
   let allClientIds = await getAllClientIds();
   // defensive: ensure senderClientId is string
   if (senderClientId == null) senderClientId = '';
-  allClientIds = allClientIds.filter(id => id !== senderClientId);
-
   // Batch size for processing clients in chunks
   const BATCH_SIZE = 100;
   for (let i = 0; i < allClientIds.length; i += BATCH_SIZE) {
     const batch = allClientIds.slice(i, i + BATCH_SIZE);
 
-    // Queue messages in Redis in parallel for the batch. Skip sender defensively.
+    // Queue messages in Redis in parallel for the batch. Each promise resolves to
+    // an object { clientId, entryId } so we can map results to clients deterministically
+    // regardless of resolution order.
     const queuePromises = batch.map(clientId => {
       if (clientId === senderClientId) {
-        // skip queuing for sender
-        return Promise.resolve(null);
+        // skip queuing for sender: keep shape consistent
+        return Promise.resolve({ clientId, entryId: null });
       }
-      return queueMessage(clientId, message);
+      return queueMessage(clientId, message,senderClientId)
+        .then(entryId => ({ clientId, entryId }))
+        .catch(err => {
+          console.error('Error queuing message for client (caught in batch):', clientId, err);
+          return { clientId, entryId: null };
+        });
     });
-    const entryIds = await Promise.allSettled(queuePromises);
+    const settled = await Promise.allSettled(queuePromises);
+
+    // Build a map clientId -> entryId from settled results (use clientId embedded in value)
+    const clientEntryMap = new Map();
+    for (let s = 0; s < settled.length; s++) {
+      const res = settled[s];
+      let cid = null;
+      let entryId = null;
+      if (res && res.status === 'fulfilled' && res.value) {
+        cid = String(res.value.clientId).trim();
+        entryId = res.value.entryId || null;
+      } else if (res && res.status === 'rejected' && res.reason && res.reason.clientId) {
+        // defensive: if a rejection carried clientId info
+        cid = String(res.reason.clientId).trim();
+        entryId = null;
+      } else {
+        // Fallback: use batch index to determine client id
+        cid = String(batch[s]).trim();
+        entryId = null;
+      }
+      clientEntryMap.set(cid, entryId);
+    }
 
     // Send to online clients in parallel for the batch
     await Promise.allSettled(
-      batch.map((clientId, idx) => {
+      batch.map((clientId) => {
         if (clientId === senderClientId) return Promise.resolve();
         const ws = clients.get(clientId);
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -83,9 +124,10 @@ async function reliableBroadcastToAllClients(message, senderClientId) {
           } catch {
             msgObj = message;
           }
-          // Use entryId if queueMessage succeeded
-          if (entryIds[idx] && entryIds[idx].status === 'fulfilled') {
-            msgObj.redisEntryId = entryIds[idx].value;
+          // Lookup entryId from the map by clientId (safer than index-based)
+          const entryId = clientEntryMap.get(String(clientId).trim());
+          if (entryId) {
+            msgObj.redisEntryId = entryId;
           }
           try {
             ws.send(JSON.stringify(msgObj));
@@ -93,6 +135,7 @@ async function reliableBroadcastToAllClients(message, senderClientId) {
             console.error('Failed sending immediate broadcast to client', clientId, err);
           }
         }
+        return Promise.resolve();
       })
     );
   }
@@ -150,6 +193,7 @@ async function processDeleteQueue() {
     const { clientId, redisEntryId } = deleteQueue.shift();
     const streamKey = REDIS_STREAM_PREFIX + clientId;
     try {
+      console.log(`Deleting message ${redisEntryId} from Redis stream for client ${clientId}`);
       await redisClient.xDel(streamKey, redisEntryId);
       const streamLen = await redisClient.xLen(streamKey);
       if (streamLen === 0) {

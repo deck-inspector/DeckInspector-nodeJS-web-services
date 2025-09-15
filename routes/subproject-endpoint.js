@@ -10,7 +10,7 @@ var SubProjectService = require('../service/subProjectService');
 const projectDAO = require('../model/projectDAO');
 const LocationService = require('../service/locationService');
 const newErrorResponse = require('../model/newError');
-
+const redisManager = require('../sync-services/redisService.js');
 require("dotenv").config();
 
 
@@ -145,6 +145,9 @@ router.route('/:id')
   try{
     var errResponse;
     const subprojectId = req.params.id;
+    const deletedSubProject = await SubProjectService.getSubProjectById(subprojectId);
+    const origin = `webapp.${deletedSubProject.companyIdentifier}`;
+    await redisManager.markPendingOrigin('subProject', subprojectId, origin, 60);
     var result = await SubProjectService.deleteSubProjectPermanently(subprojectId);
     console.log(result);
     if (result.reason) {

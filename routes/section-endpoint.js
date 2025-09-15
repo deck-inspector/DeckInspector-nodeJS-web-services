@@ -6,7 +6,7 @@ var ObjectId = require('mongodb').ObjectId;
 const newErrorResponse = require('../model/newError');
 const SectionService = require("../service/sectionService");
 const sectionDAO = require('../model/sectionDAO');
-
+const redisManager = require('../sync-services/redisService.js');
 require("dotenv").config();
 
 router.route('/add')
@@ -125,6 +125,9 @@ router.route('/:id')
   try{
     var errResponse;
     const sectionId = req.params.id;
+    const deletedSection = await SectionService.getSectionById(sectionId);
+    const origin = `webapp.${deletedSection.companyIdentifier}`;
+    await redisManager.markPendingOrigin('visualSection', sectionId, origin, 60);
     var result = await SectionService.deleteSectionPermanently(sectionId);
     if (result.reason) {
       return res.status(result.code).json(result);

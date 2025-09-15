@@ -7,7 +7,7 @@ const ErrorResponse = require('../model/error');
 var ObjectId = require('mongodb').ObjectId;
 const LocationService = require('../service/locationService');
 const newErrorResponse = require('../model/newError');
-
+const redisManager = require('../sync-services/redisService.js');
 
 
 require("dotenv").config();
@@ -115,6 +115,9 @@ router.route('/:id')
   try{
     var errResponse;
     const locationId = req.params.id;
+    const deletedLocation = await LocationService.getLocationById(locationId);
+    const origin = `webapp.${deletedLocation.companyIdentifier}`;
+    await redisManager.markPendingOrigin('location', locationId, origin, 60);
     var result = await LocationService.deleteLocationPermanently(locationId);
     if (result.reason) {
       return res.status(result.code).json(result);

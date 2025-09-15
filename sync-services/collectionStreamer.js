@@ -1,6 +1,6 @@
 const mongo = require('../database/mongo');
 const redisManager = require('./redisService');
-
+const ObjectId = require('mongodb').ObjectId;
 // Helper to start change stream for a collection
 function watchCollection(collection, collectionName) {
   try {
@@ -24,7 +24,35 @@ function watchCollection(collection, collectionName) {
       let originClientId = null;
       try {
         if (change.operationType === 'delete') {
-          // For deletes fullDocument is null; use pending origin stored at delete time
+          // //fetch the document before deletion from db collection based on collectionName
+          // switch (collectionName) {
+          //   case 'visualSection':
+          //     correctCollection = mongo.Sections;
+          //     break;
+          //   case 'project':
+          //     correctCollection = mongo.Projects;
+          //     break;
+          //   case 'subProject':
+          //     correctCollection = mongo.SubProjects;
+          //     break;
+          //   case 'location':
+          //     correctCollection = mongo.Locations;
+          //     break;
+          //   case 'invasiveSection':
+          //     correctCollection = mongo.InvasiveSections;
+          //     break;
+          //   case 'dynamicSection':
+          //     correctCollection = mongo.DynamicSections;
+          //     break;
+          //   case 'conclusiveSection':
+          //     correctCollection = mongo.ConclusiveSections;
+          //     break;
+          //   default:
+          //     break;
+          // }
+          // const document = await correctCollection.findOne({ _id: ObjectId(messageId) });
+          // broadcastData.companyIdentifier = document ? document.companyIdentifier : null;
+          // // For deletes fullDocument is null; use pending origin stored at delete time
           originClientId = await redisManager.getAndClearPendingOrigin(collectionName, messageId);
         } else if (change.fullDocument && change.fullDocument.__lastOpClient) {
           originClientId = change.fullDocument.__lastOpClient;
@@ -32,9 +60,10 @@ function watchCollection(collection, collectionName) {
       } catch (err) {
         console.error('Error resolving origin for change event:', err);
       }
-
+      console.log(`collectionstreamer: Broadcasting change in ${collectionName}, excluding origin: ${originClientId}`);
       // Add to Redis queue for offline clients and broadcast to others, excluding origin
       await redisManager.reliableBroadcastToAllClients(broadcastData, originClientId);
+
     });
     changeStream.on('error', (err) => {
       console.error(`ChangeStream error for ${collectionName}:`, err);
