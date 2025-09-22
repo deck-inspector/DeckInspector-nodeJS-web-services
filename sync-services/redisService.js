@@ -33,7 +33,9 @@ async function getAllClientIds() {
 const REDIS_STREAM_PREFIX = 'ws_offline_';
 
 // Helper: Add message to Redis Stream for a client (simple xAdd)
-async function queueMessage(clientId, message,senderClientId) {
+// now accepts optional resumeToken and collectionName so the stream entry
+// carries the resumeToken until the client acks it.
+async function queueMessage(clientId, message, senderClientId, resumeToken = null, collectionName = null) {
   try {
     let companyIdentifier = message && message.companyIdentifier;
     if(companyIdentifier==null){
@@ -53,6 +55,17 @@ async function queueMessage(clientId, message,senderClientId) {
 
     const streamKey = REDIS_STREAM_PREFIX + clientId;
     const payload = { message: typeof message === 'string' ? message : JSON.stringify(message) };
+    // Attach collectionName if available
+    const collName = collectionName || (message && message.collectionName) || null;
+    if (collName) payload.collectionName = collName;
+    // Store resumeToken as JSON so we can persist it only on ack
+    if (resumeToken) {
+      try {
+        payload.resumeToken = typeof resumeToken === 'string' ? resumeToken : JSON.stringify(resumeToken);
+      } catch (e) {
+        payload.resumeToken = String(resumeToken);
+      }
+    }
     if (DEBUG) console.debug('[DEBUG][redisService] xAdd ->', { streamKey, payload });
     const entryId = await redisClient.xAdd(streamKey, '*', payload);
     if (DEBUG) console.debug('[DEBUG][redisService] xAdd returned entryId ->', { streamKey, entryId });
@@ -64,7 +77,7 @@ async function queueMessage(clientId, message,senderClientId) {
 }
 
 
-async function reliableBroadcastToAllClients(message, senderClientId) {
+async function reliableBroadcastToAllClients(message, senderClientId, resumeToken = null) {
   const msgString = typeof message === 'string' ? message : JSON.stringify(message);
   let allClientIds = await getAllClientIds();
   // defensive: ensure senderClientId is string
@@ -82,7 +95,9 @@ async function reliableBroadcastToAllClients(message, senderClientId) {
         // skip queuing for sender: keep shape consistent
         return Promise.resolve({ clientId, entryId: null });
       }
-      return queueMessage(clientId, message,senderClientId)
+  // include resumeToken and collectionName in the stream entry so it can be
+  // persisted only when the client acks the entry
+  return queueMessage(clientId, message, senderClientId, resumeToken, message && message.collectionName)
         .then(entryId => ({ clientId, entryId }))
         .catch(err => {
           console.error('Error queuing message for client (caught in batch):', clientId, err);
@@ -131,6 +146,9 @@ async function reliableBroadcastToAllClients(message, senderClientId) {
           }
           try {
             ws.send(JSON.stringify(msgObj));
+            // NOTE: resume tokens are persisted only when the client ACKs the Redis
+            // stream entry. See persistResumeTokenFromStreamEntry which is called by
+            // the ack handler in the WebSocket entrypoint.
           } catch (err) {
             console.error('Failed sending immediate broadcast to client', clientId, err);
           }
@@ -138,6 +156,34 @@ async function reliableBroadcastToAllClients(message, senderClientId) {
         return Promise.resolve();
       })
     );
+  }
+}
+
+// Persist resume tokens in MongoDB (per-client per-collection) to survive Redis flushes
+async function saveResumeToken(clientId, collectionName, resumeToken) {
+  if (!clientId || !collectionName || !resumeToken) return;
+  try {
+    if (!mongo.ResumeTokens) {
+      console.warn('Mongo ResumeTokens collection not available');
+      return;
+    }
+    const filter = { clientId };
+    const update = { $set: { [`tokens.${collectionName}`]: resumeToken, updatedAt: new Date() } };
+    await mongo.ResumeTokens.updateOne(filter, update, { upsert: true });
+  } catch (err) {
+    console.error('Error saving resume token to MongoDB for', clientId, collectionName, err);
+  }
+}
+
+async function getResumeToken(clientId, collectionName) {
+  if (!clientId || !collectionName) return null;
+  try {
+    if (!mongo.ResumeTokens) return null;
+    const doc = await mongo.ResumeTokens.findOne({ clientId }, { projection: { [`tokens.${collectionName}`]: 1 } });
+    return doc && doc.tokens ? doc.tokens[collectionName] : null;
+  } catch (err) {
+    console.error('Error reading resume token from MongoDB for', clientId, collectionName, err);
+    return null;
   }
 }
 
@@ -205,6 +251,34 @@ async function processDeleteQueue() {
     }
   }
   isProcessingDeleteQueue = false;
+}
+
+// Read a specific stream entry and persist any resumeToken it carries to MongoDB
+async function persistResumeTokenFromStreamEntry(clientId, entryId) {
+  if (!clientId || !entryId) return null;
+  const streamKey = REDIS_STREAM_PREFIX + clientId;
+  try {
+    // Read the single entry using XREAD with ID range entryId-entryId
+    const res = await redisClient.xRange(streamKey, entryId, entryId, { COUNT: 1 });
+    if (!res || res.length === 0) return null;
+    // res is array of [id, [field, value, field, value...]]
+    const entry = res[0];
+    const id = entry[0];
+    const fields = entry[1];
+    const obj = {};
+    for (let i = 0; i < fields.length; i += 2) {
+      obj[fields[i]] = fields[i + 1];
+    }
+    if (obj.resumeToken && obj.collectionName) {
+      let token = obj.resumeToken;
+      try { token = JSON.parse(obj.resumeToken); } catch (_) { /* keep as string */ }
+      await saveResumeToken(clientId, obj.collectionName, token);
+      return { clientId, collectionName: obj.collectionName, resumeToken: token };
+    }
+  } catch (err) {
+    console.error('Error reading stream entry for resume token persistence', streamKey, entryId, err);
+  }
+  return null;
 }
 
 // Map to track connected clients: clientId -> ws
@@ -292,7 +366,11 @@ module.exports={
     removeClient,
     deleteQueuedMessage,
     reliableBroadcastToAllClients,
+  persistResumeTokenFromStreamEntry,
     markPendingOrigin,
     getAndClearPendingOrigin,
     listPendingOrigins
 }
+
+
+

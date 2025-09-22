@@ -2,9 +2,13 @@ const mongo = require('../database/mongo');
 const redisManager = require('./redisService');
 const ObjectId = require('mongodb').ObjectId;
 // Helper to start change stream for a collection
-function watchCollection(collection, collectionName) {
+function watchCollection(collection, collectionName, resumeToken) {
   try {
-    const changeStream = collection.watch([], { fullDocument: 'updateLookup' });
+    // If a resume token is provided, pass it to the change stream so MongoDB
+    // will start from that point (replay changes happened after the token).
+    const watchOptions = { fullDocument: 'updateLookup' };
+    if (resumeToken) watchOptions.resumeAfter = resumeToken;
+    const changeStream = collection.watch([], watchOptions);
     changeStream.on('change', async (change) => {
       // Prepare message for queue
       console.log(`collectionstreamer: Change detected in ${collectionName}`);
@@ -60,9 +64,10 @@ function watchCollection(collection, collectionName) {
       } catch (err) {
         console.error('Error resolving origin for change event:', err);
       }
-      console.log(`collectionstreamer: Broadcasting change in ${collectionName}, excluding origin: ${originClientId}`);
-      // Add to Redis queue for offline clients and broadcast to others, excluding origin
-      await redisManager.reliableBroadcastToAllClients(broadcastData, originClientId);
+  console.log(`collectionstreamer: Broadcasting change in ${collectionName}, excluding origin: ${originClientId}`);
+  // Add to Redis queue for offline clients and broadcast to others, excluding origin
+  // Pass the change stream resume token so it can be persisted per-client (durable resume)
+  await redisManager.reliableBroadcastToAllClients(broadcastData, originClientId, change._id);
 
     });
     changeStream.on('error', (err) => {
@@ -73,19 +78,51 @@ function watchCollection(collection, collectionName) {
   }
 }
 
-// Start watching all relevant collections
-function startAllCollectionStreams() {
+// Start watching all relevant collections.
+// If a `resumeTokens` object is provided it should be a map of collectionName -> resumeToken
+// Example: { project: <resumeTokenObj>, visualSection: <token> }
+function startAllCollectionStreams(resumeTokens = {}) {
   // Wait for mongo.Connect() to finish and collections to be available
-  setTimeout(() => {
-    if (mongo.Projects) watchCollection(mongo.Projects, 'project');
-    if (mongo.SubProjects) watchCollection(mongo.SubProjects, 'subProject');
-    if (mongo.Locations) watchCollection(mongo.Locations, 'location');
-    if (mongo.Sections) watchCollection(mongo.Sections, 'visualSection');
-    if (mongo.InvasiveSections) watchCollection(mongo.InvasiveSections, 'invasiveSection');
-    if (mongo.DynamicSections) watchCollection(mongo.DynamicSections, 'dynamicSection');
-    if (mongo.ConclusiveSections) watchCollection(mongo.ConclusiveSections, 'conclusiveSection');
-    // Add more collections as needed
-    console.log('Started change streams for all collections.');
+  setTimeout(async () => {
+    try {
+      // Load most recently-updated resume tokens per collection from MongoDB ResumeTokens
+      const resumeTokensFromMongo = {};
+      if (mongo.ResumeTokens) {
+        const docs = await mongo.ResumeTokens.find({}).toArray();
+        for (const d of docs) {
+          const updatedAt = d.updatedAt || new Date(0);
+          const toks = d.tokens || {};
+          for (const [coll, token] of Object.entries(toks)) {
+            if (!resumeTokensFromMongo[coll] || (resumeTokensFromMongo[coll].updatedAt || new Date(0)) < updatedAt) {
+              resumeTokensFromMongo[coll] = { token, updatedAt };
+            }
+          }
+        }
+      }
+
+      // Helper to extract token value for a collection name
+      const tokenFor = (collName) => (resumeTokensFromMongo[collName] ? resumeTokensFromMongo[collName].token : undefined);
+
+      if (mongo.Projects) watchCollection(mongo.Projects, 'project', tokenFor('project'));
+      if (mongo.SubProjects) watchCollection(mongo.SubProjects, 'subProject', tokenFor('subProject'));
+      if (mongo.Locations) watchCollection(mongo.Locations, 'location', tokenFor('location'));
+      if (mongo.Sections) watchCollection(mongo.Sections, 'visualSection', tokenFor('visualSection'));
+      if (mongo.InvasiveSections) watchCollection(mongo.InvasiveSections, 'invasiveSection', tokenFor('invasiveSection'));
+      if (mongo.DynamicSections) watchCollection(mongo.DynamicSections, 'dynamicSection', tokenFor('dynamicSection'));
+      if (mongo.ConclusiveSections) watchCollection(mongo.ConclusiveSections, 'conclusiveSection', tokenFor('conclusiveSection'));
+      // Add more collections as needed
+      console.log('Started change streams for all collections (resumed from Mongo tokens where available).');
+    } catch (err) {
+      console.error('Failed to start collection streams with resume tokens from Mongo:', err);
+      // Fallback: start without tokens
+      if (mongo.Projects) watchCollection(mongo.Projects, 'project');
+      if (mongo.SubProjects) watchCollection(mongo.SubProjects, 'subProject');
+      if (mongo.Locations) watchCollection(mongo.Locations, 'location');
+      if (mongo.Sections) watchCollection(mongo.Sections, 'visualSection');
+      if (mongo.InvasiveSections) watchCollection(mongo.InvasiveSections, 'invasiveSection');
+      if (mongo.DynamicSections) watchCollection(mongo.DynamicSections, 'dynamicSection');
+      if (mongo.ConclusiveSections) watchCollection(mongo.ConclusiveSections, 'conclusiveSection');
+    }
   }, 2000); // Delay to ensure mongo.Connect() is done
 }
 

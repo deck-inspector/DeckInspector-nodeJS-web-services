@@ -219,6 +219,12 @@ wss.on("connection", (ws, req) => {
 
         // ack handling
         if (parsedMessage.type === 'ack' && parsedMessage.redisEntryId && ws.clientId) {
+          // Persist resume token from the stream entry (if present) before deleting
+          try {
+            await redisManager.persistResumeTokenFromStreamEntry(compId, parsedMessage.redisEntryId);
+          } catch (e) {
+            console.error('Failed to persist resume token from stream entry on ack', e);
+          }
           await redisManager.deleteQueuedMessage(compId, parsedMessage.redisEntryId);
           return true;
         }
