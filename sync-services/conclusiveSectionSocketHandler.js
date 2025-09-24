@@ -130,7 +130,7 @@ module.exports = async function conclusiveSectionSocketHandler(message, ws) {
                     }
                     // mark pending origin so change stream can read origin for deletes
                     const origin = `${ws.clientId}.${companyIdentifier}`;
-                    await redisManager.markPendingOrigin('conclusiveSection', id, origin, 60);
+                    await redisManager.markPendingOrigin('conclusiveSection', id, origin, companyIdentifier, 60);
 
                     const result = await ConclusiveSectionService.deleteConclusiveSectionPermanently(id);
                     if (result.reason) {

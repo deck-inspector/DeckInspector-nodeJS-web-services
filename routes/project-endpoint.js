@@ -188,8 +188,9 @@ router.route('/:id')
         var errResponse;
         const projectId = req.params.id;
         const deletedProject = await projectService.getProjectById(projectId);
-        const origin = `webapp.${deletedProject.project.companyIdentifier}`;
-        await redisManager.markPendingOrigin('project', projectId, origin, 60);
+  const companyIdentifier = deletedProject.project.companyIdentifier;
+  const origin = `webapp.${companyIdentifier}`;
+  await redisManager.markPendingOrigin('project', projectId, origin, companyIdentifier, 60);
         var result = await projectService.archiveProject(projectId);
         if (result.reason) {
           return res.status(result.code).json(result);

@@ -23,6 +23,7 @@ var Connect = async function () {
         module.exports.Users = client.db(dbName).collection('Users');
         module.exports.ProjectDocuments = client.db(dbName).collection('ProjectDocuments');
         module.exports.ResumeTokens = client.db(dbName).collection('ResumeTokens');
+    module.exports.MessageArchive = client.db(dbName).collection('MessageArchive');
 
         module.exports.ProjectReports = client.db(dbName).collection('ProjectReports');
         module.exports.InvasiveSections = client.db(dbName).collection('InvasiveSection');

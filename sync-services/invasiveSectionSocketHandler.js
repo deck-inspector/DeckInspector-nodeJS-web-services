@@ -137,7 +137,7 @@ module.exports = async function invasiveSectionSocketHandler(message, ws) {
 
                     // mark pending origin
                     const origin = `${ws.clientId}.${companyIdentifier}`;
-                    await redisManager.markPendingOrigin('invasiveSection', invasivesectionId, origin, 60);
+                    await redisManager.markPendingOrigin('invasiveSection', invasivesectionId, origin, companyIdentifier, 60);
 
                     const result = await InvasiveSectionService.deleteInvasiveSectionPermanently(invasivesectionId);
                     if (result && result.reason) {

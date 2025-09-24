@@ -53,7 +53,7 @@ router.route("/login").post(async function (req, res) {
         if (record && (await bcrypt.compare(password, record.password))) {
           // Create token
           const { password, ...user } = record;
-
+          const currentDeviceId = user.deviceId;
           //TODO check if that company is active and not marked for deletion.
           var loginAllowed = await Tenants.isTenantActive(
             user.companyIdentifier
@@ -89,6 +89,7 @@ router.route("/login").post(async function (req, res) {
             {
               user_id: record._id,
               username,
+              deviceId: currentDeviceId,
               company: record.companyIdentifier,
             },
             process.env.TOKEN_KEY,

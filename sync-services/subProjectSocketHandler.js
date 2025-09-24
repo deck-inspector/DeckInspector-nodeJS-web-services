@@ -145,7 +145,7 @@ module.exports = async function subProjectSocketHandler(message, ws) {
 
                     // mark pending origin so change stream can read origin for deletes
                     const origin = `${ws.clientId}.${companyIdentifier}`;
-                    await redisManager.markPendingOrigin('subProject', id, origin, 60);
+                    await redisManager.markPendingOrigin('subProject', id, origin, companyIdentifier, 60);
 
                     // Delete the subproject from the database
                     var result = await SubProjectService.deleteSubProjectPermanently(id);

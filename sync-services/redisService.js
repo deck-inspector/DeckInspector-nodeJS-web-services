@@ -79,6 +79,10 @@ async function queueMessage(clientId, message, senderClientId, resumeToken = nul
 
 async function reliableBroadcastToAllClients(message, senderClientId, resumeToken = null) {
   const msgString = typeof message === 'string' ? message : JSON.stringify(message);
+  // Archive the message for fresh-device replays (fire-and-forget)
+  archiveMessage(message).catch(err => {
+    if (DEBUG) console.error('[DEBUG][redisService] archiveMessage failed', err);
+  });
   let allClientIds = await getAllClientIds();
   // defensive: ensure senderClientId is string
   if (senderClientId == null) senderClientId = '';
@@ -156,6 +160,68 @@ async function reliableBroadcastToAllClients(message, senderClientId, resumeToke
         return Promise.resolve();
       })
     );
+  }
+}
+
+// Persist a copy of the message to MessageArchive for replay on fresh devices.
+// Keep archive compact: store only necessary fields.
+async function archiveMessage(message) {
+  try {
+    if (!mongo.MessageArchive) return;
+    const doc = typeof message === 'string' ? JSON.parse(message) : { ...message };
+    const archiveDoc = {
+      collectionName: doc.collectionName || null,
+      action: doc.action || null,
+      messageId: doc.messageId || null,
+      fullDocument: doc.fullDocument || null,
+      companyIdentifier: doc.companyIdentifier || null,
+      updateDescription: doc.updateDescription || null,
+      servermessage: doc.servermessage || 'sync_with_server',
+      timestamp: doc.timestamp || Date.now()
+    };
+    await mongo.MessageArchive.insertOne(archiveDoc);
+  } catch (err) {
+    console.error('Failed to write to MessageArchive', err);
+  }
+}
+
+// Replay archived messages for a client. Query archive by companyIdentifier and
+// stream results ordered by timestamp. Deliver to ws and wait for ack semantics
+// handled by existing ack flow.
+async function replayFromArchive(clientId, companyIdentifier, ws, opts = {}) {
+  const compId = `${clientId}.${companyIdentifier}`;
+  try {
+    if (!mongo.MessageArchive) return;
+    // Simple heuristic: replay last N messages for the company
+    const N = opts.limit || 500;
+    const cursor = mongo.MessageArchive.find({ companyIdentifier }).sort({ timestamp: 1 }).limit(N);
+    while (await cursor.hasNext()) {
+      const doc = await cursor.next();
+      const payload = {
+        collectionName: doc.collectionName,
+        action: doc.action,
+        messageId: doc.messageId,
+        fullDocument: doc.fullDocument,
+        companyIdentifier: doc.companyIdentifier,
+        updateDescription: doc.updateDescription,
+        servermessage: doc.servermessage,
+        timestamp: doc.timestamp
+      };
+      try {
+        // Queue into redis stream for the client so ack semantics and resume token
+        // persistence apply. Use senderClientId 'archive' for these entries.
+        const entryId = await queueMessage(`${clientId}.${companyIdentifier}`, payload, 'archive', null, payload.collectionName);
+        if (entryId && ws && ws.readyState === WebSocket.OPEN) {
+          const msgToSend = { ...payload, redisEntryId: entryId };
+          ws.send(JSON.stringify(msgToSend));
+        }
+      } catch (err) {
+        console.error('Failed to queue/send archived message to client', compId, err);
+        if (!ws || ws.readyState !== WebSocket.OPEN) break;
+      }
+    }
+  } catch (err) {
+    console.error('Error replaying archive for', compId, err);
   }
 }
 
@@ -258,22 +324,48 @@ async function persistResumeTokenFromStreamEntry(clientId, entryId) {
   if (!clientId || !entryId) return null;
   const streamKey = REDIS_STREAM_PREFIX + clientId;
   try {
-    // Read the single entry using XREAD with ID range entryId-entryId
+    // Read the single entry using XRANGE for the exact id
     const res = await redisClient.xRange(streamKey, entryId, entryId, { COUNT: 1 });
-    if (!res || res.length === 0) return null;
-    // res is array of [id, [field, value, field, value...]]
-    const entry = res[0];
-    const id = entry[0];
-    const fields = entry[1];
-    const obj = {};
-    for (let i = 0; i < fields.length; i += 2) {
-      obj[fields[i]] = fields[i + 1];
+    if (!res || res.length === 0) {
+      if (DEBUG) console.debug('[DEBUG][redisService] persistResumeTokenFromStreamEntry: no entry found', { streamKey, entryId });
+      return null;
     }
-    if (obj.resumeToken && obj.collectionName) {
+    const entry = res[0];
+    let obj = {};
+
+    // Handle node-redis return formats. It may return either:
+    // 1) [ id, [field, val, field, val...] ]
+    // 2) { id: '...', message: { field: val, ... } }
+    if (Array.isArray(entry)) {
+      const id = entry[0];
+      const fields = entry[1];
+      if (Array.isArray(fields)) {
+        for (let i = 0; i < fields.length; i += 2) {
+          obj[fields[i]] = fields[i + 1];
+        }
+      } else if (typeof fields === 'object' && fields !== null) {
+        obj = { ...fields };
+      }
+    } else if (entry && typeof entry === 'object') {
+      // new-style object
+      if (entry.message && typeof entry.message === 'object') {
+        obj = { ...entry.message };
+      } else {
+        // fallback: try to merge any enumerable fields
+        obj = { ...entry };
+      }
+    }
+
+    if (DEBUG) console.debug('[DEBUG][redisService] persistResumeTokenFromStreamEntry parsed fields', { streamKey, entryId, obj });
+
+    if (obj && obj.resumeToken && obj.collectionName) {
       let token = obj.resumeToken;
       try { token = JSON.parse(obj.resumeToken); } catch (_) { /* keep as string */ }
       await saveResumeToken(clientId, obj.collectionName, token);
+      if (DEBUG) console.debug('[DEBUG][redisService] saved resume token for', { clientId, collectionName: obj.collectionName });
       return { clientId, collectionName: obj.collectionName, resumeToken: token };
+    } else {
+      if (DEBUG) console.debug('[DEBUG][redisService] persistResumeTokenFromStreamEntry: entry missing resumeToken or collectionName', { streamKey, entryId, obj });
     }
   } catch (err) {
     console.error('Error reading stream entry for resume token persistence', streamKey, entryId, err);
@@ -296,11 +388,21 @@ function removeClient(clientId,companyIdentifier){
 const pendingOrigins = new Map();
 
 // Mark a pending origin for a document (used to identify sender for delete operations)
-async function markPendingOrigin(collectionName, docId, origin, ttlSeconds = 60) {
+// markPendingOrigin: store an object { origin, companyIdentifier } keyed by collection and docId
+// Backwards-compatible: callers can still pass (collectionName, docId, origin, ttlSeconds)
+async function markPendingOrigin(collectionName, docId, originOrCompany, maybeCompanyOrTtl, ttlSeconds = 60) {
   try {
+    let origin = null;
+    let companyIdentifier = null;
+    // Support both (collection, docId, origin, ttl) and (collection, docId, origin, companyIdentifier, ttl)
+    if (arguments.length >= 4 && typeof maybeCompanyOrTtl === 'string') {
+      origin = originOrCompany;
+      companyIdentifier = maybeCompanyOrTtl;
+    } else {
+      origin = originOrCompany;
+    }
     const key = `pending_origin:${collectionName}:${docId}`;
-    pendingOrigins.set(key, origin);
-    
+    pendingOrigins.set(key, { origin, companyIdentifier });
     return true;
   } catch (err) {
     console.error('Error marking pending origin in Redis:', collectionName, docId, err);
@@ -311,9 +413,10 @@ async function markPendingOrigin(collectionName, docId, origin, ttlSeconds = 60)
 // Get and clear pending origin for a document
 async function getAndClearPendingOrigin(collectionName, docId) {
   const key = `pending_origin:${collectionName}:${docId}`;
-  const origin = pendingOrigins.get(key);
+  const entry = pendingOrigins.get(key);
   pendingOrigins.delete(key);
-  return origin;
+  // return object { origin, companyIdentifier } for callers
+  return entry || null;
 }
 
 // Debug helper: list all pending_origin keys and values (optimized)
@@ -367,6 +470,8 @@ module.exports={
     deleteQueuedMessage,
     reliableBroadcastToAllClients,
   persistResumeTokenFromStreamEntry,
+  replayFromArchive,
+  archiveMessage,
     markPendingOrigin,
     getAndClearPendingOrigin,
     listPendingOrigins

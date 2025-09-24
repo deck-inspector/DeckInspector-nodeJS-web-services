@@ -115,6 +115,18 @@ wss.on("connection", (ws, req) => {
 
       // Deliver any queued messages from Redis Stream
       await redisManager.deliverQueuedMessages(clientId,companyIdentifier, ws);
+
+      // If the init message indicated a fresh device (deviceId null), replay archive
+      // The client may include deviceId in initData; if absent or null, treat as fresh.
+      try {
+        const deviceId = initData.deviceId || null;
+        if (!deviceId) {
+          // Replay message archive for this companyIdentifier
+          await redisManager.replayFromArchive(clientId, companyIdentifier, ws, { limit: 1000 });
+        }
+      } catch (e) {
+        console.error('Archive replay failed:', e);
+      }
       
     } catch (e) {
       ws.send(JSON.stringify({ status: 'error', message: 'Invalid init message' }));
@@ -128,7 +140,7 @@ wss.on("connection", (ws, req) => {
     ws._processingQueue = false;
 
     // retry configuration
-    const MAX_RETRIES = 2;
+    const MAX_RETRIES = 5;
     const RETRY_BASE_MS = 1000; // base backoff in ms
 
     ws.on("message", (message) => {

@@ -116,8 +116,8 @@ router.route('/:id')
     var errResponse;
     const locationId = req.params.id;
     const deletedLocation = await LocationService.getLocationById(locationId);
-    const origin = `webapp.${deletedLocation.companyIdentifier}`;
-    await redisManager.markPendingOrigin('location', locationId, origin, 60);
+  const origin = `webapp.${deletedLocation.companyIdentifier}`;
+  await redisManager.markPendingOrigin('location', locationId, origin, deletedLocation.companyIdentifier, 60);
     var result = await LocationService.deleteLocationPermanently(locationId);
     if (result.reason) {
       return res.status(result.code).json(result);

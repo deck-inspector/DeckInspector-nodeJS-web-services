@@ -172,8 +172,9 @@ module.exports = async function locationSocketHandler(message, ws) {
                     }
 
                     // mark pending origin so change stream can read origin for deletes
-                    const origin = `${ws.clientId}.${JSON.parse(parsedMessage.data).companyIdentifier}`;
-                    await redisManager.markPendingOrigin('location', id, origin, 60);
+                    const companyIdentifier = JSON.parse(parsedMessage.data).companyIdentifier;
+                    const origin = `${ws.clientId}.${companyIdentifier}`;
+                    await redisManager.markPendingOrigin('location', id, origin, companyIdentifier, 60);
 
                     // Delete the subproject from the database
                     var result = await LocationService.deleteLocationPermanently(id);

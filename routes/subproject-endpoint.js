@@ -146,8 +146,8 @@ router.route('/:id')
     var errResponse;
     const subprojectId = req.params.id;
     const deletedSubProject = await SubProjectService.getSubProjectById(subprojectId);
-    const origin = `webapp.${deletedSubProject.companyIdentifier}`;
-    await redisManager.markPendingOrigin('subProject', subprojectId, origin, 60);
+  const origin = `webapp.${deletedSubProject.companyIdentifier}`;
+  await redisManager.markPendingOrigin('subProject', subprojectId, origin, deletedSubProject.companyIdentifier, 60);
     var result = await SubProjectService.deleteSubProjectPermanently(subprojectId);
     console.log(result);
     if (result.reason) {

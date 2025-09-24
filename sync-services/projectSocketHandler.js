@@ -163,8 +163,9 @@ module.exports = async function projectSocketHandler(message, ws) {
                     
                     const projectId = JSON.parse(parsedMessage.data).id;
                     // mark pending origin so change stream can read origin for deletes
-                    const origin = `${ws.clientId}.${JSON.parse(parsedMessage.data).companyIdentifier}`;
-                    await redisManager.markPendingOrigin('project', projectId, origin, 60);
+                    const companyIdentifier = JSON.parse(parsedMessage.data).companyIdentifier;
+                    const origin = `${ws.clientId}.${companyIdentifier}`;
+                    await redisManager.markPendingOrigin('project', projectId, origin, companyIdentifier, 60);
 
                     var result = await projectService.deleteProjectPermanently(projectId);
                     if (result.reason) {                 

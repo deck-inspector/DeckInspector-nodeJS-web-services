@@ -126,8 +126,8 @@ router.route('/:id')
     var errResponse;
     const sectionId = req.params.id;
     const deletedSection = await SectionService.getSectionById(sectionId);
-    const origin = `webapp.${deletedSection.companyIdentifier}`;
-    await redisManager.markPendingOrigin('visualSection', sectionId, origin, 60);
+  const origin = `webapp.${deletedSection.companyIdentifier}`;
+  await redisManager.markPendingOrigin('visualSection', sectionId, origin, deletedSection.companyIdentifier, 60);
     var result = await SectionService.deleteSectionPermanently(sectionId);
     if (result.reason) {
       return res.status(result.code).json(result);

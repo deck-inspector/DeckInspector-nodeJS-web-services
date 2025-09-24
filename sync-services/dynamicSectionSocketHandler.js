@@ -96,7 +96,7 @@ module.exports = async function dynamicSectionSocketHandler(message, ws) {
                     }
                     // mark pending origin so change stream can read origin for deletes
                     const origin = `${ws.clientId}.${companyIdentifier}`;
-                    await redisManager.markPendingOrigin('dynamicSection', id, origin, 60);
+                    await redisManager.markPendingOrigin('dynamicSection', id, origin, companyIdentifier, 60);
 
                     const result = await DynamicSectionService.deleteSection(id);
                     if (result.reason) {

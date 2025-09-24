@@ -27,7 +27,7 @@ function watchCollection(collection, collectionName, resumeToken) {
       // Determine origin (sender) to exclude from broadcast
       let originClientId = null;
       try {
-        if (change.operationType === 'delete') {
+  if (change.operationType === 'delete') {
           // //fetch the document before deletion from db collection based on collectionName
           // switch (collectionName) {
           //   case 'visualSection':
@@ -57,9 +57,14 @@ function watchCollection(collection, collectionName, resumeToken) {
           // const document = await correctCollection.findOne({ _id: ObjectId(messageId) });
           // broadcastData.companyIdentifier = document ? document.companyIdentifier : null;
           // // For deletes fullDocument is null; use pending origin stored at delete time
-          originClientId = await redisManager.getAndClearPendingOrigin(collectionName, messageId);
+          const pending = await redisManager.getAndClearPendingOrigin(collectionName, messageId);
+          if (pending) {
+            originClientId = pending.origin || null;
+            if (pending.companyIdentifier) broadcastData.companyIdentifier = pending.companyIdentifier;
+          }
         } else if (change.fullDocument && change.fullDocument.__lastOpClient) {
           originClientId = change.fullDocument.__lastOpClient;
+          if (!broadcastData.companyIdentifier && change.fullDocument.companyIdentifier) broadcastData.companyIdentifier = change.fullDocument.companyIdentifier;
         }
       } catch (err) {
         console.error('Error resolving origin for change event:', err);
