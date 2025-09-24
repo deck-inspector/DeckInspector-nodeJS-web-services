@@ -169,12 +169,16 @@ async function archiveMessage(message) {
   try {
     if (!mongo.MessageArchive) return;
     const doc = typeof message === 'string' ? JSON.parse(message) : { ...message };
+    // Try to extract companyIdentifier robustly from known locations
+    let companyIdentifier = doc.companyIdentifier || null;
+    if (!companyIdentifier && doc.fullDocument && doc.fullDocument.companyIdentifier) companyIdentifier = doc.fullDocument.companyIdentifier;
+    if (!companyIdentifier && doc.message && typeof doc.message === 'object' && doc.message.companyIdentifier) companyIdentifier = doc.message.companyIdentifier;
     const archiveDoc = {
       collectionName: doc.collectionName || null,
       action: doc.action || null,
       messageId: doc.messageId || null,
       fullDocument: doc.fullDocument || null,
-      companyIdentifier: doc.companyIdentifier || null,
+      companyIdentifier: companyIdentifier || null,
       updateDescription: doc.updateDescription || null,
       servermessage: doc.servermessage || 'sync_with_server',
       timestamp: doc.timestamp || Date.now()

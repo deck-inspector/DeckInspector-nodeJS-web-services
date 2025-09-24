@@ -19,9 +19,9 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
             case 'create':
                 try {
                     // Get user input
-                    const {id, name, exteriorelements, waterproofingelements,additionalconsiderations,
-                        additionalconsiderationshtml,visualreview,visualsignsofleak,furtherinvasivereviewrequired,conditionalassessment,
-                      awe,eee,lbc,images,createdby,parentid,parenttype,unitUnavailable,createdat,editedat,lasteditedby } = JSON.parse(parsedMessage.data);
+                                        const {id, name, exteriorelements, waterproofingelements,additionalconsiderations,
+                                                additionalconsiderationshtml,visualreview,visualsignsofleak,furtherinvasivereviewrequired,conditionalassessment,
+                                            awe,eee,lbc,images,createdby,parentid,parenttype,unitUnavailable,createdat,editedat,lasteditedby, companyIdentifier } = JSON.parse(parsedMessage.data);
                       
                       // Validate user input
                       if (!(name && parentid)) {
@@ -52,6 +52,7 @@ module.exports = async function visualSectionSocketHandler(message, ws) {
                           "images":images,
                           "unitUnavailable": unitUnavailable,
                           "isuploading":false,
+                          "companyIdentifier": companyIdentifier,
                       } 
 
                       // attach op metadata
