@@ -388,6 +388,14 @@ function removeClient(clientId,companyIdentifier){
     clients.delete(`${clientId}.${companyIdentifier}`);
 }
 
+function isClientConnected(clientId) {
+  try {
+    return clients.has(String(clientId));
+  } catch (err) {
+    return false;
+  }
+}
+
 //add  a local map to track pending origins
 const pendingOrigins = new Map();
 
@@ -479,6 +487,7 @@ module.exports={
     markPendingOrigin,
     getAndClearPendingOrigin,
     listPendingOrigins
+    ,isClientConnected
 }
 
 

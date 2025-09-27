@@ -112,10 +112,6 @@ wss.on("connection", (ws, req) => {
       }
       ws.clientId = clientId;
       redisManager.addClient(clientId,companyIdentifier, ws);
-
-      // Deliver any queued messages from Redis Stream
-      await redisManager.deliverQueuedMessages(clientId,companyIdentifier, ws);
-
       // If the init message indicated a fresh device (deviceId null), replay archive
       // The client may include deviceId in initData; if absent or null, treat as fresh.
       try {
@@ -123,7 +119,11 @@ wss.on("connection", (ws, req) => {
         if (!deviceId) {
           // Replay message archive for this companyIdentifier
           await redisManager.replayFromArchive(clientId, companyIdentifier, ws, { limit: 1000 });
+
         }
+
+      // Deliver any queued messages from Redis Stream
+      await redisManager.deliverQueuedMessages(clientId,companyIdentifier, ws);
       } catch (e) {
         console.error('Archive replay failed:', e);
       }
@@ -142,6 +142,9 @@ wss.on("connection", (ws, req) => {
     // retry configuration
     const MAX_RETRIES = 5;
     const RETRY_BASE_MS = 1000; // base backoff in ms
+  // queue processor interval configuration
+  const PROCESS_INTERVAL_MS = parseInt(process.env.PROCESS_INTERVAL_MS || '200', 10); // ms between ticks
+  const PROCESS_BATCH_SIZE = parseInt(process.env.PROCESS_BATCH_SIZE || '10', 10); // items per tick
 
     ws.on("message", (message) => {
       // classify and enqueue message
@@ -176,33 +179,53 @@ wss.on("connection", (ws, req) => {
     });
 
     function startProcessorIfNeeded() {
-      if (!ws._processingQueue) {
-        processQueue().catch(err => console.error('Queue processor error:', err));
-      }
+      if (ws._processorIntervalId) return;
+      // Run an immediate tick then schedule interval ticks
+      processQueueTick().catch(err => console.error('Queue processor tick error:', err));
+      ws._processorIntervalId = setInterval(() => {
+        processQueueTick().catch(err => console.error('Queue processor tick error:', err));
+      }, PROCESS_INTERVAL_MS);
     }
 
-    async function processQueue() {
+    async function processQueueTick() {
+      // Prevent overlapping ticks
+      if (ws._processingQueue) return;
       ws._processingQueue = true;
-      // process main queue first
-      while (ws._messageQueue.length > 0) {
-        const item = ws._messageQueue.shift();
-        const success = await processQueueItem(item);
-        if (!success) {
-          // schedule retry or drop
-          await handleFailedItem(item);
-        }
-      }
+      try {
+        let processed = 0;
+        // Prefer main queue; only process deferred when main is empty
+        while (processed < PROCESS_BATCH_SIZE) {
+          let item = null;
+          if (ws._messageQueue.length > 0) {
+            item = ws._messageQueue.shift();
+          } else if (ws._deferredQueue.length > 0) {
+            item = ws._deferredQueue.shift();
+          } else {
+            break; // nothing to do
+          }
 
-      // after main queue drained, process deferred items in order
-      while (ws._deferredQueue.length > 0) {
-        const item = ws._deferredQueue.shift();
-        const success = await processQueueItem(item);
-        if (!success) {
-          await handleFailedItem(item);
+          try {
+            const success = await processQueueItem(item);
+            if (!success) {
+              await handleFailedItem(item);
+            }
+          } catch (err) {
+            console.error('Error processing queue item in tick', err);
+            await handleFailedItem(item);
+          }
+          processed += 1;
         }
-      }
 
-      ws._processingQueue = false;
+        // If both queues are empty, clear the interval to avoid idle loops
+        if (ws._messageQueue.length === 0 && ws._deferredQueue.length === 0) {
+          if (ws._processorIntervalId) {
+            clearInterval(ws._processorIntervalId);
+            ws._processorIntervalId = null;
+          }
+        }
+      } finally {
+        ws._processingQueue = false;
+      }
     }
 
     async function handleFailedItem(item) {
@@ -287,6 +310,14 @@ wss.on("connection", (ws, req) => {
     
     ws.on("close", () => {
       redisManager.removeClient(clientId);
+      // clear any running processor interval for this ws
+      if (ws._processorIntervalId) {
+        clearInterval(ws._processorIntervalId);
+        ws._processorIntervalId = null;
+      }
+      // free queues to help GC
+      ws._messageQueue = [];
+      ws._deferredQueue = [];
       console.log("🔴 Client disconnected");
     });
 

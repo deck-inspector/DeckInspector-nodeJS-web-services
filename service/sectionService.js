@@ -191,7 +191,7 @@ const addImageInSection = async (sectionId, imageUrl) => {
 const addMultipleImagesInSection = async (sectionId, imageUrls) => {
   try {
     const result = await SectionDAO.addMultipleImagesInSection(sectionId, imageUrls);
-    if (result.modifiedCount === 1) {
+    if (result.modifiedCount === 1 || result.matchedCount === 1) {
       return {
         success: true,
       };

@@ -69,10 +69,26 @@ function watchCollection(collection, collectionName, resumeToken) {
       } catch (err) {
         console.error('Error resolving origin for change event:', err);
       }
-  console.log(`collectionstreamer: Broadcasting change in ${collectionName}, excluding origin: ${originClientId}`);
-  // Add to Redis queue for offline clients and broadcast to others, excluding origin
+
+      // If originClientId is present but does not correspond to a currently
+      // connected websocket client (for example 'webapp' or a stale id), we
+      // should NOT exclude it from broadcast. Only exclude when a connected
+      // client matches the origin. This ensures API-originated changes (webapp)
+      // still deliver cascading parent updates back to the same origin.
+      let excludeOrigin = null;
+      try {
+        if (originClientId && redisManager.isClientConnected(String(originClientId))) {
+          excludeOrigin = originClientId;
+        }
+      } catch (err) {
+        // fallback: do not exclude if any error
+        excludeOrigin = null;
+      }
+
+  console.log(`collectionstreamer: Broadcasting change in ${collectionName}, excluding origin: ${excludeOrigin}`);
+  // Add to Redis queue for offline clients and broadcast to others, excluding origin when applicable
   // Pass the change stream resume token so it can be persisted per-client (durable resume)
-  await redisManager.reliableBroadcastToAllClients(broadcastData, originClientId, change._id);
+  await redisManager.reliableBroadcastToAllClients(broadcastData, excludeOrigin, change._id);
 
     });
     changeStream.on('error', (err) => {
