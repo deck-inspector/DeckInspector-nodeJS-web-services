@@ -110,12 +110,20 @@ module.exports = {
         });
    },
    addUpdateChildInSingleLevelProject: async (projectId, childId,childData) => {
-    return await mongo.Projects.updateOne({ _id: new ObjectId(projectId),"sections._id":ObjectId(childId) }, {
-        $set: {
-            "sections.$": childData
-        }
-    },{upsert:true}
-    );
+    const projId = new ObjectId(projectId);
+    const secId = ObjectId(childId);
+    const found = await mongo.Projects.findOne({ _id: projId, 'sections._id': secId });
+    if (found) {
+        return await mongo.Projects.updateOne({ _id: projId, 'sections._id': secId }, {
+            $set: { 'sections.$': childData }
+        }, { upsert: false });
+    } else {
+        // mark new child with _d prop and push
+        const toPush = { _id: secId, ...childData};
+        return await mongo.Projects.updateOne({ _id: projId }, {
+            $push: { sections: toPush }
+        });
+    }
 },
    addUpdateProjectChild : async  (projectId, childId, childData)=>{
     var found = await mongo.Projects.findOne({_id:ObjectId(projectId),"children._id":ObjectId(childId)});

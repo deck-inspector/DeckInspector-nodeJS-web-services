@@ -34,14 +34,32 @@ module.exports = {
         return await mongo.Locations.find({ parentid: new ObjectId(parentId) }).toArray();
     },
     addUpdateLocationChild : async  (locationId, childId, childData)=>{
-        return await mongo.Locations.findOneAndUpdate({_id:ObjectId(locationId),"sections._id":ObjectId(childId)},
-        {
-            $set:{
-                "sections.$":childData
-            }
-        },{upsert:true}
-        );
+        //make the same changes here as well.
+        var found = await mongo.Locations.findOne({_id:ObjectId(locationId),"sections._id":ObjectId(childId)});
+        if(found){
+            try {
+                var result =  await mongo.Locations.findOneAndUpdate({_id:ObjectId(locationId),"sections._id":ObjectId(childId)},
+                {
+                    $set:{
+                        "sections.$":childData
+                    }
+                },{upsert:false}
+                );
+                return result;
+            } catch (error) {}
+        }else{
+            return await mongo.Locations.updateOne({ _id: new ObjectId(locationId) }, {
+                $push: {
+                    sections: {
+                        "_id": new ObjectId(childId),
+                        ...childData
+                    }
+                }
+            });
+        }
+
     },
+
     updateSectionImageCount:async  (locationId, childId, childData)=>{
         return await mongo.Locations.findOneAndUpdate({_id:ObjectId(locationId),"sections._id":ObjectId(childId)},
         {

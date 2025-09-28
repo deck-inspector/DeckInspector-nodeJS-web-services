@@ -77,12 +77,28 @@ module.exports = {
     },
 
     addUpdateSubProjectChild : async  (subprojectId, childId, childData)=>{
-        return await mongo.SubProjects.findOneAndUpdate({_id:ObjectId(subprojectId),"children._id":ObjectId(childId)},
-        {
-            $set:{
-                "children.$":childData
-            }
-        },{upsert:true}
-        );
+        var found = await mongo.SubProjects.findOne({_id:ObjectId(subprojectId),"children._id":ObjectId(childId)});
+        if(found){
+            try {
+                var result =  await mongo.SubProjects.findOneAndUpdate({_id:ObjectId(subprojectId),"children._id":ObjectId(childId)},
+                {
+                    $set:{
+                        "children.$":childData
+                    }
+                },{upsert:false}
+                );
+                return result;
+            } catch (error) {}
+        }else{
+            return await mongo.SubProjects.updateOne({ _id: new ObjectId(subprojectId) }, {
+                $push: {
+                    children: {
+                        "_id": new ObjectId(childId),
+                        ...childData
+                    }
+                }
+            });
+        }
+
     }
 };
