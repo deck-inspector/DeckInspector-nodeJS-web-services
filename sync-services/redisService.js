@@ -26,6 +26,111 @@ async function connectRedis() {
     console.error('❌ Redis connection failed:', error);
   }
 }
+// Deep merge utility: merges b into a and returns a new object.
+// - Plain objects are merged recursively.
+// - Arrays of plain objects that contain an `_id` property are merged by `_id`.
+// - Other arrays are replaced by the value from b (new wins).
+function isPlainObject(v) {
+  return v && typeof v === 'object' && !Array.isArray(v) && v.constructor === Object;
+}
+
+function deepClone(v) {
+  if (Array.isArray(v)) return v.map(deepClone);
+  if (isPlainObject(v)) {
+    const out = {};
+    for (const k of Object.keys(v)) out[k] = deepClone(v[k]);
+    return out;
+  }
+  return v;
+}
+
+function deepMerge(a, b) {
+  if (b === undefined) return deepClone(a);
+  if (a === undefined || a === null) return deepClone(b);
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const out = {};
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const k of keys) {
+      if (k in a && k in b) out[k] = deepMerge(a[k], b[k]);
+      else if (k in b) out[k] = deepClone(b[k]);
+      else out[k] = deepClone(a[k]);
+    }
+    return out;
+  }
+  // both arrays -> try smart merge for arrays of objects with _id
+  if (Array.isArray(a) && Array.isArray(b)) {
+    // check if elements are objects with _id
+    const aHasIds = a.every(x => isPlainObject(x) && (x._id !== undefined));
+    const bHasIds = b.every(x => isPlainObject(x) && (x._id !== undefined));
+    if (aHasIds && bHasIds) {
+      const map = new Map();
+      for (const item of a) map.set(String(item._id), deepClone(item));
+      for (const item of b) {
+        const id = String(item._id);
+        if (map.has(id)) map.set(id, deepMerge(map.get(id), item));
+        else map.set(id, deepClone(item));
+      }
+      // Preserve ordering from b, then any remaining from a that weren't in b
+      const out = [];
+      const seen = new Set();
+      for (const item of b) { out.push(map.get(String(item._id))); seen.add(String(item._id)); }
+      for (const item of a) {
+        const id = String(item._id);
+        if (!seen.has(id)) out.push(map.get(id));
+      }
+      return out;
+    }
+    // fallback: new array replaces old
+    return deepClone(b);
+  }
+  // default: prefer b (new value)
+  return deepClone(b);
+}
+// Merge two arrays into an ordered union. If elements are plain objects with _id,
+// merge by _id (preserve order from b then remaining from a). Otherwise dedupe by primitive value.
+function mergeArraysUnion(a, b) {
+  if (!Array.isArray(a)) return deepClone(b || []);
+  if (!Array.isArray(b)) return deepClone(a || []);
+  const aObjs = a.every(x => isPlainObject(x) && x._id !== undefined);
+  const bObjs = b.every(x => isPlainObject(x) && x._id !== undefined);
+  if (aObjs && bObjs) {
+    const map = new Map();
+    for (const item of a) map.set(String(item._id), deepClone(item));
+    for (const item of b) {
+      const id = String(item._id);
+      if (map.has(id)) map.set(id, deepMerge(map.get(id), item));
+      else map.set(id, deepClone(item));
+    }
+    const out = [];
+    const seen = new Set();
+    for (const item of b) { out.push(map.get(String(item._id))); seen.add(String(item._id)); }
+    for (const item of a) { const id = String(item._id); if (!seen.has(id)) out.push(map.get(id)); }
+    return out;
+  }
+  // primitives: ordered union (b then remaining from a)
+  const out = [];
+  const seen = new Set();
+  for (const v of b) { const key = String(v); if (!seen.has(key)) { out.push(v); seen.add(key); } }
+  for (const v of a) { const key = String(v); if (!seen.has(key)) { out.push(v); seen.add(key); } }
+  return out;
+}
+// Known image-array field name variants used across different socket handlers
+const IMAGE_FIELD_CANDIDATES = [
+  'images',
+  'invasiveimages',
+  'conclusiveimages',
+  'visualimages',
+  // camelCase variants just in case
+  'invasiveImages',
+  'conclusiveImages'
+];
+
+// Detect which image field key to use for merging: prefer existingMsg then incomingMsg, fallback to 'images'
+function detectImageFieldKey(existingMsg, incomingMsg) {
+  for (const k of IMAGE_FIELD_CANDIDATES) if (existingMsg && existingMsg[k]) return k;
+  for (const k of IMAGE_FIELD_CANDIDATES) if (incomingMsg && incomingMsg[k]) return k;
+  return 'images';
+}
 async function getAllClientIds() {
   const users = await mongo.Users.find({}).toArray();
   return users.map(u => `${u.username}.${u.companyIdentifier}`);
@@ -54,6 +159,7 @@ async function queueMessage(clientId, message, senderClientId, resumeToken = nul
     }
 
     const streamKey = REDIS_STREAM_PREFIX + clientId;
+  const dedupeMapKey = `ws_dedupe:${streamKey}`;
     const payload = { message: typeof message === 'string' ? message : JSON.stringify(message) };
     // Attach collectionName if available
     const collName = collectionName || (message && message.collectionName) || null;
@@ -66,9 +172,114 @@ async function queueMessage(clientId, message, senderClientId, resumeToken = nul
         payload.resumeToken = String(resumeToken);
       }
     }
+    // Try to de-duplicate messages by messageId to avoid stream growth.
+    let messageObj = null;
+    try {
+      messageObj = typeof message === 'string' ? JSON.parse(message) : message;
+    } catch (_) { messageObj = null; }
+
+    const messageId = messageObj && (messageObj.messageId || messageObj._id || (messageObj.fullDocument && messageObj.fullDocument._id)) ? String(messageObj.messageId || messageObj._id || messageObj.fullDocument._id) : null;
+    const collFromMsg = collectionName || (messageObj && (messageObj.collectionName || (messageObj.fullDocument && messageObj.fullDocument.collectionName))) || null;
+    const actionFromMsg = messageObj && (messageObj.action || null);
+
+    // Use composite field so we only dedupe same messageId+collection+action
+  const dedupeField = messageId && collFromMsg && actionFromMsg ? `${messageId}|${collFromMsg}|${actionFromMsg}` : null;
+  const dedupeKeylessField = messageId && collFromMsg ? `${messageId}|${collFromMsg}` : null;
+
+    let existingEntryId = null;
+    if (messageId && dedupeField) {
+      try {
+        existingEntryId = await redisClient.hGet(dedupeMapKey, dedupeField);
+
+        if (existingEntryId) {
+          if (DEBUG) console.debug('[DEBUG][redisService] dedupe hit ->', { streamKey, dedupeField, existingEntryId });
+          // Read existing entry payload
+          try {
+            const res = await redisClient.xRange(streamKey, existingEntryId, existingEntryId, { COUNT: 1 });
+            if (res && res.length > 0) {
+              const fields = res[0].messages || res[0][1];
+              // Normalize fields depending on node-redis shape
+              let existingPayloadRaw = null;
+              if (Array.isArray(fields)) {
+                // fields is array [field, value, field, value]
+                for (let i = 0; i < fields.length; i += 2) {
+                  if (fields[i] === 'message') existingPayloadRaw = fields[i+1];
+                }
+              } else if (fields && typeof fields === 'object') {
+                existingPayloadRaw = fields.message || null;
+              }
+              if (existingPayloadRaw) {
+                let existingMsgObj = null;
+                try { existingMsgObj = JSON.parse(existingPayloadRaw); } catch (_) { existingMsgObj = null; }
+                // Merge deeply so nested objects and arrays are handled correctly
+                let mergedMsg = deepMerge(existingMsgObj || {}, messageObj || {});
+                // If either existing or incoming message contains any known image-array field,
+                // union-merge those arrays into a single chosen key to avoid duplicates.
+                const hasImageFieldExisting = IMAGE_FIELD_CANDIDATES.some(k => existingMsgObj && existingMsgObj[k]);
+                const hasImageFieldIncoming = IMAGE_FIELD_CANDIDATES.some(k => messageObj && messageObj[k]);
+                if (hasImageFieldExisting || hasImageFieldIncoming) {
+                  const targetKey = detectImageFieldKey(existingMsgObj, messageObj);
+                  const existingImages = (existingMsgObj && (existingMsgObj[targetKey] || existingMsgObj.images)) || [];
+                  const newImages = (messageObj && (messageObj[targetKey] || messageObj.images)) || [];
+                  const mergedImages = mergeArraysUnion(existingImages, newImages);
+                  mergedMsg[targetKey] = mergedImages;
+                  for (const k of IMAGE_FIELD_CANDIDATES) if (k !== targetKey && mergedMsg[k]) delete mergedMsg[k];
+                }
+                payload.message = JSON.stringify(mergedMsg);
+              }
+            }
+          } catch (err) {
+            if (DEBUG) console.debug('[DEBUG][redisService] failed reading existing entry for dedupe', err);
+          }
+
+          // Add new entry and update map, then delete the old entry
+          if (DEBUG) console.debug('[DEBUG][redisService] xAdd (replace) ->', { streamKey, payload });
+          const entryId = await redisClient.xAdd(streamKey, '*', payload);
+          if (DEBUG) console.debug('[DEBUG][redisService] xAdd returned entryId ->', { streamKey, entryId });
+          try {
+            // update action-specific dedupe field
+            if (dedupeField) await redisClient.hSet(dedupeMapKey, dedupeField, entryId);
+            // if this message is an update/addImages, also set a keyless mapping so future addImages can merge
+            if (dedupeKeylessField && (actionFromMsg === 'update' || actionFromMsg === 'addImages')) {
+              await redisClient.hSet(dedupeMapKey, dedupeKeylessField, entryId);
+            }
+            // Set TTL on dedupe map to avoid unbounded growth (7 days)
+            try { await redisClient.expire(dedupeMapKey, 60 * 60 * 24 * 7); } catch (e) { /* best-effort */ }
+          } catch (e) {
+            if (DEBUG) console.debug('[DEBUG][redisService] failed updating dedupe map', e);
+          }
+          try {
+            await redisClient.xDel(streamKey, existingEntryId);
+          } catch (e) {
+            if (DEBUG) console.debug('[DEBUG][redisService] failed deleting old stream entry during dedupe', e);
+          }
+          return entryId;
+        }
+      } catch (err) {
+        if (DEBUG) console.debug('[DEBUG][redisService] dedupe check error', err);
+      }
+    }
+
+    // No action-specific normalization required here — change stream messages
+    // use operationType (insert/update/replace/delete) and include changed fields
+    // in `fullDocument` or `updateDescription`. The merge logic above will detect
+    // image-array fields and union-merge them when appropriate.
+
     if (DEBUG) console.debug('[DEBUG][redisService] xAdd ->', { streamKey, payload });
     const entryId = await redisClient.xAdd(streamKey, '*', payload);
     if (DEBUG) console.debug('[DEBUG][redisService] xAdd returned entryId ->', { streamKey, entryId });
+    // record in dedupe map when composite dedupeField present
+    if (messageId && dedupeField) {
+      try {
+        await redisClient.hSet(dedupeMapKey, dedupeField, entryId);
+        // also set keyless mapping for update/addImages so addImages can merge later
+        if (dedupeKeylessField && (actionFromMsg === 'update' || actionFromMsg === 'addImages')) {
+          await redisClient.hSet(dedupeMapKey, dedupeKeylessField, entryId);
+        }
+        // Set TTL on dedupe map to avoid unbounded growth (7 days)
+        try { await redisClient.expire(dedupeMapKey, 60 * 60 * 24 * 7); } catch (e) { /* best-effort */ }
+      } catch (e) { if (DEBUG) console.debug('[DEBUG][redisService] failed setting dedupe map after xAdd', e); }
+    }
     return entryId;
   } catch (error) {
     console.error('Error queuing message for client:', clientId, error);
