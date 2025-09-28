@@ -7,7 +7,7 @@ function watchCollection(collection, collectionName, resumeToken) {
     // If a resume token is provided, pass it to the change stream so MongoDB
     // will start from that point (replay changes happened after the token).
     const watchOptions = { fullDocument: 'updateLookup' };
-    if (resumeToken) watchOptions.resumeAfter = resumeToken;
+    //if (resumeToken) watchOptions.resumeAfter = resumeToken;
     const changeStream = collection.watch([], watchOptions);
     changeStream.on('change', async (change) => {
       // Prepare message for queue

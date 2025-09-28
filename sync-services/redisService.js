@@ -143,23 +143,41 @@ const REDIS_STREAM_PREFIX = 'ws_offline_';
 async function queueMessage(clientId, message, senderClientId, resumeToken = null, collectionName = null) {
   try {
     let companyIdentifier = message && message.companyIdentifier;
-    if(companyIdentifier==null){
-      // Extract companyIdentifier from senderClientId (e.g., "webapp.point5nyble.ondeckinspectors.com")
-      const firstDotIdx = senderClientId.indexOf('.');
-      if (firstDotIdx !== -1) {
-        // Use everything after the first dot as companyIdentifier (e.g., "point5nyble.ondeckinspectors.com")
-        companyIdentifier = senderClientId.substring(firstDotIdx + 1);
-      } else {
-        companyIdentifier = senderClientId;
+    // If companyIdentifier not present on the message, try to derive it.
+    if (!companyIdentifier) {
+      // Primary: try to extract from senderClientId (usual case: "user.companyIdentifier")
+      try {
+        if (senderClientId && typeof senderClientId === 'string') {
+          const firstDotIdx = senderClientId.indexOf('.');
+          if (firstDotIdx !== -1) {
+            companyIdentifier = senderClientId.substring(firstDotIdx + 1);
+          } else if (senderClientId) {
+            // senderClientId may be a special token like 'archive' or similar; don't trust it as company id
+            companyIdentifier = null;
+          }
+        }
+      } catch (e) {
+        companyIdentifier = null;
       }
     }
+
+    // If we still don't have companyIdentifier (e.g., replay with senderClientId='archive'),
+    // try deriving it from the clientId which in our code is expected to be "username.companyIdentifier".
+    if (!companyIdentifier && clientId && typeof clientId === 'string' && clientId.indexOf('.') !== -1) {
+      const parts = clientId.split('.');
+      // everything after the first dot is treated as companyIdentifier
+      companyIdentifier = parts.slice(1).join('.');
+      if (DEBUG) console.debug('[DEBUG][redisService] derived companyIdentifier from clientId fallback', { clientId, companyIdentifier });
+    }
+
     if (!companyIdentifier || !String(clientId).includes(companyIdentifier)) {
       // Client doesn't belong to this company identifier or message missing companyIdentifier
+      if (DEBUG) console.debug('[DEBUG][redisService] queueMessage skipping due to companyIdentifier mismatch', { clientId, senderClientId, companyIdentifier });
       return null;
     }
 
     const streamKey = REDIS_STREAM_PREFIX + clientId;
-  const dedupeMapKey = `ws_dedupe:${streamKey}`;
+    const dedupeMapKey = `ws_dedupe:${streamKey}`;
     const payload = { message: typeof message === 'string' ? message : JSON.stringify(message) };
     // Attach collectionName if available
     const collName = collectionName || (message && message.collectionName) || null;
