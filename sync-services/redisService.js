@@ -324,10 +324,10 @@ async function reliableBroadcastToAllClients(message, senderClientId, resumeToke
     // an object { clientId, entryId } so we can map results to clients deterministically
     // regardless of resolution order.
     const queuePromises = batch.map(clientId => {
-      if (clientId === senderClientId) {
-        // skip queuing for sender: keep shape consistent
-        return Promise.resolve({ clientId, entryId: null });
-      }
+      // if (clientId === senderClientId) {
+      //   // skip queuing for sender: keep shape consistent
+      //   return Promise.resolve({ clientId, entryId: null });
+      // }
   // include resumeToken and collectionName in the stream entry so it can be
   // persisted only when the client acks the entry
   return queueMessage(clientId, message, senderClientId, resumeToken, message && message.collectionName)
