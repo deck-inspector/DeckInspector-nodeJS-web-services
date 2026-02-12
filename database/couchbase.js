@@ -81,12 +81,13 @@ async function connectToDatabase() {
   const { cluster, bucket } = await createCouchbaseCluster();
   const scope = bucket.scope(DB_SCOPE_NAME);
 
+
   // Export collections for use in DAOs
   module.exports.cluster = cluster;
   module.exports.bucket = bucket;
   module.exports.scope = scope;
 
-  // Collection exports
+  // Collection exports - using correct collection names
   module.exports.Projects = scope.collection("Project");
   module.exports.SubProjects = scope.collection("SubProject");
   module.exports.Locations = scope.collection("Location");
@@ -107,6 +108,7 @@ async function connectToDatabase() {
     "DynamicVisualSection",
   );
   module.exports.LocationsForms = scope.collection("LocationForm");
+
 
   let dbConnection = {
     cluster,

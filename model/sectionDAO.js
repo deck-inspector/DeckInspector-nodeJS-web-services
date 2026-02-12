@@ -1,31 +1,72 @@
-const ObjectId = require('mongodb').ObjectId;
-const mongo = require('../database/mongo');
+
+const { v4: uuidv4 } = require("uuid");
+const couchbase = require("../database/couchbase");
+const { MutateInSpec } = require("couchbase");
+
+async function getSectionsCollection() {
+    return couchbase.Sections;
+}
 
 module.exports = {
     addSection: async (section) => {
-        return await mongo.Sections.insertOne(section);
+        const id = uuidv4();
+        const collection = await getSectionsCollection();
+        await collection.insert(id, section);
+        return { insertedId: id, ok: 1 };
     },
     getAllSections: async () => {
-        return await mongo.Sections.find({}).limit(50).sort({"_id": -1}).toArray();
+        const bucket = process.env.DB_BUCKET_NAME;
+        const scope = process.env.DB_SCOPE_NAME || "inventory";
+        const cluster = couchbase.cluster;
+        const query = `SELECT META(s).id as id, s.* FROM \`${bucket}\`.\`${scope}\`.Sections s LIMIT 50`;
+        const result = await cluster.query(query);
+        return result.rows;
     },
     getSectionById: async (id) => {
-        return await mongo.Sections.findOne({ _id: new ObjectId(id) });
+        const collection = await getSectionsCollection();
+        const doc = await collection.get(id);
+        // Always ensure 'id' is present in the response
+        return { ...doc.content, id };
     },
-    editSection: async (id, newData) => {
-        return await mongo.Sections.updateOne({ _id: new ObjectId(id) }, { $set: newData },{upsert:false});
+        editSection: async (id, newData) => {
+        const collection = await getSectionsCollection();
+        // Fetch the current document
+        const doc = await collection.get(id);
+        // Merge newData into the document
+        const updatedDoc = { ...doc.content, ...newData };
+        // Replace the whole document
+        await collection.replace(id, updatedDoc);
+        return { ok: 1 };
     },
     deleteSection: async (id) => {
-        return await mongo.Sections.deleteOne({ _id: new ObjectId(id) });
+        const collection = await getSectionsCollection();
+        await collection.remove(id);
+        return { ok: 1 };
     },
     getSectionByParentId: async (parentId) => {
-        return await mongo.Sections.find({ parentid: new ObjectId(parentId) }).toArray();
+        const bucket = process.env.DB_BUCKET_NAME;
+        const scope = process.env.DB_SCOPE_NAME || "inventory";
+        const cluster = couchbase.cluster;
+        const query = `SELECT META(s).id as id, s.* FROM \`${bucket}\`.\`${scope}\`.Sections s WHERE s.parentid = $1`;
+        const result = await cluster.query(query, { parameters: [parentId] });
+        return result.rows;
     },
-    addImageInSection : async (sectionId, url) => {
-        await mongo.Sections.updateOne({ _id: new ObjectId(sectionId) }, { $push: { images: url } });
+    addImageInSection: async (sectionId, url) => {
+        const collection = await getSectionsCollection();
+        await collection.mutateIn(sectionId, [
+            MutateInSpec.arrayAppend("images", url)
+        ]);
+        return { ok: 1 };
     },
-    removeImageInSection :  async (sectionId, url) => {
-        await mongo.Sections.updateOne({ _id: new ObjectId(sectionId) }, { $pull: { images: url } });
+    removeImageInSection: async (sectionId, url) => {
+        const collection = await getSectionsCollection();
+        const doc = await collection.get(sectionId);
+        const newImages = (doc.content.images || []).filter(img => img !== url);
+        await collection.mutateIn(sectionId, [
+            MutateInSpec.replace("images", newImages)
+        ]);
+        return { ok: 1 };
     }
-}
+};
 
 

@@ -4,6 +4,8 @@ var mongo = require('../database/mongo');
 const Projects = require('./project');
 const SubProjects = require('./subproject');
 const Sections = require('./sections');
+const couchbase = require("../database/couchbase");
+
 
 var addLocation = async function (location) {
     var response = {};
@@ -477,40 +479,36 @@ var addRemoveSections = async function (locationId, isAdd, { id, name }) {
     }
 }
 
+
 var getLocationByParentId = async function(parentId){
-    try{
-        var response = {};
-        var result = await mongo.Locations.find(
-            {parentid:new ObjectId(parentId)}
-            ).toArray();
-            //console.log(result);
-            if (result.length>0) {
-                response = {
-                    "data": {
-                        "item": result,
-                        "message": "locations found.",
-                        "code": 201
-                    }
-                };
-                return response;
-            } else {
-                response = {
-                    "error": {
-                        "code": 401,
-                        "message": "No locations found."
-                    }
+    try {
+        const cluster = couchbase.cluster;
+        const query = `SELECT META(l).id as _id, l.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Location l WHERE l.parentid = $1`;
+        const result = await cluster.query(query, { parameters: [parentId] });
+        if (result.rows.length > 0) {
+            return {
+                data: {
+                    item: result.rows,
+                    message: "locations found.",
+                    code: 201
                 }
-                return response;
-            }    
-    }catch(error){
-        response = {
-            "error": {
-                "code": 500,
-                "message": "Error fetching locations.",
-                "errordata": error
-            }
+            };
+        } else {
+            return {
+                error: {
+                    code: 401,
+                    message: "No locations found."
+                }
+            };
         }
-        return response;
+    } catch (error) {
+        return {
+            error: {
+                code: 500,
+                message: "Error fetching locations.",
+                errordata: error
+            }
+        };
     }
 }
 

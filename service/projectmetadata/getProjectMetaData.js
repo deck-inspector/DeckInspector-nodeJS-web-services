@@ -12,9 +12,17 @@ const getProjectHierarchyMetadata = async function(username)
         
         if(allProjects.data && allProjects.data.projects)
         {
-            for(const project of allProjects.data.projects)
+            for(const proj of allProjects.data.projects)
             {
-                const projectId = project._id;
+                // ✅ FIX: Handle both Couchbase (id) and legacy (_id) formats
+                const projectId = proj.id || proj._id;
+                
+                if (!projectId || projectId === 'undefined') {
+                    console.warn("⚠️ Skipping project with undefined ID:", proj);
+                    continue;
+                }
+                
+                console.log("Processing project ID:", projectId);
                 const projectResponse = await getProjectData(projectId);
                 projects.push(projectResponse);
             }
@@ -29,7 +37,11 @@ const getProjectHierarchyMetadata = async function(username)
         }
         return response;
     }catch(error){
-        console.log(error);
+        console.log("Error in getProjectHierarchyMetadata:", error);
+        return {
+            "error": error,
+            "code": 500
+        }
     }
 
    
@@ -63,15 +75,35 @@ async function getSingleProjectMetadata(projectId)
 
 async function getProjectData(projectId) {
     const projectResponse = {};
+    console.log("Fetching data for project ID:", projectId);
     const projectData = await project.getProjectById(projectId);
-    projectResponse.id = projectData.data.item._id;
-    projectResponse.name = projectData.data.item.name;
-    projectResponse.isInvasive = projectData.data.item.isInvasive?projectData.data.item.isInvasive:false;
-    projectResponse.projectType = projectData.data.item.projecttype;
+    console.log("Project Data:", projectData);
+    
+    // ✅ Handle new Couchbase response format
+    let projectInfo = null;
+    
+    if (projectData.success && projectData.project) {
+        // New format: { success: true, project: {...} }
+        projectInfo = projectData.project;
+    } else if (projectData.data && projectData.data.item) {
+        // Legacy format: { data: { item: {...} } }
+        projectInfo = projectData.data.item;
+    } else {
+        console.error("Invalid project data structure:", projectData);
+        throw new Error("Invalid project response format");
+    }
+    
+    // ✅ Safely extract properties with fallbacks
+    projectResponse.id = projectInfo._id || projectInfo.id || projectId;
+    projectResponse.name = projectInfo.name || "";
+    projectResponse.isInvasive = projectInfo.isInvasive ? projectInfo.isInvasive : false;
+    projectResponse.projectType = projectInfo.projecttype || projectInfo.projectType || "";
     projectResponse.subProjects = await getSubProjectsData(projectId);
     projectResponse.locations = await getProjectWiseLocationsMetaData(projectId);
+    
     return projectResponse;
 }
+
 
 async function getProjectWiseLocationsMetaData(projectId) {
     const locationData = await location.getLocationByParentId(projectId);
@@ -79,7 +111,7 @@ async function getProjectWiseLocationsMetaData(projectId) {
     if(locationData.data && locationData.data.item)
     {
         for (const loc of locationData.data.item) {
-            locations.push({ locationId: loc._id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo});
+            locations.push({ locationId: loc.id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo});
         }
     }
     locations.sort(function(loc1,loc2){
@@ -91,39 +123,45 @@ async function getProjectWiseLocationsMetaData(projectId) {
 
 async function getSubProjectsData(projectId) {
     const subProjectsData = await subProject.getSubProjectsByParentId(projectId);
+    console.log("SubProjects Data:", subProjectsData);
     const subProjects = [];
-    if(subProjectsData.data && subProjectsData.data.item)
-    {
+    if (subProjectsData.data && subProjectsData.data.item) {
         for (const subProject of subProjectsData.data.item) {
             const subProjectData = {};
-            subProjectData._id = subProject._id;
+            // Always use 'id' in the response
+            subProjectData.id = subProject.id || subProject._id;
             subProjectData.name = subProject.name;
-            subProjectData.isInvasive = subProject.isInvasive?subProject.isInvasive:false;
+            subProjectData.isInvasive = subProject.isInvasive ? subProject.isInvasive : false;
             subProjectData.sequenceNo = subProject.sequenceNo;
             const subProjectLocations = [];
-            const subProjectChildren = await location.getLocationByParentId(subProject._id);
-            
-            if (subProjectChildren.data) {
+            // Use id for location parent
+            const subProjectKey = subProject.id || subProject._id;
+            const subProjectChildren = await location.getLocationByParentId(subProjectKey);
+
+            if (subProjectChildren.data && subProjectChildren.data.item) {
                 for (const loc of subProjectChildren.data.item) {
-                    const locId = loc._id;
+                    const locId = loc.id || loc._id;
                     const locName = loc.name;
                     const locType = loc.type;
                     const sequenceNo = loc.sequenceNo;
-                    const isInvasive = loc.isInvasive?loc.isInvasive:false;
-                    subProjectLocations.push({ locationId: locId, sequenceNo:sequenceNo, locationName: locName,
-                         locationType: locType,isInvasive:isInvasive });
+                    const isInvasive = loc.isInvasive ? loc.isInvasive : false;
+                    subProjectLocations.push({
+                        locationId: locId,
+                        sequenceNo: sequenceNo,
+                        locationName: locName,
+                        locationType: locType,
+                        isInvasive: isInvasive
+                    });
                 }
             }
-            subProjectData.subProjectLocations = subProjectLocations
-            .sort(function(subProj1,subProj2){
-                return (subProj1.sequenceNo-subProj2.sequenceNo)
+            subProjectData.subProjectLocations = subProjectLocations.sort(function (subProj1, subProj2) {
+                return (subProj1.sequenceNo - subProj2.sequenceNo)
             });
             subProjects.push(subProjectData);
-            
         }
     }
-    subProjects.sort(function(subProj1,subProj2){
-        return (subProj1.sequenceNo-subProj2.sequenceNo)
+    subProjects.sort(function (subProj1, subProj2) {
+        return (subProj1.sequenceNo - subProj2.sequenceNo)
     });
     return subProjects;
 }

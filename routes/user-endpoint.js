@@ -373,19 +373,13 @@ router.route("/delete").post(async function (req, res) {
 router.route("/allusers").get(async function (req, res) {
   try {
     var companyIdentifier = req.user.company;
-    users.getAllUser(function (err, result) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        // console.debug(result);
-        result.users = result.users.filter(
-          (user) => user.companyIdentifier === companyIdentifier
-        );
-        res.status(result.status).json(result.users);
-      }
-    });
-  } catch (exception) {
-    res.status(500).send(`Intenal server error.${exception}"`);
+    const result = await users.getAllUser();
+    const filteredUsers = result.users.filter(
+      (user) => user.companyIdentifier === companyIdentifier
+    );
+    res.status(result.status).json(filteredUsers);
+  } catch (err) {
+    res.status(err.status || 500).send(err.message || "Internal server error.");
   }
 });
 
@@ -434,19 +428,18 @@ router
   .get(async function (req, res) {
     try {
       const username = req.params.username;
-      users.getUserbyUsername(username, async function (err, record) {
-        if (err) {
-          res.status(err.status).send(err.message);
-        } else {
-          if (record) {
-            const { password, ...user } = record;
-            res.status(201).json(user);
-          } else res.status(401).send("user not found.");
-        }
-      });
-    } catch {
+      const result = await users.getUserbyUsername(username )
+      if (result) {
+        const { password, ...user } = result;
+        res.status(201).json(user);
+      } else {
+        res.status(401).send("user not found.");
+      }
+    } catch (err) {
+      console.error("Error:", err);
       res.status(500).send("Internal server error.");
     }
+        
   })
   .put(async function (req, res) {
     try {

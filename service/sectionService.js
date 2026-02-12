@@ -12,9 +12,8 @@ const RatingMapping  = require("../model/ratingMapping.js");
 const addSection = async (section) => {
   try {
     const result = await SectionDAO.addSection(section);
-    if (result.insertedId) {
+    if (result && result.insertedId) {
       await updateParentHelper.addSectionMetadataInParent(result.insertedId, section);
-
       //if section is invasive ,it will mark entire parent hierarchy as invasive
       await InvasiveUtil.markSectionInvasive(result.insertedId);
       return {
@@ -81,9 +80,7 @@ var deleteSectionPermanently = async function (sectionId) {
     const section = await SectionDAO.getSectionById(sectionId);
     const result = await SectionDAO.deleteSection(sectionId);
 
-
     //Mark parent as non-invasive if its all child are non invasive
-
     if(section.parenttype == "project")
     {
       await InvasiveUtil.markProjectNonInvasive(section.parentid);
@@ -94,9 +91,8 @@ var deleteSectionPermanently = async function (sectionId) {
     //Update Parent for the section
     await updateParentHelper.removeSectionMetadataFromParent(sectionId, section);
 
-  
-
-    if (result.deletedCount === 1) {
+    // Couchbase returns { ok: 1 } for delete
+    if (result && result.ok === 1) {
       return {
         success: true,
         id: sectionId,
@@ -115,7 +111,7 @@ var deleteSectionPermanently = async function (sectionId) {
 var getSectionsByParentId = async function (parentId) {
   try {
     const result = await SectionDAO.getSectionByParentId(parentId);
-    if (result) {
+    if (result && result.length > 0) {
       for (let section of result) {
         transformData(section);
       }
@@ -137,16 +133,9 @@ var getSectionsByParentId = async function (parentId) {
 const editSetion = async (sectionId, section) => {
   try {
     const result = await SectionDAO.editSection(sectionId, section);
-    if (result.modifiedCount === 1) {
+    // Couchbase returns { ok: 1 } for edit
+    if (result && result.ok === 1) {
       const sectionFromDB = await SectionDAO.getSectionById(sectionId);
-      // await updateParentHelper.removeSectionMetadataFromParent(
-      //   sectionId,
-      //   sectionFromDB
-      // );
-      // await updateParentHelper.addSectionMetadataInParent(
-      //   sectionId,
-      //   sectionFromDB
-      // );
       await updateParentHelper.addUpdateSectionMetadataInParent(
         sectionId,
         sectionFromDB
@@ -179,7 +168,7 @@ const editSetion = async (sectionId, section) => {
 const addImageInSection = async (sectionId, imageUrl) => {
   try {
     const result = await SectionDAO.addImageInSection(sectionId, imageUrl);
-    if (result.modifiedCount === 1) {
+    if (result && result.ok === 1) {
       return {
         success: true,
       };
@@ -198,7 +187,7 @@ const addImageInSection = async (sectionId, imageUrl) => {
 const removeImageFromSection = async (sectionId, imageUrl) => {
   try {
     const result = await SectionDAO.removeImageInSection(sectionId, imageUrl);
-    if (result.modifiedCount === 1) {
+    if (result && result.ok === 1) {
       return {
         success: true,
       };

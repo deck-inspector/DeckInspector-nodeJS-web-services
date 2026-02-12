@@ -17,14 +17,15 @@ const {v4 : uuidv4} = require('uuid');
 var uploadBlob = require('../database/uploadimage');
 const projectReports = require("../model/projectReports");
 const {generateLocationReportDoc} = require("../service/projectreportgeneration");
-const ObjectId = require('mongodb').ObjectId;
 
 router.route('/add')
     .post(async function (req, res) {
       try {
         // Get user input
-        const { name, description, address, createdBy, url, assignedTo, projecttype, editedat,formId } = req.body;
+        const { name, description, address, createdby, url, assignedto, projecttype, editedat,formId } = req.body;
+        console.log(req.user);
         const companyIdentifier = req.user.company;
+        console.log(`Company Identifier: ${companyIdentifier}`);
         // Validate user input
         if (!name) {
           const errResponse = new ErrorResponse(400, "Name is required", "");
@@ -37,10 +38,10 @@ router.route('/add')
           "name": name,
           "description": description,
           "address": address,
-          "createdby": createdBy,
+          "createdby": createdby,
           "url": url,
-          "lasteditedby": createdBy,
-          "assignedto": assignedTo,
+          "lasteditedby": createdby,
+          "assignedto": assignedto,
           "editedat": new Date(editedat).toISOString(),
           "children": [],
           "projecttype": projecttype,
@@ -48,7 +49,8 @@ router.route('/add')
           "iscomplete":false,
           "isInvasive":false,
           "companyIdentifier": companyIdentifier,
-          "formId": formId==null?null:ObjectId(formId)
+          "formId": formId || null,
+          "type": "Project"
         }
 
         // Save the new project to the database
@@ -115,6 +117,7 @@ router.route('/filterprojects')
 router.route('/getProjectById')
     .post(async function (req, res) {
       try {
+        console.log("Inside getProjectById route",req.body);
         var errResponse;
         const projectId = req.body.projectid;
         var result = await projectService.getProjectById(projectId);
@@ -163,7 +166,7 @@ router.route('/:id')
       try {
         var errResponse;
         const newData = req.body;
-        newData.formId=newData.formId==null?null:ObjectId(newData.formId);
+        newData.formId = newData.formId || null;
         const projectId = req.params.id;
         // Validate user input
         var result = await projectService.editProject(projectId,newData);

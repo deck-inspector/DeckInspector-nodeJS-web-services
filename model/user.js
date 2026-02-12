@@ -1,15 +1,41 @@
 "use strict";
-var ObjectId = require("mongodb").ObjectId;
-var mongo = require("../database/mongo");
+const { v4: uuidv4 } = require("uuid");
+const couchbase = require("../database/couchbase");
 const Role = require("./role");
 const bcrypt = require("bcrypt");
 var jwt = require("jsonwebtoken");
 const Tenants = require("../service/tenantService");
 
-var addUser = function (user, callback) {
-  // console.log("user: ", user);
-  mongo.Users.insertOne(
-    {
+// Helper function to get Users collection
+async function getUsersCollection() {
+  return couchbase.Users;
+}
+
+// Helper function to get SuperUsers collection
+async function getSuperUsersCollection() {
+  return couchbase.SuperUsers;
+}
+
+// Helper function to execute N1QL queries
+async function executeQuery(statement, parameters = []) {
+  try {
+    const cluster = couchbase.cluster;
+    if (!cluster) {
+      throw new Error("Cluster connection not initialized.");
+    }
+    const result = await cluster.query(statement, { parameters });
+    return result.rows;
+  } catch (error) {
+    console.error("Query execution error:", error);
+    throw error;
+  }
+}
+
+var addUser = async function (user) {
+  try {
+    const userId = `user_${uuidv4()}`;
+    const collection = await getUsersCollection();
+    const userDoc = {
       username: user.username,
       last_name: user.last_name,
       first_name: user.first_name,
@@ -19,46 +45,43 @@ var addUser = function (user, callback) {
       role: Role.User,
       access_type: user.access_type,
       companyIdentifier: user.companyIdentifier,
-    },
-    { w: 1 },
-    function (err, result) {
-      if (err) {
-        var error = new Error("addUser()." + err.message);
-        error.status = err.status;
-        callback(error);
-        return;
-      }
-      callback(null, result);
-    }
-  );
+      type: "User",
+      createdAt: new Date().toISOString(),
+    };
+    await collection.insert(userId, userDoc);
+    return { insertedId: userId, ok: 1 };
+  } catch (error) {
+    console.error("addUser error:", error);
+    throw error;
+  }
 };
 
-var addSuperUser = async function (user, callback) {
-  var encryptedPassword = await bcrypt.hash(user.password, 10);
-  mongo.SuperUsers.insertOne(
-    {
+var addSuperUser = async function (user) {
+  try {
+    const userId = `superuser_${uuidv4()}`;
+    const encryptedPassword = await bcrypt.hash(user.password, 10);
+    const collection = await getSuperUsersCollection();
+    const userDoc = {
       username: user.username,
       last_name: user.last_name,
       first_name: user.first_name,
       email: user.email,
       password: encryptedPassword,
-    },
-    { w: 1 },
-    function (err, result) {
-      if (err) {
-        var error = new Error("addSuperUser()." + err.message);
-        error.status = err.status;
-        callback(error);
-        return;
-      }
-      callback(null, result);
-    }
-  );
+      type: "SuperUser",
+      createdAt: new Date().toISOString(),
+    };
+    await collection.insert(userId, userDoc);
+    return { insertedId: userId, ok: 1 };
+  } catch (error) {
+    console.error("addSuperUser error:", error);
+    throw error;
+  }
 };
-var addAdmin = function (user, callback) {
-  // console.log("user: ", user);
-  mongo.Users.insertOne(
-    {
+var addAdmin = async function (user) {
+  try {
+    const userId = `admin_${uuidv4()}`;
+    const collection = await getUsersCollection();
+    const userDoc = {
       last_name: user.last_name,
       first_name: user.first_name,
       email: user.email,
@@ -68,225 +91,275 @@ var addAdmin = function (user, callback) {
       role: Role.Admin,
       access_type: "both",
       companyIdentifier: user.companyIdentifier,
-    },
-    { w: 1 },
-    function (err, result) {
-      if (err) {
-        var error = new Error("addAdmin()." + err.message);
-        error.status = err.status;
-        callback(error);
-        return;
-      }
-      callback(null, result);
+      type: "User",
+      createdAt: new Date().toISOString(),
+    };
+    await collection.insert(userId, userDoc);
+    return { insertedId: userId, ok: 1 };
+  } catch (error) {
+    console.error("addAdmin error:", error);
+    throw error;
+  }
+};
+var getUser = async function (emailId) {
+  try {
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.email = $1`;
+    const results = await executeQuery(query, [emailId]);
+    
+    if (results.length === 0) {
+      throw new Error("No User Found.");
     }
-  );
+    return results[0];
+  } catch (error) {
+    console.error("getUser error:", error);
+    throw error;
+  }
 };
-var getUser = async function (emailId, callback) {
-  var result = await mongo.Users.findOne({ email: emailId });
-
-  if (result === null) {
-    var error1 = new Error(
-      "getUser(). \nMessage: No User Found. One Requested."
-    );
-    error1.status = 404;
-    callback(error1);
-    return;
+var getSuperUser = async function (emailId) {
+  try {
+    const collection = await getSuperUsersCollection();
+    const query = `SELECT META(s).id as id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.SuperUsers s WHERE s.email = $1`;
+    const results = await executeQuery(query, [emailId]);
+    
+    if (results.length === 0) {
+      throw new Error("No SuperUser Found.");
+    }
+    return results[0];
+  } catch (error) {
+    console.error("getSuperUser error:", error);
+    throw error;
   }
-  callback(null, result);
 };
-var getSuperUser = async function (emailId, callback) {
-  var result = await mongo.SuperUsers.findOne({ email: emailId });
-
-  if (result === null) {
-    var error1 = new Error(
-      "getSuperUser(). \nMessage: No User Found. One Requested."
-    );
-    error1.status = 404;
-    callback(error1);
-    return;
+var getUserbyUsername = async function (username) {
+  try {
+    if (username === undefined) {
+      throw new Error("username undefined.");
+    }
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const results = await executeQuery(query, [username]);
+    
+    if (results.length === 0) {
+      throw new Error("No User Found.");
+    }
+    return results[0];
+  } catch (error) {
+    console.error("getUserbyUsername error:", error);
+    throw error;
   }
-  callback(null, result);
-};
-var getUserbyUsername = async function (username, callback) {
-  if (username === undefined) {
-    var error1 = new Error(
-      "getUser(). \nMessage: No User Found. username undefined."
-    );
-    error1.status = 404;
-    callback(error1);
-    return;
-  }
-  var result = await mongo.Users.findOne({ username: username });
-
-  if (!result) {
-    var error1 = new Error(
-      "getUser(). \nMessage: No User Found. One Requested."
-    );
-    error1.status = 404;
-    callback(error1);
-    return;
-  }
-  callback(null, result);
 };
 
-var getUserbyMobile = async function (mobile, callback) {
-  console.log("Mobile: ", mobile);
-  if (mobile === undefined) {
-    var error1 = new Error(
-      "getUser(). \nMessage: No User Found. mobile number undefined."
-    );
-    error1.status = 404;
-    callback(error1);
-    return;
+var getUserbyMobile = async function (mobile) {
+  try {
+    console.log("Mobile: ", mobile);
+    if (mobile === undefined) {
+      throw new Error("mobile number undefined.");
+    }
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.mobile = $1`;
+    const results = await executeQuery(query, [mobile]);
+    
+    if (results.length === 0) {
+      throw new Error("No User Found.");
+    }
+    return results[0];
+  } catch (error) {
+    console.error("getUserbyMobile error:", error);
+    throw error;
   }
-  var result = await mongo.Users.findOne({ mobile: mobile });
-
-  if (!result) {
-    var error1 = new Error(
-      "getUser(). \nMessage: No User Found. One Requested."
-    );
-    error1.status = 404;
-    callback(error1);
-    return;
-  }
-  callback(null, result);
 };
 
-var getSuperUserbyUsername = async function (username, callback) {
-  if (username === undefined) {
-    var error1 = new Error(
-      "getUser(). \nMessage: No User Found. username undefined."
-    );
-    error1.status = 404;
-    callback(error1);
-    return;
+var getSuperUserbyUsername = async function (username) {
+  try {
+    if (username === undefined) {
+      throw new Error("username undefined.");
+    }
+    const collection = await getSuperUsersCollection();
+    const query = `SELECT META(s).id as id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.SuperUsers s WHERE s.username = $1`;
+    const results = await executeQuery(query, [username]);
+    
+    if (results.length === 0) {
+      throw new Error("No SuperUser Found.");
+    }
+    return results[0];
+  } catch (error) {
+    console.error("getSuperUserbyUsername error:", error);
+    throw error;
   }
-  var result = await mongo.SuperUsers.findOne({ username: username });
-
-  if (result === null) {
-    var error1 = new Error(
-      "getUser(). \nMessage: No User Found. One Requested."
-    );
-    error1.status = 404;
-    callback(error1);
-    return;
-  }
-  callback(null, result);
 };
-var updateDevideId = async function ( username,deviceId, callback){
-  var result = await mongo.Users.updateOne({username:username}, {$set:{deviceId:deviceId}});
-  if (result.modifiedCount) {
-    callback(null, {
+var updateDevideId = async function (username, deviceId) {
+  try {
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const results = await executeQuery(query, [username]);
+    
+    if (results.length === 0) {
+      throw new Error("User not found");
+    }
+    
+    const userId = results[0].id;
+    const userDoc = await collection.get(userId);
+    userDoc.content.deviceId = deviceId;
+    await collection.upsert(userId, userDoc.content);
+    
+    return {
       status: 201,
       message: "User device added successfully.",
-    });
-  }else{
-    
-      callback(null, {
-        status: 409,
-        message: "Failed to update the user device details.",
-      });
+    };
+  } catch (error) {
+    console.error("updateDevideId error:", error);
+    return {
+      status: 409,
+      message: "Failed to update the user device details.",
+    };
   }
-}
-var updateUserStatus = async function ( username,status, callback){
-  var result = await mongo.Users.updateOne({username:username}, {$set:{isActive:status}});
-  if (result.modifiedCount) {
-    callback(null, {
+};
+var updateUserStatus = async function (username, status) {
+  try {
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const results = await executeQuery(query, [username]);
+    
+    if (results.length === 0) {
+      throw new Error("User not found");
+    }
+    
+    const userId = results[0].id;
+    const userDoc = await collection.get(userId);
+    userDoc.content.isActive = status;
+    await collection.upsert(userId, userDoc.content);
+    
+    return {
       status: 201,
       message: "User status updated successfully.",
-    });
-  }else{
-    
-      callback(null, {
-        status: 409,
-        message: "Failed to update the user status.",
-      });
+    };
+  } catch (error) {
+    console.error("updateUserStatus error:", error);
+    return {
+      status: 409,
+      message: "Failed to update the user status.",
+    };
   }
-}
-var updateSession = async function ( username,callback){
-  var result = await mongo.Users.updateOne({username:username}, {$set:{hasActiveSession:true}});
-  if (result.modifiedCount) {
-    callback(null, {
+};
+var updateSession = async function (username) {
+  try {
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const results = await executeQuery(query, [username]);
+    
+    if (results.length === 0) {
+      throw new Error("User not found");
+    }
+    
+    const userId = results[0].id;
+    const userDoc = await collection.get(userId);
+    userDoc.content.hasActiveSession = true;
+    await collection.upsert(userId, userDoc.content);
+    
+    return {
       status: 201,
       message: "User login session updated successfully.",
-    });
-  }else{
-    
-      callback(null, {
-        status: 409,
-        message: "Failed to update the user session details.",
-      });
+    };
+  } catch (error) {
+    console.error("updateSession error:", error);
+    return {
+      status: 409,
+      message: "Failed to update the user session details.",
+    };
   }
-}
+};
 
-var clearSession = async function ( username,callback){
-  var result = await mongo.Users.updateOne({username:username}, {$set:{hasActiveSession:false}});
-  if (result.modifiedCount) {
-    callback(null, {
+var clearSession = async function (username) {
+  try {
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const results = await executeQuery(query, [username]);
+    
+    if (results.length === 0) {
+      throw new Error("User not found");
+    }
+    
+    const userId = results[0].id;
+    const userDoc = await collection.get(userId);
+    userDoc.content.hasActiveSession = false;
+    await collection.upsert(userId, userDoc.content);
+    
+    return {
       status: 201,
       message: "User login session cleared successfully.",
-    });
-  }else{
+    };
+  } catch (error) {
+    console.error("clearSession error:", error);
+    return {
+      status: 409,
+      message: "Failed to update the user session details.",
+    };
+  }
+};
+var updateUser = async function (user) {
+  try {
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const results = await executeQuery(query, [user.username]);
     
-      callback(null, {
-        status: 409,
-        message: "Failed to update the user session details.",
-      });
-  }
-}
-var updateUser = async function (user, callback) {
-  var result = await mongo.Users.updateOne(
-    { username: user.username },
-    { $set: user }
-  );
-
-  if (result.matchedCount < 1) {
-    var error = new Error("No User found, please register user.");
-    error.status = 401;
-    callback(error);
-  } else {
-    if (result.modifiedCount == 1) {
-      callback(null, {
-        status: 201,
-        message: "User details updated successfully.",
-      });
-    } else
-      callback(null, {
-        status: 409,
-        message: "Failed to update the user details.",
-      });
+    if (results.length === 0) {
+      throw new Error("No User found, please register user.");
+    }
+    
+    const userId = results[0].id;
+    const userDoc = await collection.get(userId);
+    const updatedDoc = { ...userDoc.content, ...user };
+    await collection.upsert(userId, updatedDoc);
+    
+    return {
+      status: 201,
+      message: "User details updated successfully.",
+    };
+  } catch (error) {
+    console.error("updateUser error:", error);
+    throw error;
   }
 };
 
-var getAllUser = async function (callback) {
-  var result = await mongo.Users.find({}).limit(500).toArray();
-  if (result === null) {
-    var error = new Error(
-      "getAllUser(). \nMessage: No Users Found. All Requested."
-    );
-    error.status = 401;
-    callback(error);
-    return;
+var getAllUser = async function () {
+  try {
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u LIMIT 500`;
+    const results = await executeQuery(query);
+    
+    if (results.length === 0) {
+      throw new Error("No Users Found.");
+    }
+    
+    const users = results.map((item) => {
+      delete item.password;
+      delete item._id;
+      return item;
+    });
+    
+    return { status: 200, users };
+  } catch (error) {
+    console.error("getAllUser error:", error);
+    throw error;
   }
-  const users = result.map((item) => {
-    delete item.password;
-    delete item._id;
-    return item;
-  });
-
-  callback(null, { status: 200, users });
 };
-var removeUser = async function (user, callback) {
-  var result = await mongo.Users.deleteOne({ username: user.username });
-  if (result.deletedCount == 1) {
-    callback(null, { status: 201, message: "User deleted successfully." });
-  } else {
-        var error2 = new Error(
-      "Error occurred. Didn't remove user. "
-    );
-    error2.status = 500;
-    callback(error2);
-    return;
+var removeUser = async function (user) {
+  try {
+    const collection = await getUsersCollection();
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const results = await executeQuery(query, [user.username]);
+    
+    if (results.length === 0) {
+      throw new Error("User not found");
+    }
+    
+    const userId = results[0].id;
+    await collection.remove(userId);
+    
+    return { status: 201, message: "User deleted successfully." };
+  } catch (error) {
+    console.error("removeUser error:", error);
+    throw error;
   }
 };
 
@@ -298,123 +371,88 @@ var registerAdmin = async function (
   mobile,
   password,
   appSecret,
-  companyIdentifier,
-  callback
+  companyIdentifier
 ) {
-  // console.log("user.js-registerAdmin");
-  if (
-    !(email && password && first_name && mobile && last_name && username,
-    companyIdentifier)
-  ) {
-    var error1 = new Error("All input is required");
-    error1.status = 400;
-    callback(error1);
-    return;
-  }
-
-  // Check if the count is exceeding the limit
-  const tenant = await Tenants.getTenantByCompanyIdentifier(companyIdentifier);
-  const allUsers = await new Promise((resolve, reject) => {
-    getAllUser(function (err, result) {
-      resolve(result);
-    });
-  });
-  const filteredUsers = allUsers.users.filter(
-    (user) => user.companyIdentifier === companyIdentifier
-  );
-
-  if (
-    tenant.Tenant.bothUserCount <=
-    filteredUsers.filter((user) => user.access_type === "both").length
-  ) {
-    // return res.status(409).send("Cannot add a new user, limit reached. Please contact system admin");
-    var error1 = new Error(
-      "Cannot add a new user, limit reached. Please contact system admin"
-    );
-    error1.status = 409;
-    callback(error1);
-    return;
-  }
-
-  if (appSecret !== process.env.APP_SECRET) {
-    var error1 = new Error(
-      "Please contact administrator to register as an Admin"
-    );
-    error1.status = 403;
-    callback(error1);
-    return;
-  }
-  // Check if user already exists by email
-  getUser(email, async function (err, recordByEmail) {
-    if (recordByEmail) {
-      var error1 = new Error(
-        "User with this email already exists. Please Login"
-      );
-      error1.status = 409;
-      callback(error1, null);
-      return;
-    } else {
-      // Check if username already exists
-      getUserbyUsername(username, async function (err, recordByUsername) {
-        if (recordByUsername) {
-          var error1 = new Error(
-            "Username already exists. Please choose a different username"
-          );
-          error1.status = 409;
-          callback(error1, null);
-          return;
-        } else {
-            
-        //   const existingUserByMobile = await new Promise((resolve, reject) => {
-        //     getUserbyMobile(mobile, function (err, record) {
-        //       resolve(record);
-        //     });
-        //   });
-
-        //   console.log("Existing user:", existingUserByMobile);
-
-        //   if (existingUserByMobile) {
-        //     return res.status(409).send("Mobile number already in use.");
-        //   }
-
-          var encryptedPassword = await bcrypt.hash(password, 10);
-
-          // Create user in our database
-          addAdmin(
-            {
-              first_name,
-              last_name,
-              username,
-              mobile,
-              companyIdentifier,
-              email: email.toLowerCase(), // sanitize: convert email to lowercase
-              password: encryptedPassword,
-            },
-            function (err, result) {
-              if (err) {
-                callback(err, null);
-              } else {
-                const user = result;
-                // Create token
-                const token = jwt.sign(
-                  { user_id: user._id, email },
-                  process.env.TOKEN_KEY,
-                  {
-                    expiresIn: "30d",
-                  }
-                );
-                // save user token
-                user.token = token;
-
-                // return new user
-                callback(null, user);
-              }
-            }
-          );
-        }
-      });
+  try {
+    if (
+      !(email && password && first_name && mobile && last_name && username && companyIdentifier)
+    ) {
+      throw new Error("All input is required");
     }
-  });
+
+    // Check if the count is exceeding the limit
+    const tenant = await Tenants.getTenantByCompanyIdentifier(companyIdentifier);
+    const allUsersResult = await getAllUser();
+    const filteredUsers = allUsersResult.users.filter(
+      (user) => user.companyIdentifier === companyIdentifier
+    );
+
+    if (
+      tenant.Tenant.bothUserCount <=
+      filteredUsers.filter((user) => user.access_type === "both").length
+    ) {
+      throw new Error(
+        "Cannot add a new user, limit reached. Please contact system admin"
+      );
+    }
+
+    if (appSecret !== process.env.APP_SECRET) {
+      throw new Error(
+        "Please contact administrator to register as an Admin"
+      );
+    }
+    
+    // Check if user already exists by email
+    try {
+      await getUser(email);
+      throw new Error("User with this email already exists. Please Login");
+    } catch (err) {
+      if (err.message.includes("already exists")) {
+        throw err;
+      }
+      // User not found, continue
+    }
+
+    // Check if username already exists
+    try {
+      await getUserbyUsername(username);
+      throw new Error("Username already exists. Please choose a different username");
+    } catch (err) {
+      if (err.message.includes("already exists")) {
+        throw err;
+      }
+      // User not found, continue
+    }
+
+    const encryptedPassword = await bcrypt.hash(password, 10);
+
+    // Create user in our database
+    const result = await addAdmin({
+      first_name,
+      last_name,
+      username,
+      mobile,
+      companyIdentifier,
+      email: email.toLowerCase(),
+      password: encryptedPassword,
+    });
+
+    const token = jwt.sign(
+      { user_id: result.insertedId, email },
+      process.env.TOKEN_KEY,
+      {
+        expiresIn: "30d",
+      }
+    );
+
+    return {
+      ...result,
+      token: token,
+    };
+  } catch (error) {
+    console.error("registerAdmin error:", error);
+    throw error;
+  }
 };
 
 function verifyToken(req, res, next) {

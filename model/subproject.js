@@ -482,40 +482,41 @@ var addRemoveChildren = async function (subprojectId, isAdd, { id, name, type })
     }
 }
 
-var getSubProjectsByParentId = async function(parentId)
-{
-    try{
-        var response = {};
-        var result = await mongo.SubProjects.find(
-            {parentid:new ObjectId(parentId)}
-            ).toArray();
-            if (result.length>0) {
-                response = {
-                    "data": {
-                        "item": result,
-                        "message": "SubProjects found.",
-                        "code": 201
-                    }
-                };
-                return response;
-            } else {
-                response = {
-                    "error": {
-                        "code": 401,
-                        "message": "No SubProjects found."
-                    }
+const couchbase = require("../database/couchbase");
+const { v4: uuidv4 } = require("uuid");
+
+var getSubProjectsByParentId = async function(parentId) {
+    try {
+        const cluster = couchbase.cluster;
+        const bucketName = process.env.DB_BUCKET_NAME;
+        const scopeName = process.env.DB_SCOPE_NAME || "inventory";
+        const query = `SELECT META(s).id as id, s.* FROM \`${bucketName}\`.\`${scopeName}\`.SubProject s WHERE s.parentid = $1`;
+        const results = await cluster.query(query, { parameters: [parentId] });
+        console.log("Couchbase SubProjects Query Results:", results);
+        if (results.rows && results.rows.length > 0) {
+            return {
+                data: {
+                    item: results.rows.map(row => ({ ...row, _id: row.id })),
+                    message: "SubProjects found.",
+                    code: 201
                 }
-                return response;
-            }    
-    }catch(error){
-        response = {
-            "error": {
-                "code": 500,
-                "message": "Error fetching SubProjects.",
-                "errordata": error
-            }
+            };
+        } else {
+            return {
+                error: {
+                    code: 401,
+                    message: "No SubProjects found."
+                }
+            };
         }
-        return response;
+    } catch (error) {
+        return {
+            error: {
+                code: 500,
+                message: "Error fetching SubProjects.",
+                errordata: error
+            }
+        };
     }
 }
 

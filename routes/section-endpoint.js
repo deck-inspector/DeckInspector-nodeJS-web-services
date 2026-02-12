@@ -2,7 +2,7 @@
 var express = require('express');
 var router = express.Router();
 const ErrorResponse = require('../model/error');
-var ObjectId = require('mongodb').ObjectId;
+
 const newErrorResponse = require('../model/newError');
 const SectionService = require("../service/sectionService");
 const sectionDAO = require('../model/sectionDAO');
@@ -40,7 +40,7 @@ var newSection = {
     "furtherinvasivereviewrequired":furtherinvasivereviewrequired.toLowerCase()==='true',
     "lbc": lbc,
     "name":name,
-    "parentid": new ObjectId(parentid),
+    "parentid": parentid,
     "parenttype":parenttype,
     "visualreview":visualreview,
     "visualsignsofleak": visualsignsofleak.toLowerCase()==='true',
@@ -91,9 +91,7 @@ router.route('/:id')
     var errResponse;
     const sectionId = req.params.id;
     const newData = req.body;
-    if(newData.parentid){
-      newData.parentid = new ObjectId(newData.parentid);
-    }
+    // Couchbase: parentid is a string, no ObjectId wrapping
 
     if(newData.furtherinvasivereviewrequired){
       newData.furtherinvasivereviewrequired = newData.furtherinvasivereviewrequired.toLowerCase()==='true'
@@ -259,7 +257,7 @@ router.route('/moveSection')
     //Get the section object by id
     const result = await sectionDAO.getSectionById(sectionId);
     if (!result) {
-      return res.status(result).json(result);
+      return res.status(404).json({ code: 404, message: "Section not found" });
     }
 
     const section = result;
@@ -270,9 +268,9 @@ router.route('/moveSection')
     }
     if (isSectionRemoved) {
       //update the section parent id with new parent id
-      section.parentid = new ObjectId(newParentId);
+      section.parentid = newParentId;
       //add the section to the new parent
-      const isSectionAdded = await SectionService.addSection(section);    
+      const isSectionAdded = await SectionService.addSection(section);
 
       if (isSectionAdded.reason) {
         return res.status(isSectionAdded.code).json(isSectionAdded);

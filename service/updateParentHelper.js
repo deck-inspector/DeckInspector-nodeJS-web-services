@@ -59,7 +59,7 @@ const removeLocationFromParent = async (locationId, location) => {
 };
 const addUpdateLocationMetadataInParent = async (locationId,location)=>{
   const locationDataInParent = {
-    _id:ObjectId(locationId),
+    id:ObjectId(locationId),
     name: location.name,
     type: location.type,
     url: location.url,

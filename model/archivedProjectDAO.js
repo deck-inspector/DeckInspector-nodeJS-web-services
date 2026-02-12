@@ -1,19 +1,30 @@
 // projectDAO.js
 
-const ObjectId = require('mongodb').ObjectId;
-const mongo = require('../database/mongo');
+const { v4: uuidv4 } = require("uuid");
+const couchbase = require("../database/couchbase");
+
+async function getArchivedProjectsCollection() {
+  return couchbase.ArchivedProjects;
+}
 
 module.exports = {
     addArchivedProject: async (project) => {
-        return await mongo.ArchivedProjects.insertOne(project);
-    },
-    getAllArchivedeProjects: async () => {
-        return await mongo.ArchivedProjects .find({}).sort({"_id": -1}).toArray();
-    },
+  const id = uuidv4();
+  const collection = await getArchivedProjectsCollection();
+  await collection.insert(id, project);
+  return { insertedId: id, ok: 1 };
+},
+    getAllArchivedProjects: async () => {
+  const cluster = couchbase.cluster;
+  const bucket = process.env.DB_BUCKET_NAME;
+  const scope = process.env.DB_SCOPE_NAME || "inventory";
+  const query = `SELECT META(a).id as id, a.* FROM \`${bucket}\`.\`${scope}\`.ArchivedProjects a ORDER BY META(a).id DESC`;
+  const result = await cluster.query(query);
+  return result.rows;
+},
     getArchivedProjectById: async (id) => {
-        return await mongo.ArchivedProjects.findOne({ _id: new ObjectId(id) }, {files: 0});
-    },
-    
-    
-    
+  const collection = await getArchivedProjectsCollection();
+  const doc = await collection.get(id);
+  return { ...doc.content, id };
+},   
 };

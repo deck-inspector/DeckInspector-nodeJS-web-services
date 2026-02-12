@@ -29,6 +29,7 @@ const addSubProject = async (subproject) => {
 var getSubProjectById = async function (subProjectId) {
     try {
         const result = await subProjectDAO.findSubProjectById(subProjectId); 
+        console.log("SubProject fetched:", result);
         if (result) {
             return {
                 success: true,
