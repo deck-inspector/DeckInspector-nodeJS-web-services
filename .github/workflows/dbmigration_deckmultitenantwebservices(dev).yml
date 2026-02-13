@@ -27,6 +27,7 @@ jobs:
         run: |
           npm install
           npm run build --if-present
+          npm run test --if-present
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -51,5 +52,4 @@ jobs:
           app-name: 'deckmultitenantwebservices'
           slot-name: 'dev'
           package: .
-
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_9D295A681B2A449E8F883585005DAEBE }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_F22E57921E7748239809919E2F3E4814 }}
