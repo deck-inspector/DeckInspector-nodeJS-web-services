@@ -60,11 +60,7 @@ module.exports = {
 
   getAllProjects: async () => {
     try {
-
-      
-      const bucketName = process.env.DB_BUCKET_NAME;
-      const scopeName = process.env.DB_SCOPE_NAME || "inventory";
-      const query = `SELECT META(p).id AS id, p.*\nFROM \`${bucketName}\`.\`${scopeName}\`.\`Project\` AS p\nORDER BY META(p).id DESC;`;
+      const query = `SELECT META(p).id AS id, p.*\nFROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` AS p\nORDER BY META(p).id DESC;`;
       
       const results = await executeQuery(query);
 
@@ -142,7 +138,7 @@ module.exports = {
     isdeleted = false,
   } = {}) {
     try {
-      let query = `SELECT META(p).id as id, p.* FROM \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_SCOPE_NAME || "inventory"}.Project p WHERE p.type = 'Project'`;
+      let query = `SELECT META(p).id as id, p.* FROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.Project p WHERE p.type = 'Project'`;
       const params = [];
 
       if (name !== null) {
@@ -232,11 +228,17 @@ module.exports = {
 
   getProjectByAssignedToUserId: async (userId) => {
     try {
+      console.log("=== Debug Query Parameters ===");
+      console.log("Bucket:", couchbase.DB_BUCKET_NAME);
+      console.log("Scope:", couchbase.DB_SCOPE_NAME);
+      console.log("UserId:", userId);
+      
       const query = `SELECT META(p).id as id, p.*
-        FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.\`Project\` AS p
+        FROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` AS p
         WHERE $1 IN p.assignedto`;
 
-        console.log("Couchbase Query:", query);
+      console.log("Generated Query:", query);
+      console.log("=============================");
 
       const results = await executeQuery(query, [userId]);
       console.log("Couchbase Query Results:", results);
