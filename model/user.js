@@ -137,7 +137,7 @@ var getUserbyUsername = async function (username) {
       throw new Error("username undefined.");
     }
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME}\`.Users u WHERE u.username = $1`;
     const results = await executeQuery(query, [username]);
     
     if (results.length === 0) {
@@ -157,7 +157,7 @@ var getUserbyMobile = async function (mobile) {
       throw new Error("mobile number undefined.");
     }
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.mobile = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME}\`.Users u WHERE u.mobile = $1`;
     const results = await executeQuery(query, [mobile]);
     
     if (results.length === 0) {

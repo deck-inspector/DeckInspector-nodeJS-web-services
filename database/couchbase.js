@@ -5,8 +5,14 @@ const DB_USERNAME = process.env.DB_USERNAME;
 const DB_PASSWORD = process.env.DB_PASSWORD;
 const DB_CONN_STR = process.env.DB_CONN_STR;
 const DB_BUCKET_NAME = process.env.DB_BUCKET_NAME;
-const DB_SCOPE_NAME = process.env.DB_SCOPE_NAME || "inventory";
+const DB_SCOPE_NAME = process.env.DB_SCOPE_NAME || "inventory-qa";
+const DB_PROD_SCOPE_NAME = process.env.DB_PROD_SCOPE_NAME || "inventory";
 const IS_CAPELLA = process.env.IS_CAPELLA === "true";
+
+// Export constants immediately so DAOs can use them
+module.exports.DB_BUCKET_NAME = DB_BUCKET_NAME;
+module.exports.DB_SCOPE_NAME = DB_SCOPE_NAME;
+module.exports.DB_PROD_SCOPE_NAME = DB_PROD_SCOPE_NAME;
 
 if (!DB_USERNAME) {
   throw new Error(
@@ -80,12 +86,13 @@ async function createCouchbaseCluster() {
 async function connectToDatabase() {
   const { cluster, bucket } = await createCouchbaseCluster();
   const scope = bucket.scope(DB_SCOPE_NAME);
-
+  const prod_scope = bucket.scope(DB_PROD_SCOPE_NAME);
 
   // Export collections for use in DAOs
   module.exports.cluster = cluster;
   module.exports.bucket = bucket;
   module.exports.scope = scope;
+  module.exports.prod_scope = prod_scope;
 
   // Collection exports - using correct collection names
   module.exports.Projects = scope.collection("Project");
@@ -93,7 +100,7 @@ async function connectToDatabase() {
   module.exports.Locations = scope.collection("Location");
   module.exports.Sections = scope.collection("VisualSection");
   module.exports.DynamicSections = scope.collection("DynamicVisualSection");
-  module.exports.Users = scope.collection("Users");
+  module.exports.Users = prod_scope.collection("Users");
   module.exports.ProjectDocuments = scope.collection("ProjectDocuments");
   module.exports.ProjectReports = scope.collection("ProjectReports");
   module.exports.InvasiveSections = scope.collection("InvasiveSection");
@@ -101,7 +108,7 @@ async function connectToDatabase() {
   module.exports.ProjectReportHashCode = scope.collection(
     "ProjectReportHashCode",
   );
-  module.exports.Tenants = scope.collection("Tenants");
+  module.exports.Tenants = prod_scope.collection("Tenants");
   module.exports.SuperUsers = scope.collection("SuperUsers");
   module.exports.ArchivedProjects = scope.collection("ArchivedProjects");
   module.exports.DynamicVisualSection = scope.collection(
@@ -109,11 +116,11 @@ async function connectToDatabase() {
   );
   module.exports.LocationsForms = scope.collection("LocationForm");
 
-
   let dbConnection = {
     cluster,
     bucket,
     scope,
+    prod_scope,
   };
 
   return dbConnection;
