@@ -406,7 +406,7 @@ module.exports = {
   isTenantActive: async (identifier) => {
     try {
       const query = `SELECT META(t).id as id, t.* FROM \`${process.env.DB_BUCKET_NAME}\`.${
-        process.env.DB_SCOPE_NAME || "inventory"
+        process.env.DB_PROD_SCOPE_NAME || "inventory"
       }.Tenants t 
                           WHERE t.companyIdentifier = $1 
                           LIMIT 1`;
