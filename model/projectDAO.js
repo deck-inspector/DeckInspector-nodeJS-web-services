@@ -48,6 +48,7 @@ module.exports = {
           ...project,
           type: "Project",
           createdAt: new Date().toISOString(),
+          channels: ["Project"],
         };
         const collection = await getProjectsCollection();
         await collection.insert(projectId, projectWithMeta);
@@ -107,7 +108,7 @@ module.exports = {
 
       if (!assignedto.includes(username)) {
         assignedto.push(username);
-        await collection.upsert(id, { ...doc.content, assignedto });
+        await collection.upsert(id, { ...doc.content, assignedto, channels: doc.content.channels || ["Project"] });
       }
       return { ok: 1 };
     } catch (error) {
@@ -123,7 +124,7 @@ module.exports = {
       let assignedto = doc.content.assignedto || [];
 
       assignedto = assignedto.filter((user) => user !== username);
-      await collection.upsert(id, { ...doc.content, assignedto });
+      await collection.upsert(id, { ...doc.content, assignedto, channels: doc.content.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error unassigning user from project:", error);
@@ -172,7 +173,7 @@ module.exports = {
       const collection = await getProjectsCollection();
       const doc = await collection.get(projectId);
       const updatedDoc = { ...doc.content, ...newData };
-      await collection.upsert(projectId, updatedDoc);
+      await collection.upsert(projectId, { ...updatedDoc, channels: doc.content.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error editing project:", error);
@@ -184,7 +185,7 @@ module.exports = {
     try {
       const collection = await getProjectsCollection();
       const doc = await collection.get(id);
-      await collection.upsert(id, { ...doc.content, isdeleted: isVisible });
+      await collection.upsert(id, { ...doc.content, isdeleted: isVisible, channels: doc.content.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error updating project visibility:", error);
@@ -196,7 +197,7 @@ module.exports = {
     try {
       const collection = await getProjectsCollection();
       const doc = await collection.get(id);
-      await collection.upsert(id, { ...doc.content, iscomplete: isComplete });
+      await collection.upsert(id, { ...doc.content, iscomplete: isComplete, channels: doc.content.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error updating project status:", error);
@@ -263,7 +264,7 @@ module.exports = {
         ...childData,
       });
 
-      await collection.upsert(projectId, { ...doc.content, children });
+      await collection.upsert(projectId, { ...doc.content, children, channels: doc.content.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error adding project child:", error);
@@ -283,6 +284,7 @@ module.exports = {
       await collection.upsert(projectId, {
         ...doc.content,
         children: filteredChildren,
+        channels: doc.content.channels || ["Project"],
       });
       return { ok: 1 };
     } catch (error) {
@@ -302,7 +304,7 @@ module.exports = {
         ...childData,
       });
 
-      await collection.upsert(projectId, { ...doc.content, sections });
+      await collection.upsert(projectId, { ...doc.content, sections, channels: doc.content.channels || ["projects"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error adding child in single level project:", error);
@@ -322,6 +324,7 @@ module.exports = {
       await collection.upsert(projectId, {
         ...doc.content,
         sections: filteredSections,
+        channels: doc.content.channels || ["Project"],
       });
       return { ok: 1 };
     } catch (error) {
@@ -343,7 +346,7 @@ module.exports = {
         sections.push({ _id: childId, ...childData });
       }
 
-      await collection.upsert(projectId, { ...doc.content, sections });
+      await collection.upsert(projectId, { ...doc.content, sections, channels: doc.content.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error updating child in single level project:", error);
@@ -364,7 +367,7 @@ module.exports = {
         children.push({ _id: childId, ...childData });
       }
 
-      await collection.upsert(projectId, { ...doc.content, children });
+      await collection.upsert(projectId, { ...doc.content, children, channels: doc.content.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error updating project child:", error);

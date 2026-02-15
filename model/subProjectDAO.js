@@ -25,7 +25,7 @@ async function executeQuery(statement, parameters = []) {
 module.exports = {
     insertSubProject: async (subproject) => {
         try {
-            const subProjectId = `subproject_${uuidv4()}`;
+            const subProjectId = `${uuidv4()}`;
             const collection = await getSubProjectsCollection();
             const subProjectDoc = {
                 ...subproject,
@@ -130,6 +130,7 @@ module.exports = {
             
             children.push({
                 "_id": childId,
+                "id": childId,
                 ...childData
             });
             
@@ -202,7 +203,7 @@ module.exports = {
             if (index !== -1) {
                 children[index] = { ...children[index], ...childData };
             } else {
-                children.push({ "_id": childId, ...childData });
+                children.push({ "_id": childId,"id":childId, ...childData });
             }
             
             await collection.upsert(subprojectId, { ...doc.content, children });

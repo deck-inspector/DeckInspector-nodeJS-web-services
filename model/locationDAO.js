@@ -24,7 +24,7 @@ async function executeQuery(statement, parameters = []) {
 module.exports = {
     addLocation: async (location) => {
         try {
-            const locationId = `location_${uuidv4()}`;
+            const locationId = `${uuidv4()}`;
             const collection = await getLocationsCollection();
             const locationDoc = {
                 ...location,
@@ -132,6 +132,7 @@ module.exports = {
             
             sections.push({
                 "_id": childId,
+                "id": childId,
                 ...childData
             });
             
@@ -185,7 +186,7 @@ module.exports = {
             if (index !== -1) {
                 sections[index] = { ...sections[index], ...childData };
             } else {
-                sections.push({ "_id": childId, ...childData });
+                sections.push({ "_id": childId,"id":childId, ...childData });
             }
             
             await collection.upsert(locationId, { ...doc.content, sections });

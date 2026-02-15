@@ -324,7 +324,7 @@ var updateUser = async function (user) {
 
 var getAllUser = async function () {
   try {
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u LIMIT 500`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u LIMIT 500`;
     const results = await executeQuery(query);
     
     if (results.length === 0) {
