@@ -29,7 +29,7 @@ module.exports = {
             const collection = await getSubProjectsCollection();
             const subProjectDoc = {
                 ...subproject,
-                type: "SubProject",
+                docType: "SubProject",
                 createdAt: new Date().toISOString(),
             };
             await collection.insert(subProjectId, subProjectDoc);
@@ -69,7 +69,7 @@ module.exports = {
                         cleaned[key] = value;
                     }
                 }
-                return cleaned;
+                return {...cleaned,id:id};
             };
             
             return stripNestedContent(doc.content);
@@ -129,7 +129,6 @@ module.exports = {
             const children = doc.content.children || [];
             
             children.push({
-                "_id": childId,
                 "id": childId,
                 ...childData
             });
@@ -149,7 +148,7 @@ module.exports = {
             const children = doc.content.children || [];
             
             const filteredChildren = children.filter(
-                (child) => child._id !== childId
+                (child) => child.id !== childId
             );
             
             await collection.upsert(subProjectId, { ...doc.content, children: filteredChildren });
@@ -199,11 +198,11 @@ module.exports = {
             const doc = await collection.get(subprojectId);
             const children = doc.content.children || [];
             
-            const index = children.findIndex((child) => child._id === childId);
+            const index = children.findIndex((child) => child.id === childId);
             if (index !== -1) {
                 children[index] = { ...children[index], ...childData };
             } else {
-                children.push({ "_id": childId,"id":childId, ...childData });
+                children.push({ "id": childId, ...childData });
             }
             
             await collection.upsert(subprojectId, { ...doc.content, children });
