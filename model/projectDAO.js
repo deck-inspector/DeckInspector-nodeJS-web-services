@@ -46,7 +46,7 @@ module.exports = {
         const projectId = generateProjectId();
         const projectWithMeta = {
           ...project,
-          type: "Project",
+          docType: "Project",
           createdAt: new Date().toISOString(),
           channels: ["Project"],
         };
