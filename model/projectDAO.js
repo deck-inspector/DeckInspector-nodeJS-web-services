@@ -260,7 +260,7 @@ module.exports = {
       const children = doc.content.children || [];
 
       children.push({
-        _id: childId,
+        id: childId,
         ...childData,
       });
 
@@ -279,7 +279,7 @@ module.exports = {
       const children = doc.content.children || [];
 
       const filteredChildren = children.filter(
-        (child) => child._id !== childId,
+        (child) => child.id !== childId,
       );
       await collection.upsert(projectId, {
         ...doc.content,
@@ -300,7 +300,7 @@ module.exports = {
       const sections = doc.content.sections || [];
 
       sections.push({
-        _id: childId,
+        id: childId,
         ...childData,
       });
 
@@ -319,7 +319,7 @@ module.exports = {
       const sections = doc.content.sections || [];
 
       const filteredSections = sections.filter(
-        (section) => section._id !== childId,
+        (section) => section.id !== childId,
       );
       await collection.upsert(projectId, {
         ...doc.content,
@@ -339,11 +339,11 @@ module.exports = {
       const doc = await collection.get(projectId);
       const sections = doc.content.sections || [];
 
-      const index = sections.findIndex((section) => section._id === childId);
+      const index = sections.findIndex((section) => section.id === childId);
       if (index !== -1) {
         sections[index] = { ...sections[index], ...childData };
       } else {
-        sections.push({ _id: childId, ...childData });
+        sections.push({ id: childId, ...childData });
       }
 
       await collection.upsert(projectId, { ...doc.content, sections, channels: doc.content.channels || ["Project"] });
@@ -360,11 +360,11 @@ module.exports = {
       const doc = await collection.get(projectId);
       const children = doc.content.children || [];
 
-      const index = children.findIndex((child) => child._id === childId);
+      const index = children.findIndex((child) => child.id === childId);
       if (index !== -1) {
         children[index] = { ...children[index], ...childData };
       } else {
-        children.push({ _id: childId, ...childData });
+        children.push({ id: childId, ...childData });
       }
 
       await collection.upsert(projectId, { ...doc.content, children, channels: doc.content.channels || ["Project"] });

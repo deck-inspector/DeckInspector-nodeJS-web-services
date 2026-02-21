@@ -47,7 +47,7 @@ module.exports = {
         const bucket = process.env.DB_BUCKET_NAME;
         const scope = process.env.DB_SCOPE_NAME || "inventory";
         const cluster = couchbase.cluster;
-        const query = `SELECT META(i).id as id, i.* FROM \`${bucket}\`.\`${scope}\`.InvasiveSections i WHERE i.parentid = $1`;
+        const query = `SELECT META(i).id as id, i.* FROM \`${bucket}\`.\`${scope}\`.InvasiveSection i WHERE i.parentid = $1`;
         const result = await cluster.query(query, { parameters: [parentId] });
         // Remove _id from each result, ensure id is present
         return result.rows.map(row => {

@@ -48,31 +48,7 @@ module.exports = {
             
             if (!doc?.content) return null;
             
-            // Helper function to remove nested content properties recursively
-            const stripNestedContent = (obj) => {
-                if (!obj || typeof obj !== 'object') return obj;
-                
-                const { content, ...rest } = obj;
-                
-                // If content exists, use it as the base, otherwise use the object itself
-                const base = content || rest;
-                
-                // Process all properties recursively
-                const cleaned = {};
-                for (const [key, value] of Object.entries(base)) {
-                    if (key === 'content') continue; // Skip any content property
-                    if (Array.isArray(value)) {
-                        cleaned[key] = value.map(item => stripNestedContent(item));
-                    } else if (value && typeof value === 'object') {
-                        cleaned[key] = stripNestedContent(value);
-                    } else {
-                        cleaned[key] = value;
-                    }
-                }
-                return {...cleaned,id:id};
-            };
-            
-            return stripNestedContent(doc.content);
+            return { ...doc.content, id };
         } catch (error) {
             if (error.code === 13) {
                 // Document not found
