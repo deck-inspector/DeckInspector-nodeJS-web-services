@@ -3,6 +3,13 @@ const subProjectDAO = require("../model/subProjectDAO");
 const LocationDAO = require("../model/locationDAO");
 const ObjectId = require('mongodb').ObjectId;
 
+const toSafeObjectId = (value) => {
+  if (ObjectId.isValid(value)) {
+    return new ObjectId(value);
+  }
+  return value;
+};
+
 const addLocationMetadataInParent = async (locationId, location) => {
   const locationDataInParent = {
     name: location.name,
@@ -59,7 +66,7 @@ const removeLocationFromParent = async (locationId, location) => {
 };
 const addUpdateLocationMetadataInParent = async (locationId,location)=>{
   const locationDataInParent = {
-    id:ObjectId(locationId),
+    id: toSafeObjectId(locationId),
     name: location.name,
     type: location.type,
     url: location.url,
@@ -142,7 +149,7 @@ const removeSectionMetadataFromParent = async (sectionId, section) => {
 const addUpdateSectionMetadataInParent = async (sectionId,section)=>{
   try {
     const sectionDataInParent = {
-      _id:ObjectId(sectionId),
+      _id: toSafeObjectId(sectionId),
       name: section.name,
       conditionalassessment: section.conditionalassessment,
       visualreview: section.visualreview,
@@ -232,7 +239,7 @@ const removeDynamicSectionMetadataFromParent = async (sectionId, section) => {
 };
 const addUpdateDynamicSectionMetadataInParent = async (sectionId,section)=>{
   const sectionDataInParent = {
-    _id:ObjectId(sectionId),
+    _id: toSafeObjectId(sectionId),
     name: section.name,
     coverUrl: section.images ? section.images[0] : "",
     furtherinvasivereviewrequired: section.furtherinvasivereviewrequired,
@@ -311,7 +318,7 @@ const removeSubprojectMetaDataInProject = async (subProjectId, subProject) => {
 
 const addUpdateSubProjectMetadataInProject = async (subProjectId, subProject) => {
   const subProjectDataInParent = {
-    _id: ObjectId(subProject._id),
+    _id: toSafeObjectId(subProject._id),
     name: subProject.name,
     type: "subproject",
     url: subProject.url,

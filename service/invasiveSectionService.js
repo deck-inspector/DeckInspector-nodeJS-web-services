@@ -48,7 +48,7 @@ const editInvasiveSection = async (invasiveSectionId, invasiveSection) => {
       invasiveSectionId,
       invasiveSection
     );
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
         id: invasiveSectionId,

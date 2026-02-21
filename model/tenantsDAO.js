@@ -29,7 +29,7 @@ module.exports = {
       const tenantId = generateTenantId();
       const tenantWithId = {
         ...tenant,
-        type: "Tenant",
+        docType: "Tenant",
         createdAt: new Date().toISOString(),
       };
       const collection = await getTenantsCollection();

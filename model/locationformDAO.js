@@ -33,7 +33,7 @@ module.exports = {
             const locationFormDoc = {
                 ...locationForm,
                 questions: updatedQuestions,
-                type: "LocationForm",
+                docType: "LocationForm",
                 createdAt: new Date().toISOString(),
             };
             await collection.insert(locationFormId, locationFormDoc);

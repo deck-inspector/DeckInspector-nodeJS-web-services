@@ -28,7 +28,7 @@ module.exports = {
             const collection = await getLocationsCollection();
             const locationDoc = {
                 ...location,
-                type: "Location",
+                docType: "Location",
                 createdAt: new Date().toISOString(),
             };
             await collection.insert(locationId, locationDoc);
@@ -116,7 +116,7 @@ module.exports = {
             } catch (err) {
                 // If not found by key, query by id field
                 if (err.name === "DocumentNotFoundError") {
-                    const query = `SELECT META(l).id as _key, l.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Location l WHERE META(l).id = $1 OR l.id = $1 OR l._id = $1`;
+                    const query = `SELECT META(l).id as _key, l.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Location l WHERE META(l).id = $1 OR l.id = $1 OR l._id = $1`;
                     const results = await executeQuery(query, [locationId]);
                     if (results.length === 0) {
                         throw new Error(`Location not found: ${locationId}`);

@@ -33,7 +33,7 @@ var getSubProjectById = async function (subProjectId) {
         if (result) {
             return {
                 success: true,
-                subproject: result,
+                subproject: result ,
             };
         }
         return {
@@ -147,7 +147,7 @@ var unAssignSubProjectFromUser = async function (id, username) {
 const editSubProject = async (subProjectId,subproject) => {
     try {
         const result = await subProjectDAO.editSubProject(subProjectId, subproject);
-        if (result.modifiedCount === 1) {
+        if (result.ok === 1) {
             const subProjectFromDB = await subProjectDAO.findSubProjectById(subProjectId);
             if(subProjectFromDB)
             {

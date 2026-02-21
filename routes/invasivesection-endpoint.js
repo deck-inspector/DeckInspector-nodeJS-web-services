@@ -40,7 +40,7 @@ router.route("/:id").put(async function (req, res) {
     const newData = req.body;
 
     if (newData.parentid) {
-      newData.parentid = new ObjectId(newData.parentid);
+      newData.parentid = newData.parentid;
     }
 
     if(newData.postinvasiverepairsrequired){
@@ -82,7 +82,7 @@ router.route('/add')
   }
   var newInvasiveSection = {
       "invasiveDescription":invasiveDescription,
-      "parentid": new ObjectId(parentid), 
+      "parentid": parentid, 
       "postinvasiverepairsrequired":postinvasiverepairsrequired.toLowerCase()==='true' ,
       "invasiveimages":invasiveimages,
   } 

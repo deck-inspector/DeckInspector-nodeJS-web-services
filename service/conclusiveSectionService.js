@@ -44,7 +44,7 @@ const getConclusiveSectionById = async (conclusiveSectionId) => {
 const editConclusiveSection = async (conclusiveSectionId, conclusiveSection) => {
     try {
         const result = await ConclusiveSectionDAO.editConclusiveSection(conclusiveSectionId, conclusiveSection);
-        if (result.modifiedCount === 1) {
+        if (result.ok === 1) {
             return {
                 success: true,
                 id: conclusiveSectionId,
