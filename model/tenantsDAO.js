@@ -3,7 +3,7 @@ const { v4: uuidv4 } = require("uuid");
 
 // Helper function to generate tenant ID
 function generateTenantId() {
-  return `tenant_${uuidv4()}`;
+  return `${uuidv4()}`;
 }
 
 // Helper to get Tenants collection
@@ -60,7 +60,7 @@ module.exports = {
   getAllTenants: async () => {
     try {
       const query = `SELECT META(t).id as id, t.* FROM \`${process.env.DB_BUCKET_NAME}\`.${
-        process.env.DB_SCOPE_NAME || "inventory"
+        process.env.DB_PROD_SCOPE_NAME || "inventory"
       }.Tenants t 
                           WHERE t.type = 'Tenant' AND (t.isDeleted = false OR t.isDeleted IS MISSING)
                           ORDER BY META(t).id DESC 
@@ -94,7 +94,7 @@ module.exports = {
   getTenantByCompanyIdentifier: async (companyIdentifier) => {
     try {
       const query = `SELECT META(t).id as id, t.* FROM \`${process.env.DB_BUCKET_NAME}\`.${
-        process.env.DB_SCOPE_NAME || "inventory"
+        process.env.DB_PROD_SCOPE_NAME || "inventory"
       }.Tenants t 
                           WHERE t.companyIdentifier = $1 
                           LIMIT 1`;
@@ -194,7 +194,7 @@ module.exports = {
     try {
       const collection = await getTenantsCollection();
       const query = `SELECT META(t).id as id, t.* FROM \`${process.env.DB_BUCKET_NAME}\`.${
-        process.env.DB_SCOPE_NAME || "inventory"
+        process.env.DB_PROD_SCOPE_NAME || "inventory"
       }.Tenants t 
                           WHERE t.companyIdentifier = $1 
                           LIMIT 1`;
@@ -262,7 +262,7 @@ module.exports = {
       // Delete users associated with this tenant
       try {
         const usersQuery = `DELETE FROM \`${process.env.DB_BUCKET_NAME}\`.${
-          process.env.DB_SCOPE_NAME || "inventory"
+          process.env.DB_PROD_SCOPE_NAME || "inventory"
         }.Users u 
                                    WHERE u.companyIdentifier = $1`;
         await executeQuery(usersQuery, [tenant.companyIdentifier]);
@@ -288,7 +288,7 @@ module.exports = {
       // Delete users associated with this tenant
       try {
         const usersQuery = `DELETE FROM \`${process.env.DB_BUCKET_NAME}\`.${
-          process.env.DB_SCOPE_NAME || "inventory"
+          process.env.DB_PROD_SCOPE_NAME || "inventory"
         }.Users u 
                                    WHERE u.companyIdentifier = $1`;
         await executeQuery(usersQuery, [tenant.companyIdentifier]);
