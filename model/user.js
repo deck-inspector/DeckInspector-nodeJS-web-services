@@ -104,11 +104,11 @@ var addAdmin = async function (user) {
 var getUser = async function (emailId) {
   try {
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.email = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.email = $1`;
     const results = await executeQuery(query, [emailId]);
     
     if (results.length === 0) {
-      throw new Error("No User Found.");
+      return null; 
     }
     return results[0];
   } catch (error) {
@@ -119,7 +119,7 @@ var getUser = async function (emailId) {
 var getSuperUser = async function (emailId) {
   try {
     const collection = await getSuperUsersCollection();
-    const query = `SELECT META(s).id as id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.SuperUsers s WHERE s.email = $1`;
+    const query = `SELECT META(s).id as id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.SuperUsers s WHERE s.email = $1`;
     const results = await executeQuery(query, [emailId]);
     
     if (results.length === 0) {
@@ -137,11 +137,12 @@ var getUserbyUsername = async function (username) {
       throw new Error("username undefined.");
     }
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME}\`.Users u WHERE u.username = $1`;
+    
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
     const results = await executeQuery(query, [username]);
     
     if (results.length === 0) {
-      throw new Error("No User Found.");
+      return null;
     }
     return results[0];
   } catch (error) {
@@ -157,7 +158,7 @@ var getUserbyMobile = async function (mobile) {
       throw new Error("mobile number undefined.");
     }
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME}\`.Users u WHERE u.mobile = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.mobile = $1`;
     const results = await executeQuery(query, [mobile]);
     
     if (results.length === 0) {
@@ -176,7 +177,7 @@ var getSuperUserbyUsername = async function (username) {
       throw new Error("username undefined.");
     }
     const collection = await getSuperUsersCollection();
-    const query = `SELECT META(s).id as id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.SuperUsers s WHERE s.username = $1`;
+    const query = `SELECT META(s).id as id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.SuperUsers s WHERE s.username = $1`;
     const results = await executeQuery(query, [username]);
     
     if (results.length === 0) {
@@ -191,7 +192,7 @@ var getSuperUserbyUsername = async function (username) {
 var updateDevideId = async function (username, deviceId) {
   try {
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
     const results = await executeQuery(query, [username]);
     
     if (results.length === 0) {
@@ -218,7 +219,7 @@ var updateDevideId = async function (username, deviceId) {
 var updateUserStatus = async function (username, status) {
   try {
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
     const results = await executeQuery(query, [username]);
     
     if (results.length === 0) {
@@ -245,7 +246,7 @@ var updateUserStatus = async function (username, status) {
 var updateSession = async function (username) {
   try {
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
     const results = await executeQuery(query, [username]);
     
     if (results.length === 0) {
@@ -273,7 +274,7 @@ var updateSession = async function (username) {
 var clearSession = async function (username) {
   try {
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
     const results = await executeQuery(query, [username]);
     
     if (results.length === 0) {
@@ -300,7 +301,7 @@ var clearSession = async function (username) {
 var updateUser = async function (user) {
   try {
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
     const results = await executeQuery(query, [user.username]);
     
     if (results.length === 0) {
@@ -346,7 +347,7 @@ var getAllUser = async function () {
 var removeUser = async function (user) {
   try {
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
     const results = await executeQuery(query, [user.username]);
     
     if (results.length === 0) {

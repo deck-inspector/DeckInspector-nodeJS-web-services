@@ -38,11 +38,7 @@ router.route("/register").post(async function (req, res) {
     const tenant = await Tenants.getTenantByCompanyIdentifier(
       companyIdentifier
     );
-    const allUsers = await new Promise((resolve, reject) => {
-      users.getAllUser(function (err, result) {
-        resolve(result);
-      });
-    });
+    const allUsers = await users.getAllUser();
     const filteredUsers = allUsers.users.filter(
       (user) => user.companyIdentifier === companyIdentifier
     );
@@ -87,20 +83,14 @@ router.route("/register").post(async function (req, res) {
     }
 
     // Check if the user already exists
-    const existingUserByEmail = await new Promise((resolve, reject) => {
-      users.getUser(email, function (err, record) {
-        resolve(record);
-      });
-    });
+    const existingUserByEmail = await users.getUser(email);
     if (existingUserByEmail) {
       return res.status(409).send("User with this email already exists.");
     }
 
-    const existingUserByUsername = await new Promise((resolve, reject) => {
-      users.getUserbyUsername(username, function (err, record) {
-        resolve(record);
-      });
-    });
+    const existingUserByUsername = await
+      users.getUserbyUsername(username);
+    
     if (existingUserByUsername) {
       return res.status(409).send("Username already exists.");
     }
@@ -120,7 +110,7 @@ router.route("/register").post(async function (req, res) {
     const encryptedPassword = await bcrypt.hash(password, 10);
 
     // Create user in the database
-    const newUser = await new Promise((resolve, reject) => {
+    const newUser = await 
       users.addUser(
         {
           first_name,
@@ -131,17 +121,9 @@ router.route("/register").post(async function (req, res) {
           mobile,
           email: email.toLowerCase(), // Convert email to lowercase
           password: encryptedPassword,
-        },
-        function (err, result) {
-          if (err) {
-            console.error("Error adding new user:", err);
-            reject(err); // Reject with error in case of error
-          } else {
-            resolve(result);
-          }
-        }
+          },
       );
-    });
+    
 
     // Create token
     const token = jwt.sign(
