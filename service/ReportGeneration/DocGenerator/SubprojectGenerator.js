@@ -19,10 +19,10 @@ class SubprojectGenerator{
         const {subProjectApartments, subProjectLocations } = this.reordersubProjectLocations(subProjectData.data.item.children);
         try {
             for (let key in subProjectApartments) {
-                let locationDoc = await LocationGenerator.createLocation(subProjectApartments[key]._id,reportType,subprojectName);
+                let locationDoc = await LocationGenerator.createLocation(subProjectApartments[key].id,reportType,subprojectName);
                 if (locationDoc) {
                     if (locationDoc.doc !== null && locationDoc.doc !== undefined) {
-                        subProjectDoc.buildingApartmentMap.set(subProjectApartments[key]._id.toString(), locationDoc);
+                        subProjectDoc.buildingApartmentMap.set(subProjectApartments[key].id.toString(), locationDoc);
                         subprojectLocationsHashCode.push(locationDoc.doc.hashCode);
                         locationPath.push(locationDoc.doc.filePath);
                     }

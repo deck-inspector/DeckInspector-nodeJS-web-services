@@ -8,8 +8,11 @@ const ReportDocGeneration = require("../ReportDocGeneration.js");
 class ProjectHeaderDocGenerator{
 
     async createProjectHeaderDoc(projectId,project,companyName, reportType) {
-        const projectHeaderHashCode = ReportGenerationUtil.calculateHash(project);
-        const projectHeaderDoc = await this.getProjectHeaderDoc(projectId, project, companyName, null, reportType);
+        // Extract project from response wrapper if needed
+        const actualProject = project.project || project;
+        
+        const projectHeaderHashCode = ReportGenerationUtil.calculateHash(actualProject);
+        const projectHeaderDoc = await this.getProjectHeaderDoc(projectId, actualProject, companyName, null, reportType);
 
         let fileS3url = null;
         if (projectHeaderDoc != null) {
@@ -20,14 +23,17 @@ class ProjectHeaderDocGenerator{
     }
 
     async updateProjectHeaderDoc(projectId,project,companyName, reportType,projectHeaderDoc) {
-        const newProjectHeaderHashCode = ReportGenerationUtil.calculateHash(project);
+        // Extract project from response wrapper if needed
+        const actualProject = project.project || project;
+        
+        const newProjectHeaderHashCode = ReportGenerationUtil.calculateHash(actualProject);
         if (newProjectHeaderHashCode !== projectHeaderDoc.hashCode) {
             console.log("Project header doc is changed");
-            const projectHeaderDoc = await this.getProjectHeaderDoc(projectId, project, companyName, null, reportType);
+            const generatedProjectHeaderDoc = await this.getProjectHeaderDoc(projectId, actualProject, companyName, null, reportType);
             let fileS3url = null;
-            if (projectHeaderDoc != null) {
-                fileS3url = await ProjectReportUploader.uploadToBlobStorage(projectHeaderDoc, projectId + "-Header", reportType);
-                await fs.promises.unlink(projectHeaderDoc);
+            if (generatedProjectHeaderDoc != null) {
+                fileS3url = await ProjectReportUploader.uploadToBlobStorage(generatedProjectHeaderDoc, projectId + "-Header", reportType);
+                await fs.promises.unlink(generatedProjectHeaderDoc);
             }
             return new Doc(newProjectHeaderHashCode, fileS3url);
         }
@@ -36,14 +42,38 @@ class ProjectHeaderDocGenerator{
 
 
 
-    async getProjectHeaderDoc(projectId,project, sectionImageProperties,companyName, reportType) {
-        if (project.data.item.projecttype === "singlelevel") {
-            return await SingleProjectReportGeneration.generateReportDoc(project,companyName, sectionImageProperties, reportType);
-        }
-        else if (project.data.item.projecttype  === "multilevel") {
-            return await ReportDocGeneration.generateReportDoc(projectId,project,companyName, sectionImageProperties, reportType);
-        }
+    async getProjectHeaderDoc(projectId, project, sectionImageProperties, companyName, reportType) {
+
+    // Extract project from response wrapper if needed
+    const actualProject = project.project || project;
+    
+    const projectType = actualProject.projecttype || actualProject.projectType || actualProject.type;
+    
+    if (!projectType) {
+        throw new Error(`Project type is undefined. Project object: ${JSON.stringify(actualProject)}`);
     }
+
+    if (projectType === "singlelevel") {
+        console.log("Generating single level project header doc");
+        return await SingleProjectReportGeneration.generateReportDoc(
+            actualProject,
+            companyName,
+            sectionImageProperties,
+            reportType
+        );
+    }
+
+    else if (projectType === "multilevel") {
+        console.log("Generating multi level project header doc");
+        return await ReportDocGeneration.generateReportDoc(
+            projectId,
+            actualProject,
+            companyName,
+            sectionImageProperties,
+            reportType
+        );
+    }
+}
 
 }
 module.exports = new ProjectHeaderDocGenerator();

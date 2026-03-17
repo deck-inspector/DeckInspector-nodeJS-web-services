@@ -182,11 +182,11 @@ module.exports = {
             const doc = await collection.get(locationId);
             const sections = doc.content.sections || [];
             
-            const index = sections.findIndex((section) => section._id === childId);
+            const index = sections.findIndex((section) => section.id === childId);
             if (index !== -1) {
                 sections[index] = { ...sections[index], ...childData };
             } else {
-                sections.push({ "_id": childId,"id":childId, ...childData });
+                sections.push({ "id":childId, ...childData });
             }
             
             await collection.upsert(locationId, { ...doc.content, sections });

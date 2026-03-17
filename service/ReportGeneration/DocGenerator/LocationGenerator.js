@@ -17,9 +17,9 @@ class LocationGenerator {
             let sectionPath = [];
             try {
                 for (const section of locationSections) {
-                    const sectionDoc = await SectionGenerator.createSection(section._id, location, subprojectName, reportType);
+                    const sectionDoc = await SectionGenerator.createSection(section.id, location, subprojectName, reportType);
                     if (sectionDoc != null) {
-                        locationDoc.sectionMap.set(section._id.toString(), sectionDoc);
+                        locationDoc.sectionMap.set(section.id.toString(), sectionDoc);
                         locationSectionHashCodes.push(sectionDoc.hashCode);
                         sectionPath.push(sectionDoc.filePath);
                     }

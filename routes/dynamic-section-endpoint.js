@@ -34,7 +34,7 @@ var newSection = {
     "lasteditedby":createdby,
     "furtherinvasivereviewrequired":furtherinvasivereviewrequired.toLowerCase()==='true',
     "name":name,
-    "parentid": new ObjectId(parentid),
+    "parentid": parentid,
     "parenttype":parenttype,
     "images":images,
     "questions": questions,
@@ -83,9 +83,7 @@ router.route('/:id')
     var errResponse;
     const sectionId = req.params.id;
     const newData = req.body;
-    if(newData.parentid){
-      newData.parentid = new ObjectId(newData.parentid);
-    }
+    
 
     if(newData.furtherinvasivereviewrequired){
       newData.furtherinvasivereviewrequired = newData.furtherinvasivereviewrequired.toLowerCase()==='true'

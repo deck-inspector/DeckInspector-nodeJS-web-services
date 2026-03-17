@@ -113,7 +113,6 @@ var getProjectById = async function (id) {
     return {
       success: true,
       project: {
-        _id: id,                // ✅ Couchbase document key as _id
         ...content
       }
     };
