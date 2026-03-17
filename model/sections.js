@@ -1,59 +1,81 @@
 "use strict";
-var ObjectId = require('mongodb').ObjectId;
-var mongo = require('../database/mongo');
+const { v4: uuidv4 } = require('uuid');
+const couchbase = require('../database/couchbase');
 const RatingMapping  = require("./ratingMapping.js");
 const Locations = require('./location.js');
+
+// Helper function to get Sections collection
+async function getSectionsCollection() {
+  return couchbase.Sections;
+}
+
+// Helper function to execute N1QL queries
+async function executeQuery(statement, parameters = []) {
+  try {
+    const cluster = couchbase.cluster;
+    const bucket = couchbase.bucket;
+
+    if (!cluster) {
+      throw new Error("Cluster connection not initialized. Make sure connectToDatabase() was called.");
+    }
+
+    if (!bucket) {
+      throw new Error("Bucket not initialized. Make sure connectToDatabase() was called.");
+    }
+
+    const result = await cluster.query(statement, { parameters });
+    return result.rows;
+  } catch (error) {
+    console.error("Query execution error:", error);
+    throw error;
+  }
+}
 
 var addSection = async function (section) {
     var response = {};
     try {
-        var result = await mongo.Sections.insertOne(section);
-        var insertedId = result.insertedId;
-        if (result.insertedId) {
-            var projresult = await mongo.Locations.updateOne({ _id: new ObjectId(section.parentid) }, {
-                $push:
-                {
-                    sections:
-                    {
-                        "_id": result.insertedId,
-                        "name": section.name,
-                        "visualsignsofleak": section.visualsignsofleak,
-                        "furtherinvasivereviewrequired": section.furtherinvasivereviewrequired,
-                        "conditionalassessment": section.conditionalassessment,
-                        "visualreview": section.visualreview,
-                        "count":0
-                    }
-                }
+        const collection = await getSectionsCollection();
+        const sectionId = section.id || uuidv4();
+        
+        // Insert section
+        const newSection = { ...section, id: sectionId };
+        await collection.insert(sectionId, newSection);
+        
+        // Update parent location with section info
+        const projresult = await Locations.updateSectionInLocationsAdd(section.parentid, sectionId, {
+            name: section.name,
+            visualsignsofleak: section.visualsignsofleak,
+            furtherinvasivereviewrequired: section.furtherinvasivereviewrequired,
+            conditionalassessment: section.conditionalassessment,
+            visualreview: section.visualreview,
+            count: 0
+        });
+        
+        var msg = projresult && projresult.data ? 
+            "Section inserted successfully,parent updated successfully." : 
+            "Section inserted successfully,parent failed to updated.";
+        
+        // Mark invasive in hierarchy
+        await markInvasive(newSection);
+        
+        response = {
+            "data": {
+                "id": sectionId,
+                "message": msg,
+                "code": 201
             }
-            );
-            if (projresult.modifiedCount > 0) {
-                var msg = "Section inserted successfully,parent updated successfully."
-            }
-            else
-                var msg = "Section inserted successfully,parent failed to updated."
-            //console.log(msg);
-           
-            var result = await markInvasive(section);
-
-            response = {
-                "data": {
-                    "id": insertedId,
-                    "message": msg,
-                    "code": 201
-                }
-            }
-        }
-        else {
-            response = {
-                "error": {
-                    "code": 500,
-                    "message": "No Section inserted."
-                }
-            }
-        }
+        };
         return response;
     } catch (error) {
         console.log(error);
+        response = {
+            "error": {
+                "code": 500,
+                "message": "Error adding section.",
+                "errordata": error
+            }
+        };
+        return response;
     }
 };
 
@@ -61,47 +83,66 @@ var addSection = async function (section) {
 var markInvasive = async function(section) {
     if (section.furtherinvasivereviewrequired === true) {
         var parentId = section.parentid;
-        var parentType = section.parenttype.toLowerCase().trim();
-        //console.log( "  ----  " ,parentId, "  ----  " ,parentType);
+        var parentType = section.parenttype ? section.parenttype.toLowerCase().trim() : '';
+        
         while (parentId && parentType) {
-            //console.log(parentId, "  ----  " ,parentType);
             if (parentType === 'buildinglocation' ||
                 parentType === 'projectlocation' ||
                 parentType === 'apartment') {
-                var result = await mongo.Locations.updateOne({ _id: new ObjectId(parentId) }, {
-                    $set: {
-                        isInvasive: true
+                try {
+                    const locationsColl = await Locations.getLocationsCollection();
+                    const locDoc = await locationsColl.get(parentId);
+                    if (locDoc && locDoc.content) {
+                        const updatedLoc = { ...locDoc.content, isInvasive: true };
+                        await locationsColl.upsert(parentId, updatedLoc);
+                        parentId = locDoc.content.parentid;
+                        parentType = (locDoc.content.parenttype || '').toLowerCase().trim();
+                    } else {
+                        break;
                     }
-                });
-                var location = await mongo.Locations.findOne({ _id: new ObjectId(parentId) });
-                parentId = location.parentid;
-                parentType = location.parenttype.toLowerCase().trim();
+                } catch (err) {
+                    console.error("Error updating location in markInvasive:", err);
+                    break;
+                }
             }
             else if (parentType === 'subproject') {
-                var result = await mongo.SubProjects.updateOne({ _id: new ObjectId(parentId) }, {
-                    $set: {
-                        isInvasive: true
+                try {
+                    const SubProjects = require('./subproject');
+                    const subProjColl = await SubProjects.getSubProjectsCollection();
+                    const subDoc = await subProjColl.get(parentId);
+                    if (subDoc && subDoc.content) {
+                        const updatedSub = { ...subDoc.content, isInvasive: true };
+                        await subProjColl.upsert(parentId, updatedSub);
+                        parentId = subDoc.content.parentid;
+                        parentType = (subDoc.content.parenttype || '').toLowerCase().trim();
+                    } else {
+                        break;
                     }
-                });
-                //console.log(result.modifiedCount);
-                var subProject = await mongo.SubProjects.findOne({ _id: new ObjectId(parentId) });
-                parentId = subProject.parentid;
-                parentType = subProject.parenttype.toLowerCase().trim();
+                } catch (err) {
+                    console.error("Error updating subproject in markInvasive:", err);
+                    break;
+                }
             }
             else if (parentType === 'project') {
-                var result = await mongo.Projects.updateOne({ _id: new ObjectId(parentId) }, {
-                    $set: {
-                        isInvasive: true
+                try {
+                    const Projects = require('./project');
+                    const projColl = await Projects.getProjectsCollection();
+                    const projDoc = await projColl.get(parentId);
+                    if (projDoc && projDoc.content) {
+                        const updatedProj = { ...projDoc.content, isInvasive: true };
+                        await projColl.upsert(parentId, updatedProj);
                     }
-                });
-                //console.log(result.modifiedCount);
-                var project = await mongo.Projects.findOne({ _id: new ObjectId(parentId) });
-                parentId = undefined
+                } catch (err) {
+                    console.error("Error updating project in markInvasive:", err);
+                }
+                parentId = undefined;
                 parentType = undefined;
+            } else {
+                break;
             }
         }
     }
-    return result;
+    return true;
 }
 
 
@@ -129,8 +170,11 @@ var capitalizeWords = function (word) {
 var getSectionById = async function (id) {
     var response = {};
     try {
-        const result = await mongo.Sections.findOne({ _id: new ObjectId(id) }); 
-        if (result) {
+        const collection = await getSectionsCollection();
+        const doc = await collection.get(id);
+        
+        if (doc && doc.content) {
+            const result = doc.content;
             transformData(result);
             response = {
                 "data": {
@@ -146,7 +190,7 @@ var getSectionById = async function (id) {
                     "code": 401,
                     "message": "No Section found."
                 }
-            }
+            };
             return response;
         }
     }
@@ -157,83 +201,69 @@ var getSectionById = async function (id) {
                 "message": "Error fetching Section.",
                 "errordata": err
             }
-        }
+        };
         return response;
     }
 };
 //details will be a flexible structure of the form.
 //images: array of image urls
-var updateSection = async function (section,count) {
+var updateSection = async function (section, count) {
     var response = {};
     try {
-        var result = await mongo.Sections.updateOne({ _id: new ObjectId(section.id) }, {
-            $set: {
-                name: section.name,
-                exteriorelements: section.exteriorelements,
-                waterproofingelements: section.waterproofingelements,
-                lasteditedby: section.lasteditedby,
-                editedat: section.editedat,
-                additionalconsiderations: section.additionalconsiderations,
-                visualreview: section.visualreview,
-                visualsignsofleak: section.visualsignsofleak,
-                furtherinvasivereviewrequired: section.furtherinvasivereviewrequired,
-                conditionalassessment: section.conditionalassessment,
-                eee: section.eee,
-                lbc: section.lbc,
-                awe: section.awe,
-                parentid: section.parentid
-            }
-        });
-
-        if (result.matchedCount < 1) {
+        const collection = await getSectionsCollection();
+        const doc = await collection.get(section.id);
+        
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 401,
                     "message": "No Section found."
                 }
-            }
+            };
             return response;
-        } else {
-            if (result.modifiedCount == 1) {
-
-                var projresult = await mongo.Locations.updateOne(
-                    {
-                        "sections.id": new ObjectId(section.id)
-                    },
-                    {
-                        $set: {
-                            "sections.$.name": section.name,
-                            "sections.$.visualsignsofleak": section.visualsignsofleak,
-                            "sections.$.furtherinvasivereviewrequired": section.furtherinvasivereviewrequired,
-                            "sections.$.conditionalassessment": section.conditionalassessment,
-                            "sections.$.visualreview": section.visualreview,
-                            
-                        }
-                    },
-                    { upsert: false });
-                if (projresult.modifiedCount > 0) {
-                    var msg = "Section updated successfully,parent updated successfully."
-                }
-                else
-                    var msg = "Section udated successfully,parent failed to updated."
-                response = {
-                    "data": {
-                        "message": msg,
-                        "code": 201
-                    }
-                };
-                return response;
-            }
-            else {
-                response = {
-                    "data": {
-                        "message": "Failed to update the Section details.",
-                        "code": 409
-                    }
-                };
-                return response;
-            }
         }
+        
+        // Update section
+        const updatedSection = {
+            ...doc.content,
+            name: section.name,
+            exteriorelements: section.exteriorelements,
+            waterproofingelements: section.waterproofingelements,
+            lasteditedby: section.lasteditedby,
+            editedat: section.editedat,
+            additionalconsiderations: section.additionalconsiderations,
+            visualreview: section.visualreview,
+            visualsignsofleak: section.visualsignsofleak,
+            furtherinvasivereviewrequired: section.furtherinvasivereviewrequired,
+            conditionalassessment: section.conditionalassessment,
+            eee: section.eee,
+            lbc: section.lbc,
+            awe: section.awe,
+            parentid: section.parentid
+        };
+        
+        await collection.upsert(section.id, updatedSection);
+        
+        // Update parent location
+        const projresult = await Locations.updateSectionInLocationsAdd(section.parentid, section.id, {
+            name: section.name,
+            visualsignsofleak: section.visualsignsofleak,
+            furtherinvasivereviewrequired: section.furtherinvasivereviewrequired,
+            conditionalassessment: section.conditionalassessment,
+            visualreview: section.visualreview
+        });
+        
+        var msg = projresult && projresult.data ? 
+            "Section updated successfully,parent updated successfully." :
+            "Section updated successfully,parent failed to update.";
+        
+        response = {
+            "data": {
+                "message": msg,
+                "code": 201
+            }
+        };
+        return response;
     }
     catch (err) {
         response = {
@@ -242,308 +272,252 @@ var updateSection = async function (section,count) {
                 "message": "Error processing Section updates.",
                 "errordata": err
             }
-        }
+        };
         return response;
     }
-
 };
 
-var editSection = async function(sectionId,newSectionData)
-{
-    var response ={};
-    try{
-        const updateObject = { $set: newSectionData };
-        if(newSectionData.furtherinvasivereviewrequired ){
-             newSectionData.furtherinvasivereviewrequired = (newSectionData.furtherinvasivereviewrequired.toLowerCase() === 'true');
-        }
-        var result = await mongo.Sections.updateOne({ _id: new ObjectId(sectionId) },updateObject,{upsert:false});    
-        if(result.modifiedCount<1 && result.matchedCount<1){
+var editSection = async function(sectionId, newSectionData) {
+    var response = {};
+    try {
+        const collection = await getSectionsCollection();
+        const doc = await collection.get(sectionId);
+
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 401,
-                    "message": "No Location found."
-                  }
-            }
-            return response;
-        } else{
-            if(result.modifiedCount==1){
-                var section = await mongo.Sections.findOne({ _id: new ObjectId(sectionId) });
-                if(newSectionData.furtherinvasivereviewrequired ){
-                    if(newSectionData.furtherinvasivereviewrequired === true)
-                    {
-                        await markInvasive(section);
-                    }
+                    "message": "No Section found."
                 }
-                var  projectResult =  await Locations.updateSectionInLocationsRemove(section.parentid,sectionId);
-                var projectResult2 = await Locations.updateSectionInLocationsAdd(section.parentid,sectionId,section);
-                response = {
-                    "data" :{                   
-                        "message": "Location updated successfully.",
-                        "code":201
-                    }   
-                };
-                return response;
-            }           
-            else{
-                response = {
-                    "data" :{                    
-                        "message": "Failed to update the Location details.",
-                        "code":409
-                    }   
-                };
-                return response;
-            }                   
-        }   
+            };
+            return response;
+        }
+
+        if (newSectionData.furtherinvasivereviewrequired) {
+             newSectionData.furtherinvasivereviewrequired = (newSectionData.furtherinvasivereviewrequired.toLowerCase() === 'true');
+        }
+
+        // Apply bulk updates
+        const updatedSection = { ...doc.content, ...newSectionData };
+        await collection.upsert(sectionId, updatedSection);
+
+        if (newSectionData.furtherinvasivereviewrequired) {
+            if (newSectionData.furtherinvasivereviewrequired === true) {
+                await markInvasive(updatedSection);
+            }
+        }
+
+        // Update parent location
+        const projectResult = await Locations.updateSectionInLocationsRemove(updatedSection.parentid, sectionId);
+        const projectResult2 = await Locations.updateSectionInLocationsAdd(updatedSection.parentid, sectionId, updatedSection);
+
+        response = {
+            "data": {
+                "message": "Section updated successfully.",
+                "code": 201
+            }
+        };
+        return response;
     }
-    catch(err){
+    catch (err) {
         console.log(err);
         response = {
             "error": {
                 "code": 500,
-                "message": "Error fetching Location.",
+                "message": "Error fetching Section.",
                 "errordata": err
-              }
-        }
+            }
+        };
         return response;
     }
-    
 };
 //Soft Delete/undelete
 var updateSectionVisibilityStatus = async function (id, name, parentId, isVisible) {
     var response = {};
     try {
-        //update the Projects collection as well.        
-        var result = await mongo.Sections.updateOne({ _id: new ObjectId(id) },
-            { $set: { isdeleted: !isVisible } });
-        if (result.matchedCount == 0) {
+        const collection = await getSectionsCollection();
+        const doc = await collection.get(id);
+
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 405,
                     "message": "No Section found, invalid id."
                 }
-            }
-            return response;
-        }
-        if (result.modifiedCount == 1) {
-            const sectionDetails = await mongo.Sections.findOne({ _id: new ObjectId(id) });
-            if (!isVisible) {
-
-                var projresult = await mongo.Locations.updateOne({ _id: new ObjectId(parentId) },
-                    { $pull: { sections: { "id": new ObjectId(id) } } });
-            }
-            else {
-
-                var projresult = await mongo.Locations.updateOne({ _id: new ObjectId(parentId) },
-                    {
-                        $push:
-                        {
-                            sections:
-                            {
-                                "id": new ObjectId(id),
-                                "name": name,
-                                "visualsignsofleak": sectionDetails.visualsignsofleak,
-                                "furtherinvasivereviewrequired": sectionDetails.furtherinvasivereviewrequired,
-                                "conditionalassessment": sectionDetails.conditionalassessment,
-                                "visualreview": sectionDetails.visualreview,
-                            }
-                        }
-                    });
-            }
-
-            if (projresult.modifiedCount > 0) {
-                var message = `Section state updated successfully,is Visible:${isVisible}.parent  updated successfully.`;
-            }
-            else
-                var message = `Section state updated successfully,is Visible:${isVisible}.parent failed to update.`;
-
-            response = {
-                "data": {
-                    "message": message,
-                    "code": 201
-                }
             };
             return response;
+        }
 
+        const updatedSection = { ...doc.content, isdeleted: !isVisible };
+        await collection.upsert(id, updatedSection);
+
+        if (!isVisible) {
+            await Locations.updateSectionInLocationsRemove(parentId, id);
+        } else {
+            const sectionDetails = doc.content;
+            await Locations.updateSectionInLocationsAdd(parentId, id, {
+                id: id,
+                name: name,
+                visualsignsofleak: sectionDetails.visualsignsofleak,
+                furtherinvasivereviewrequired: sectionDetails.furtherinvasivereviewrequired,
+                conditionalassessment: sectionDetails.conditionalassessment,
+                visualreview: sectionDetails.visualreview
+            });
         }
-        else {
-            response = {
-                "error": {
-                    "code": 405,
-                    "message": "No Section modified, try with changed visibility state."
-                }
+
+        var message = `Section state updated successfully, is Visible: ${isVisible}.`;
+
+        response = {
+            "data": {
+                "message": message,
+                "code": 201
             }
-            return response;
-        }
+        };
+        return response;
     } catch (error) {
         response = {
             "error": {
                 "code": 500,
                 "message": "Error changing visibility of Section.",
-                "errordata": err
+                "errordata": error
             }
-        }
+        };
         return response;
     }
 };
 
 var deleteSectionPermanently = async function (id) {
     try {
-        var section = await mongo.Sections.findOne({ _id: new ObjectId(id) });
+        const collection = await getSectionsCollection();
+        const doc = await collection.get(id);
 
-        if(!section)
-        {
-            response = {
+        if (!doc || !doc.content) {
+            var response = {
                 "error": {
                     "code": 401,
                     "message": "No Section found."
-                }
-            }
-            return response;
-        }
-
-        //Update Parent
-        await Locations.updateSectionInLocationsRemove(section.parentid,section._id);
-
-        //Delete self
-        var result = await mongo.Sections.deleteOne({ _id: new ObjectId(id) });
-
-        if (result.deletedCount == 1) {
-           
-            var response = {
-                "data": {
-                    "message": "Section deleted successfully.",
-                    "code": 201
                 }
             };
             return response;
         }
-        else {
-            response = {
-                "error": {
-                    "code": 401,
-                    "message": "No Section found."
-                }
+
+        const section = doc.content;
+
+        // Update Parent
+        await Locations.updateSectionInLocationsRemove(section.parentid, id);
+
+        // Delete self
+        await collection.remove(id);
+
+        var response = {
+            "data": {
+                "message": "Section deleted successfully.",
+                "code": 201
             }
-            return response;
-        }
+        };
+        return response;
     }
     catch (err) {
-        response = {
+        var response = {
             "error": {
                 "code": 500,
                 "message": "Error deleting Section.",
                 "errordata": err
             }
-        }
+        };
         return response;
     }
-
 };
 
-var addRemoveImages = async function (sectionId,count, isAdd, url) {
+var addRemoveImages = async function (sectionId, count, isAdd, url) {
     var response = {};
     try {
-        if (isAdd){
-            var result = await mongo.Sections.updateOne({ _id: new ObjectId(sectionId) }, 
-            { $push: { images: url } });
+        const collection = await getSectionsCollection();
+        const doc = await collection.get(sectionId);
 
-            var projresult = await mongo.Locations.updateOne(
-                {
-                    "sections.id": new ObjectId(sectionId)
-                },
-                {
-                    $set: {
-                        "sections.$.count":++count
-                    }
-                });
-        
-        }
-        else{
-            var result = await mongo.Sections.updateOne({ _id: new ObjectId(sectionId) }, 
-            { $pull: { images: url } });
-            var projresult = await mongo.Locations.updateOne(
-                {
-                    "sections.id": new ObjectId(sectionId)
-                },
-                {
-                    $set: {
-                        "sections.$.count":--count
-                    }
-                });
-        }
-            
-
-        if (result.matchedCount == 0) {  
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 409,
                     "message": "No Section found."
                 }
-            }
-            return response;
-        }
-        if (result.modifiedCount == 1) {
-            response = {
-                "data": {
-                    "message": "image added/removed to/from the Section successfully.",
-                    "code": 201
-                }
             };
             return response;
         }
-        else {
-            response = {
-                "error": {
-                    "code": 409,
-                    "message": "Error adding/removing common Section to/from the Section."
-                }
+
+        let images = doc.content.images || [];
+        let newCount = count;
+
+        if (isAdd) {
+            if (!images.includes(url)) {
+                images.push(url);
+                newCount = ++count;
             }
-            return response;
+        } else {
+            images = images.filter(img => img !== url);
+            newCount = --count;
         }
+
+        const updatedSection = { ...doc.content, images };
+        await collection.upsert(sectionId, updatedSection);
+
+        // Update parent location with new count
+        await Locations.updateSectionInLocationsAdd(doc.content.parentid, sectionId, {
+            ...updatedSection,
+            count: newCount
+        });
+
+        response = {
+            "data": {
+                "message": "Image added/removed to/from the Section successfully.",
+                "code": 201
+            }
+        };
+        return response;
     } catch (error) {
         response = {
             "error": {
                 "code": 500,
-                "message": "Error adding common Section to the Section.",
-                "errordata": err
+                "message": "Error adding/removing image from Section.",
+                "errordata": error
             }
-        }
+        };
         return response;
     }
 }
 
-var getSectionMetaDataForLocationId = async function(locationId){
-    try{
+var getSectionMetaDataForLocationId = async function(locationId) {
+    try {
         var response = {};
-        const sectionDetails = await mongo.Sections.find(
-            {parentid:new ObjectId(locationId)}
-            ).toArray();
-        if (sectionDetails.length>0) {
-                response = {
-                    "data": {
-                        "item": sectionDetails,
-                        "message": "Section found.",
-                        "code": 201
-                    }
-                };
-                return response;
-            } else {
-                response = {
-                    "error": {
-                        "code": 401,
-                        "message": "No Section found."
-                    }
+        const statement = `SELECT META(s).id as _id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Section s WHERE s.parentid = $1`;
+        const sectionDetails = await executeQuery(statement, [locationId]);
+
+        if (sectionDetails.length > 0) {
+            response = {
+                "data": {
+                    "item": sectionDetails,
+                    "message": "Section found.",
+                    "code": 201
                 }
-                return response;
-            }    
-    }catch(error){
+            };
+            return response;
+        } else {
+            response = {
+                "error": {
+                    "code": 401,
+                    "message": "No Section found."
+                }
+            };
+            return response;
+        }    
+    } catch (error) {
         response = {
             "error": {
                 "code": 500,
                 "message": "Error fetching Section.",
                 "errordata": error
             }
-        }
+        };
         return response;
     }
 }
@@ -555,5 +529,7 @@ module.exports = {
     getSectionById,
     addRemoveImages,
     getSectionMetaDataForLocationId,
-    editSection
+    editSection,
+    getSectionsCollection,
+    executeQuery
 };

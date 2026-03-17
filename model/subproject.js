@@ -1,56 +1,90 @@
 "use strict";
-var ObjectId = require('mongodb').ObjectId;
-var mongo = require('../database/mongo');
+const { v4: uuidv4 } = require('uuid');
+const couchbase = require('../database/couchbase');
 const user = require('./user');
 const Projects = require('./project');
 const Locations = require('./location');
 
+// Helper function to get SubProjects collection
+async function getSubProjectsCollection() {
+  return couchbase.SubProjects;
+}
+
+// Helper function to execute N1QL queries
+async function executeQuery(statement, parameters = []) {
+  try {
+    const cluster = couchbase.cluster;
+    const bucket = couchbase.bucket;
+
+    if (!cluster) {
+      throw new Error("Cluster connection not initialized. Make sure connectToDatabase() was called.");
+    }
+
+    if (!bucket) {
+      throw new Error("Bucket not initialized. Make sure connectToDatabase() was called.");
+    }
+
+    const result = await cluster.query(statement, { parameters });
+    return result.rows;
+  } catch (error) {
+    console.error("Query execution error:", error);
+    throw error;
+  }
+}
+
 var addSubProject = async function (subproject) {
     var response = {};
     try {
-        var result = await mongo.SubProjects.insertOne(subproject);
+        const subProjectId = uuidv4();
+        const subProjectWithMeta = {
+            ...subproject,
+            docType: "SubProject",
+            createdAt: new Date().toISOString(),
+        };
+        const collection = await getSubProjectsCollection();
+        await collection.insert(subProjectId, subProjectWithMeta);
+        console.log(`SubProject inserted with ID: ${subProjectId}`);
 
-        if (result.insertedId) {
-            var projresult = await Projects.updateProjectChildrenWithAdd(subproject.parentid, result.insertedId,subproject);
-            if (projresult.modifiedCount > 0) {
-                var msg = "SubProject inserted successfully,parent project updated successfully."
-            }
-            else
-                var msg = "SubProject inserted successfully,parent project failed to updated."
+        // Update parent project
+        var projresult = await Projects.updateProjectChildrenWithAdd(subproject.parentid, subProjectId, subproject);
+        if (projresult && projresult.modifiedCount > 0) {
+            var msg = "SubProject inserted successfully, parent project updated successfully.";
+        } else {
+            var msg = "SubProject inserted successfully, parent project failed to update.";
+        }
 
-            response = {
-                "data": {
-                    "id": result.insertedId,
-                    "message": msg,
-                    "code": 201
-                }
+        response = {
+            "data": {
+                "id": subProjectId,
+                "message": msg,
+                "code": 201
             }
-        }
-        else {
-            response = {
-                "error": {
-                    "code": 500,
-                    "message": "No SubProject inserted."
-                }
-            }
-        }
+        };
         return response;
     } catch (error) {
-
+        console.error("Error adding SubProject:", error);
+        response = {
+            "error": {
+                "code": 500,
+                "message": "Error inserting SubProject.",
+                "errordata": error
+            }
+        };
+        return response;
     }
-
 };
 
 
 var getSubProjectById = async function (id) {
     var response = {};
     try {
-        const result = await mongo.SubProjects.findOne({ _id: new ObjectId(id) });
-
-        if (result) {
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(id);
+        
+        if (doc && doc.content) {
             response = {
                 "data": {
-                    "item": result,
+                    "item": { ...doc.content, _id: id },
                     "message": "SubProject found.",
                     "code": 201
                 }
@@ -62,7 +96,7 @@ var getSubProjectById = async function (id) {
                     "code": 401,
                     "message": "No SubProject found."
                 }
-            }
+            };
             return response;
         }
     }
@@ -73,7 +107,7 @@ var getSubProjectById = async function (id) {
                 "message": "Error fetching subproject.",
                 "errordata": err
             }
-        }
+        };
         return response;
     }
 };
@@ -82,18 +116,23 @@ var getSubProjectById = async function (id) {
 var assignSubProjectToUser = async function (id, username) {
     var response = {};
     try {
-        var result = await mongo.SubProjects.updateOne({ _id: new ObjectId(id) }, { $addToSet: { assignedto: username } });
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(id);
 
-        if (result.matchedCount == 0) {
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 409,
                     "message": "No subproject found."
                 }
-            }
+            };
             return response;
         }
-        if (result.modifiedCount == 1) {
+
+        const assignedto = doc.content.assignedto || [];
+        if (!assignedto.includes(username)) {
+            assignedto.push(username);
+            await collection.upsert(id, { ...doc.content, assignedto });
             response = {
                 "data": {
                     "message": "SubProject assigned successfully.",
@@ -101,14 +140,13 @@ var assignSubProjectToUser = async function (id, username) {
                 }
             };
             return response;
-        }
-        else {
+        } else {
             response = {
                 "error": {
                     "code": 409,
-                    "message": "Error updating the subproject assignment,user already added"
+                    "message": "Error updating the subproject assignment, user already added"
                 }
-            }
+            };
             return response;
         }
     } catch (error) {
@@ -116,29 +154,34 @@ var assignSubProjectToUser = async function (id, username) {
             "error": {
                 "code": 500,
                 "message": "Error assigning subproject.",
-                "errordata": err
+                "errordata": error
             }
-        }
+        };
         return response;
     }
-
 };
 var unassignUserFromSubProject = async function (id, username) {
     var response = {};
     try {
-        var result = await mongo.SubProjects.updateOne({ _id: new ObjectId(id) }, { $pull: { assignedto: username } });
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(id);
 
-        if (result.matchedCount == 0) {
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 409,
                     "message": "No subproject found."
                 }
-            }
+            };
             return response;
         }
 
-        if (result.modifiedCount == 1) {
+        let assignedto = doc.content.assignedto || [];
+        const initialLength = assignedto.length;
+        assignedto = assignedto.filter(user => user !== username);
+
+        if (assignedto.length < initialLength) {
+            await collection.upsert(id, { ...doc.content, assignedto });
             response = {
                 "data": {
                     "message": "User removed from subproject assignment successfully.",
@@ -146,85 +189,66 @@ var unassignUserFromSubProject = async function (id, username) {
                 }
             };
             return response;
-        }
-        else {
+        } else {
             response = {
                 "error": {
                     "code": 405,
                     "message": "Error updating the subproject assignment/or user not assigned."
                 }
-            }
+            };
             return response;
         }
     } catch (error) {
         response = {
             "error": {
                 "code": 500,
-                "message": "Error assigning subproject.",
-                "errordata": err
+                "message": "Error unassigning subproject.",
+                "errordata": error
             }
-        }
+        };
         return response;
     }
-
 };
 
 
 var updateSubProject = async function (subproject) {
     var response = {};
     try {
-        var result = await mongo.SubProjects.updateOne({ _id: new ObjectId(subproject.id) }, {
-            $set: {
-                name: subproject.name,
-                description: subproject.description,
-                url: subproject.url,
-                lasteditedby: subproject.lasteditedby,
-                editedat: subproject.editedat
-            }
-        });
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(subproject.id);
 
-        if (result.matchedCount < 1) {
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 401,
                     "message": "No SubProject found."
                 }
-            }
+            };
             return response;
-        } else {
-            if (result.modifiedCount == 1) {
-
-                var projresult = await mongo.Projects.updateOne(
-                    {
-                        "children.id": new ObjectId(subproject.id)
-                    },
-                    {
-                        $set:
-                        {
-                            "children.$.name": subproject.name,
-                            "children.$.description": subproject.description,
-                            "children.$.url": subproject.url,
-                        }
-                    },
-                    { upsert: false });
-                response = {
-                    "data": {
-                        "message": "SubProject updated successfully.",
-                        "code": 201
-                    }
-                };
-                return response;
-            }
-            else {
-                response = {
-                    "data": {
-                        "message": "Failed to update the subproject details.",
-                        "code": 409
-                    }
-                };
-                return response;
-            }
         }
+
+        // Update the subproject
+        const updatedSubProject = {
+            ...doc.content,
+            name: subproject.name,
+            description: subproject.description,
+            url: subproject.url,
+            lasteditedby: subproject.lasteditedby,
+            editedat: subproject.editedat
+        };
+        
+        await collection.upsert(subproject.id, updatedSubProject);
+
+        // Update parent project
+        var projresult = await Projects.addUpdateProjectChild(subproject.parentid, subproject.id, updatedSubProject);
+        
+        response = {
+            "data": {
+                "message": "SubProject updated successfully.",
+                "code": 201
+            }
+        };
+        return response;
     }
     catch (err) {
         response = {
@@ -233,133 +257,102 @@ var updateSubProject = async function (subproject) {
                 "message": "Error processing subproject updates.",
                 "errordata": err
             }
-        }
+        };
         return response;
     }
-
 };
 
-var editSubProject = async function (subProjectId,newData) {
-    var response ={};
-    try{
-        const updateObject = { $set: newData };
-        var result = await mongo.SubProjects.updateOne({ _id: new ObjectId(subProjectId) },updateObject,{upsert:false});    
+var editSubProject = async function (subProjectId, newData) {
+    var response = {};
+    try {
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(subProjectId);
         
-        if(result.matchedCount<1){
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 401,
                     "message": "No SubProject found."
-                  }
-            }
+                }
+            };
             return response;
-        } else{
-            if(result.modifiedCount==1){
-                var subProject = await mongo.SubProjects.findOne({ _id: new ObjectId(subProjectId) });
-                var projresult = await Projects.addUpdateProjectChild(subProject.parentid,subProjectId,subProject);
-                //var projresult = await Projects.updateProjectChildrenWithRemove(subProject.parentid,subProjectId);
-               // var projresult2 = await Projects.updateProjectChildrenWithAdd(subProject.parentid,subProjectId,subProject);
-                response = {
-                    "data" :{                   
-                        "message": "SubProject updated successfully.",
-                        "code":201
-                    }   
-                };
-                return response;
-            }           
-            else{
-                response = {
-                    "data" :{                    
-                        "message": "Failed to update the SubProject details.",
-                        "code":409
-                    }   
-                };
-                return response;
-            }                   
-        }   
+        }
+
+        // Update subproject
+        const updatedSubProject = { ...doc.content, ...newData };
+        await collection.upsert(subProjectId, updatedSubProject);
+
+        // Update parent project child reference
+        var projresult = await Projects.addUpdateProjectChild(updatedSubProject.parentid, subProjectId, updatedSubProject);
+        
+        response = {
+            "data": {
+                "message": "SubProject updated successfully.",
+                "code": 201
+            }
+        };
+        return response;
     }
-    catch(err){
+    catch (err) {
         console.log(err);
         response = {
             "error": {
                 "code": 500,
-                "message": "Error fetching project.",
+                "message": "Error updating subproject.",
                 "errordata": err
-              }
-        }
+            }
+        };
         return response;
     }
-    
 };
 
 //Soft Delete/undelete
 var updateSubProjectVisibilityStatus = async function (id, name, parentId, isVisible) {
     var response = {};
     try {
-        //update the Projects collection as well.        
-        var result = await mongo.SubProjects.updateOne({ _id: new ObjectId(id) }, { $set: { isdeleted: !isVisible } });
-        if (result.matchedCount == 0) {
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(id);
+
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 405,
                     "message": "No subproject found, invalid id."
                 }
-            }
-            return response;
-        }
-        if (result.modifiedCount == 1) {
-            if (!isVisible)
-                var projresult = await mongo.Projects.updateOne({ _id: new ObjectId(parentId) }, { $pull: { children: { "id": new ObjectId(id) } } });
-            else{
-                const result = await mongo.SubProjects.findOne({ _id: new ObjectId(id) });
-                var projresult = await mongo.Projects.updateOne({ _id: new ObjectId(parentId) }, {
-                    $push:
-                    {
-                        children:
-                        {
-                            "_id": new ObjectId(id),
-                            "name": name,
-                            "type": "subproject",
-                            "description": result.description,
-                            "url": result.url
-                        }
-                    }
-                });
-            }
-                
-
-            if (projresult.modifiedCount > 0) {
-                var message = `SubProject state updated successfully,is Visible:${isVisible}.parent project updated successfully.`;
-            }
-            else
-                var message = `SubProject state updated successfully,is Visible:${isVisible}.project failed to update.`;
-
-            response = {
-                "data": {
-                    "message": message,
-                    "code": 201
-                }
             };
             return response;
+        }
 
+        // Update the SubProject's visibility
+        const updatedSubProject = { ...doc.content, isdeleted: !isVisible };
+        await collection.upsert(id, updatedSubProject);
+
+        // Update parent project
+        var projresult = await (isVisible 
+            ? Projects.updateProjectChildrenWithAdd(parentId, id, { name, type: "subproject", description: doc.content.description, url: doc.content.url })
+            : Projects.updateProjectChildrenWithRemove(parentId, id));
+
+        if (projresult && projresult.modifiedCount > 0) {
+            var message = `SubProject state updated successfully, is Visible: ${isVisible}. Parent project updated successfully.`;
+        } else {
+            var message = `SubProject state updated successfully, is Visible: ${isVisible}. Project failed to update.`;
         }
-        else {
-            response = {
-                "error": {
-                    "code": 405,
-                    "message": "No subproject modified, try with changed visibility state."
-                }
+
+        response = {
+            "data": {
+                "message": message,
+                "code": 201
             }
-            return response;
-        }
+        };
+        return response;
     } catch (error) {
         response = {
             "error": {
                 "code": 500,
                 "message": "Error changing visibility of subproject.",
-                "errordata": err
+                "errordata": error
             }
-        }
+        };
         return response;
     }
 };
@@ -438,65 +431,60 @@ var deleteSubProjectPermanently = async function (id) {
 var addRemoveChildren = async function (subprojectId, isAdd, { id, name, type }) {
     var response = {};
     try {
-        if (isAdd)
-            var result = await mongo.SubProjects.updateOne({ _id: new ObjectId(subprojectId) }, { $push: { children: { "id": id, "name": name, "type": type } } });
-        else
-            var result = await mongo.SubProjects.updateOne({ _id: new ObjectId(subprojectId) }, { $pull: { children: { "id": id, "name": name, "type": type } } });
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(subprojectId);
 
-        if (result.matchedCount == 0) {
+        if (!doc || !doc.content) {
             response = {
                 "error": {
                     "code": 409,
                     "message": "No subproject found."
                 }
-            }
-            return response;
-        }
-        if (result.modifiedCount == 1) {
-            response = {
-                "data": {
-                    "message": "Common location added/removed to/from the subproject successfully.",
-                    "code": 201
-                }
             };
             return response;
         }
-        else {
-            response = {
-                "error": {
-                    "code": 409,
-                    "message": "Error adding/removing common location to/from the subproject."
-                }
+
+        let children = doc.content.children || [];
+        if (isAdd) {
+            // Add child if not already present
+            if (!children.find(c => c.id === id)) {
+                children.push({ id, name, type });
             }
-            return response;
+        } else {
+            // Remove child
+            children = children.filter(c => c.id !== id);
         }
+
+        await collection.upsert(subprojectId, { ...doc.content, children });
+
+        response = {
+            "data": {
+                "message": "Common location added/removed to/from the subproject successfully.",
+                "code": 201
+            }
+        };
+        return response;
     } catch (error) {
         response = {
             "error": {
                 "code": 500,
-                "message": "Error adding common location to the subproject.",
-                "errordata": err
+                "message": "Error adding/removing common location to/from the subproject.",
+                "errordata": error
             }
-        }
+        };
         return response;
     }
-}
-
-const couchbase = require("../database/couchbase");
-const { v4: uuidv4 } = require("uuid");
+};
 
 var getSubProjectsByParentId = async function(parentId) {
     try {
-        const cluster = couchbase.cluster;
-        const bucketName = process.env.DB_BUCKET_NAME;
-        const scopeName = process.env.DB_SCOPE_NAME || "inventory";
-        const query = `SELECT META(s).id as id, s.* FROM \`${bucketName}\`.\`${scopeName}\`.SubProject s WHERE s.parentid = $1`;
-        const results = await cluster.query(query, { parameters: [parentId] });
+        const query = `SELECT META(s).id as id, s.* FROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.SubProject s WHERE s.parentid = $1`;
+        const results = await executeQuery(query, [parentId]);
         console.log("Couchbase SubProjects Query Results:", results);
-        if (results.rows && results.rows.length > 0) {
+        if (results && results.length > 0) {
             return {
                 data: {
-                    item: results.rows.map(row => ({ ...row, _id: row.id })),
+                    item: results.map(row => ({ ...row, _id: row.id })),
                     message: "SubProjects found.",
                     code: 201
                 }
@@ -520,11 +508,19 @@ var getSubProjectsByParentId = async function(parentId) {
     }
 }
 
-var updateSubProjectChildrenWithAdd = async function(subprojectId,childrenId,childrenData)
-{
-    return await mongo.SubProjects.updateOne({ _id: new ObjectId(subprojectId) }, {
-        $push: {
-            children: {
+var updateSubProjectChildrenWithAdd = async function(subprojectId, childrenId, childrenData) {
+    try {
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(subprojectId);
+        
+        if (!doc || !doc.content) {
+            return { modifiedCount: 0 };
+        }
+
+        let children = doc.content.children || [];
+        // Add child if not already present
+        if (!children.find(c => c._id === childrenId || c.id === childrenId)) {
+            children.push({
                 "_id": childrenId,
                 "description": childrenData.description,
                 "name": childrenData.name,
@@ -532,21 +528,40 @@ var updateSubProjectChildrenWithAdd = async function(subprojectId,childrenId,chi
                 "url": childrenData.url,
                 "isInvasive": false,
                 "count": 0
-            }
+            });
         }
-    });
-}
+        
+        await collection.upsert(subprojectId, { ...doc.content, children });
+        return { modifiedCount: 1 };
+    } catch (error) {
+        console.error("Error adding children to subproject:", error);
+        return { modifiedCount: 0 };
+    }
+};
 
-var updateSubProjectChildrenWithRemove = async function(subprojectId,childrenId)
-{
-    return await mongo.SubProjects.updateOne({ _id: new ObjectId(subprojectId) }, {
-        $pull: {
-            children: {
-                "_id": childrenId
-            }
+var updateSubProjectChildrenWithRemove = async function(subprojectId, childrenId) {
+    try {
+        const collection = await getSubProjectsCollection();
+        const doc = await collection.get(subprojectId);
+        
+        if (!doc || !doc.content) {
+            return { modifiedCount: 0 };
         }
-    });
-}
+
+        let children = doc.content.children || [];
+        const initialLength = children.length;
+        children = children.filter(c => c._id !== childrenId && c.id !== childrenId);
+        
+        if (children.length < initialLength) {
+            await collection.upsert(subprojectId, { ...doc.content, children });
+            return { modifiedCount: 1 };
+        }
+        return { modifiedCount: 0 };
+    } catch (error) {
+        console.error("Error removing children from subproject:", error);
+        return { modifiedCount: 0 };
+    }
+};
 
 module.exports = {
     addSubProject,

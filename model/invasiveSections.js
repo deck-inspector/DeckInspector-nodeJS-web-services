@@ -2,6 +2,9 @@
 var ObjectId = require('mongodb').ObjectId;
 
 var mongo = require('../database/mongo');
+const { v4: uuidv4 } = require("uuid");
+const couchbase = require("../database/couchbase");
+const { MutateInSpec } = require("couchbase");
 
 
 var getInvasiveSectionById = async function(id){
@@ -68,38 +71,53 @@ var addInvasiveSection = async function(invasiveSection){
     }
 };
 
-var getInvasiveSectionByParentId = async function(id){
+var getInvasiveSectionByParentId = async function (id) {
     var response = {};
-    try {
-        const result = await mongo.InvasiveSections.findOne({ parentid: new ObjectId(id) });
 
-        if (result) {
+    try {
+        const bucket = process.env.DB_BUCKET_NAME;
+        const scope = process.env.DB_SCOPE_NAME || "inventory";
+        const collection = "InvasiveSection";
+        const cluster = couchbase.cluster;
+
+        const query = `
+            SELECT META(s).id AS id, s.*
+            FROM \`${bucket}\`.\`${scope}\`.\`${collection}\` s
+            WHERE s.parentid = $1
+            LIMIT 1
+        `;
+
+        const result = await cluster.query(query, {
+            parameters: [id]
+        });
+
+        if (result.rows && result.rows.length > 0) {
             response = {
-                "data": {
-                    "item": result,
-                    "message": "Invasive Section found.",
-                    "code": 201
+                data: {
+                    item: result.rows[0],
+                    message: "Invasive Section found.",
+                    code: 201
                 }
             };
             return response;
         } else {
             response = {
-                "error": {
-                    "code": 401,
-                    "message": "No Invasive Section found."
+                error: {
+                    code: 401,
+                    message: "No Invasive Section found."
                 }
-            }
+            };
             return response;
         }
-    }
-    catch (err) {
+
+    } catch (err) {
         response = {
-            "error": {
-                "code": 500,
-                "message": "Error fetching Invasive Section.",
-                "errordata": err
+            error: {
+                code: 500,
+                message: "Error fetching Invasive Section.",
+                errordata: err
             }
-        }
+        };
         return response;
     }
 }

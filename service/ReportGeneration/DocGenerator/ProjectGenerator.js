@@ -12,7 +12,12 @@ const fs = require("fs");
 class ProjectGenerator{
     async createProject(projectId,reportType) {
         console.log("Project Generation started", projectId);
-        const project  = await projects.getProjectById(projectId);
+        let projectResponse = await projects.getProjectById(projectId);
+        
+        // Extract project from wrapped response if needed
+        const project = projectResponse.project || projectResponse;
+        console.log("Project fetched, children:", project.children);
+        
         const projectDoc = new ProjectDocs();
         projectDoc.projectId = projectId;
         const projectHashcodeArray = [];
@@ -23,21 +28,22 @@ class ProjectGenerator{
         projectHashcodeArray.push(projectDoc.projectHeaderDoc.hashCode);
         docPath.push(projectDoc.projectHeaderDoc.filePath);
 
-        const {subProjects, locations } = this.reOrderAndGroupProjects(project.data.item.children);
+        const {subProjects, locations } = this.reOrderAndGroupProjects(project.children);
+        console.log("After reOrderAndGroupProjects - subProjects count:", subProjects.length, "locations count:", locations.length);
         for(const mySubProject of subProjects) {
-            const subProjectDoc = await SubProjectGenerator.createSubProject(mySubProject._id,reportType);
+            const subProjectDoc = await SubProjectGenerator.createSubProject(mySubProject.id,reportType);
             if (subProjectDoc.doc !== null && subProjectDoc.doc !== undefined) {
-                projectDoc.subprojectMap.set(mySubProject._id.toString(), subProjectDoc);
+                projectDoc.subprojectMap.set(mySubProject.id.toString(), subProjectDoc);
                 projectHashcodeArray.push(subProjectDoc.doc.hashCode);
                 docPath.push(subProjectDoc.doc.filePath);
             }
         }
 
         for (const location of locations) {
-            const locationDoc = await LocationGenerator.createLocation(location._id,reportType);
+            const locationDoc = await LocationGenerator.createLocation(location.id,reportType);
             if (locationDoc) {
                 if (locationDoc.doc !== null && locationDoc.doc !== undefined) {
-                    projectDoc.locationMap.set(location._id.toString(), locationDoc);
+                    projectDoc.locationMap.set(location.id.toString(), locationDoc);
                     projectHashcodeArray.push(locationDoc.doc.hashCode);
                     docPath.push(locationDoc.doc.filePath)
                 }
@@ -52,11 +58,34 @@ class ProjectGenerator{
     }
 
     async updateProject(projectId,existingProjectDoc,reportType) {
-        const project  = await projects.getProjectById(projectId);
-        const projectDoc =  eval('(' + existingProjectDoc + ')');
+        let projectResponse = await projects.getProjectById(projectId);
+        // Extract project from wrapped response if needed
+        const project = projectResponse.project || projectResponse;
+        
+        // Handle both string and object formats
+        let projectDoc;
+        if (typeof existingProjectDoc === 'string') {
+            projectDoc = JSON.parse(existingProjectDoc);
+        } else {
+            projectDoc = existingProjectDoc;
+        }
+        
+        // Ensure subprojectMap and locationMap are Maps
+        if (!projectDoc.subprojectMap) {
+            projectDoc.subprojectMap = new Map();
+        } else if (!(projectDoc.subprojectMap instanceof Map)) {
+            projectDoc.subprojectMap = new Map(Object.entries(projectDoc.subprojectMap));
+        }
+        
+        if (!projectDoc.locationMap) {
+            projectDoc.locationMap = new Map();
+        } else if (!(projectDoc.locationMap instanceof Map)) {
+            projectDoc.locationMap = new Map(Object.entries(projectDoc.locationMap));
+        }
+        
         const projectHashcodeArray = [];
         const docPath = [];
-        const {subProjects, locations } = this.reOrderAndGroupProjects(project.data.item.children);
+        const {subProjects, locations } = this.reOrderAndGroupProjects(project.children);
         let locationMap = new Map();
         let subprojectMap = new Map();
 
@@ -76,20 +105,20 @@ class ProjectGenerator{
 
         //SubProjects
         for(const mySubProject of subProjects) {
-            if (projectDoc.subprojectMap.has(mySubProject._id.toString())) {
-                const subProjectDoc = await SubProjectGenerator.updateSubProject(mySubProject._id, projectDoc.subprojectMap.get(mySubProject._id.toString()),reportType);
+            if (projectDoc.subprojectMap.has(mySubProject.id.toString())) {
+                const subProjectDoc = await SubProjectGenerator.updateSubProject(mySubProject.id, projectDoc.subprojectMap.get(mySubProject.id.toString()),reportType);
                 if (subProjectDoc !== null) {
-                    projectDoc.subprojectMap.get(mySubProject._id.toString()).doc= subProjectDoc;
+                    projectDoc.subprojectMap.get(mySubProject.id.toString()).doc= subProjectDoc;
                 }
             } else {
                 console.log("New subproject is added");
-                const subProjectDoc = await SubProjectGenerator.createSubProject(mySubProject._id,reportType);
-                projectDoc.subprojectMap.set(mySubProject._id.toString(), subProjectDoc);
+                const subProjectDoc = await SubProjectGenerator.createSubProject(mySubProject.id,reportType);
+                projectDoc.subprojectMap.set(mySubProject.id.toString(), subProjectDoc);
             }
 
-            let newSubprojectDoc = projectDoc.subprojectMap.get(mySubProject._id.toString());
+            let newSubprojectDoc = projectDoc.subprojectMap.get(mySubProject.id.toString());
             if (newSubprojectDoc.doc !== null && newSubprojectDoc.doc !== undefined) {
-                subprojectMap.set(mySubProject._id.toString(), newSubprojectDoc);
+                subprojectMap.set(mySubProject.id.toString(), newSubprojectDoc);
                 projectHashcodeArray.push(newSubprojectDoc.doc.hashCode);
                 docPath.push(newSubprojectDoc.doc.filePath)
             }
@@ -97,20 +126,20 @@ class ProjectGenerator{
 
         // Project Locations
         for (const location of locations) {
-            if (projectDoc.locationMap.has(location._id.toString())) {
+            if (projectDoc.locationMap.has(location.id.toString())) {
                 const locationDoc = await LocationGenerator.updateLocation(location._id,
-                    projectDoc.locationMap.get(location._id.toString()),reportType);
+                    projectDoc.locationMap.get(location.id.toString()),reportType);
                 if (locationDoc !== null) {
-                    projectDoc.locationMap.get(location._id.toString()).doc= locationDoc;
+                    projectDoc.locationMap.get(location.id.toString()).doc= locationDoc;
                 }
             } else {
                 console.log("New location is added");
                 const locationDoc = await LocationGenerator.createLocation(location._id,reportType);
-                projectDoc.locationMap.set(location._id.toString(), locationDoc);
+                projectDoc.locationMap.set(location.id.toString(), locationDoc);
             }
-            let newLocationDoc = projectDoc.locationMap.get(location._id.toString());
+            let newLocationDoc = projectDoc.locationMap.get(location.id.toString());
             if (newLocationDoc.doc !== null && newLocationDoc.doc !== undefined) {
-                locationMap.set(location._id.toString(), newLocationDoc);
+                locationMap.set(location.id.toString(), newLocationDoc);
                 projectHashcodeArray.push(newLocationDoc.doc.hashCode);
                 docPath.push(newLocationDoc.doc.filePath)
             }
@@ -121,7 +150,7 @@ class ProjectGenerator{
 
         projectHashcodeArray.push(ReportGenerationUtil.calculateHash(project));
         const projectHashCode = ReportGenerationUtil.combineHashesInArray(projectHashcodeArray);
-        if (projectHashCode !== projectDoc.doc.hashCode) {
+        if (projectHashCode !== projectDoc.data.hashCode) {
             console.log("Project Hashcode changed.  Updating Project Doc");
             await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
         }
@@ -144,25 +173,48 @@ class ProjectGenerator{
     reOrderAndGroupProjects (projects){
         const subProjects = [];
         const locations = [];
-        for(let key in projects)
-        {
-            if(projects[key].type === ProjectChildType.SUBPROJECT)
+        
+        // Handle both array and object formats, and null/undefined
+        const projectsArray = Array.isArray(projects) ? projects : (projects ? Object.values(projects) : []);
+        
+        console.log("projectsArray:", projectsArray);
+        
+        for(const project of projectsArray)
+        {            
+            if(project && project.type === ProjectChildType.SUBPROJECT)
             {
-                subProjects.push(projects[key]);
-            }else if(projects[key].type === ProjectChildType.PROJECTLOCATION){
-                locations.push(projects[key]);
+                console.log("Adding subproject:", project.name);
+                subProjects.push(project);
+            }
+            else if(project && project.type === ProjectChildType.PROJECTLOCATION)
+            {
+                console.log("Adding location:", project.name);
+                locations.push(project);
+            }
+            else {
+                console.log("Child type not recognized - type:", project.type);
             }
         }
+        
+        console.log("Final result - subProjects count:", subProjects.length, "locations count:", locations.length);
+        
         subProjects.sort(function(subProj1,subProj2){
-            return (subProj1.sequenceNumber-subProj2.sequenceNumber);
+            return (parseInt(subProj1.sequenceNo || subProj1.sequenceNumber || 0) - parseInt(subProj2.sequenceNo || subProj2.sequenceNumber || 0));
         });
         locations.sort(function(loc1,loc2){
-            return (loc1.sequenceNumber-loc2.sequenceNumber);
+            return (parseInt(loc1.sequenceNo || loc1.sequenceNumber || 0) - parseInt(loc2.sequenceNo || loc2.sequenceNumber || 0));
         });
         return {subProjects,locations};
     }
     getProjectReportHascodeDocToSave(projectDoc, projectId,reportType) {
-        const serialized = serialize(projectDoc);
+        // Convert Maps to plain objects for serialization
+        const projectDocForSave = {
+            ...projectDoc,
+            locationMap: projectDoc.locationMap instanceof Map ? Object.fromEntries(projectDoc.locationMap) : projectDoc.locationMap,
+            subprojectMap: projectDoc.subprojectMap instanceof Map ? Object.fromEntries(projectDoc.subprojectMap) : projectDoc.subprojectMap
+        };
+        
+        const serialized = serialize(projectDocForSave);
         const now = new Date();
         const indianTime = now.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
         return {

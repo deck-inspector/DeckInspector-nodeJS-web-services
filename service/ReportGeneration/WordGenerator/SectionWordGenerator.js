@@ -9,6 +9,7 @@ const ReportGenerationUtil = require("../ReportGenerationUtil");
 
 class SectionWordGenerator {
     async createSectionDoc(sectionId, sectionData, reportType, subprojectName, location, companyName) {
+            console.log("sectionId received:", sectionId);
         if (this.isSectionIncluded(reportType, sectionData)) {
             const locationType = this.getLocationType(location);
             const template = this.getTemplate(companyName, subprojectName);
@@ -33,7 +34,7 @@ class SectionWordGenerator {
                                     ...invasiveData,
                                     ...conclusiveData
                                 }
-                                return await this.getWord(sectionData.data.item._id, template, sectionDocValues);
+                                return await this.getWord(sectionData.data.item.id, template, sectionDocValues);
                             }
                             else {
                                 sectionDocValues = {
@@ -43,7 +44,7 @@ class SectionWordGenerator {
                                     furtherInvasiveRequired: false,
                                     invasiverepairsinspectedandcompleted: false
                                 }
-                                return await this.getWord(sectionData.data.item._id, template, sectionDocValues);
+                                return await this.getWord(sectionData.data.item.id, template, sectionDocValues);
                             }
                         }
                         else {
@@ -55,7 +56,7 @@ class SectionWordGenerator {
                                 invasiveImages: [],
                                 invasiveDesc: 'Invasive inspection not done'
                             }
-                            return await this.getWord(sectionData.data.item._id, template, sectionDocValues);
+                            return await this.getWord(sectionData.data.item.id, template, sectionDocValues);
                         }
                     }
                 }
@@ -65,14 +66,14 @@ class SectionWordGenerator {
                     sectionDocValues = {
                         ...baseSectionDocValues,
                     };
-                    return await this.getWord(sectionData.data.item._id, template, sectionDocValues);
+                    return await this.getWord(sectionData.data.item.id, template, sectionDocValues);
                 }
                 const sectionDocValuesWhenUnitAvailable = this.getSectionDocValuesWhenUnitAvailable(sectionData);
                 sectionDocValues =  {
                     ...baseSectionDocValues,
                     ...sectionDocValuesWhenUnitAvailable,
                 };
-                return await this.getWord(sectionData.data.item._id, template, sectionDocValues);
+                return await this.getWord(sectionData.data.item.id, template, sectionDocValues);
             }
             // return await this.getWord(sectionData.data.item._id, template, sectionDocValues);
         }

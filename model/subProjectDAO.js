@@ -51,6 +51,7 @@ module.exports = {
             return { ...doc.content, id };
         } catch (error) {
             if (error.code === 13) {
+            
                 // Document not found
                 return null;
             }
