@@ -29,6 +29,7 @@ module.exports = {
       const tenantId = generateTenantId();
       const tenantWithId = {
         ...tenant,
+        type: "Tenant",
         docType: "Tenant",
         createdAt: new Date().toISOString(),
       };
@@ -59,12 +60,8 @@ module.exports = {
 
   getAllTenants: async () => {
     try {
-      const query = `SELECT META(t).id as id, t.* FROM \`${process.env.DB_BUCKET_NAME}\`.${
-        process.env.DB_PROD_SCOPE_NAME || "inventory"
-      }.Tenants t 
-                          WHERE t.type = 'Tenant' AND (t.isDeleted = false OR t.isDeleted IS MISSING)
-                          ORDER BY META(t).id DESC 
-                          LIMIT 50`;
+      const query = `SELECT META(p).id AS id, p.*\nFROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Tenants\` AS p\nORDER BY META(p).id DESC;`;
+            
       return await executeQuery(query);
     } catch (error) {
       console.error("Error getting all tenants:", error);
