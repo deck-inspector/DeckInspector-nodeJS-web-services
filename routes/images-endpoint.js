@@ -40,7 +40,7 @@ router.route('/upload')
             var newcontainerName= containerName.replace(/[^a-zA-Z0-9 ]/g, '');
             newcontainerName = newcontainerName.toLowerCase();
             newcontainerName = newcontainerName.replaceAll(" ","");
-
+            companyIdentifier = companyIdentifier.replace(/[^a-zA-Z0-9 ]/g, '');
             // var newentityName= entityName.replace(/[^a-zA-Z0-9 ]/g, '');
             // newentityName = newentityName.toLowerCase();
             //container would be now the companyidentifier
