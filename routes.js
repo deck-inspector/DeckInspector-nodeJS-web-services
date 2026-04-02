@@ -14,15 +14,14 @@ var tenantRouter = require("./routes/tenants-endpoint");
 var loginRouter = require("./routes/login-endpoint");
 var locationFormRouter = require("./routes/locationform-endpoint");
 const { authenticate } = require("passport");
-const jwt = require('jsonwebtoken');
+const jwt = require("jsonwebtoken");
 
-
-module.exports = function(app) {
+module.exports = function (app) {
   app.use(express.json());
-  app.use("/api/user", authenticateToken , userRouter);
-  app.use("/api/projectdocuments", projectDocumentsRouter);  
-  app.use("/api/projectreports", projectReportsRouter);  
-  app.use("/api/image", authenticateToken, imageRouter);  
+  app.use("/api/user", authenticateToken, userRouter);
+  app.use("/api/projectdocuments", projectDocumentsRouter);
+  app.use("/api/projectreports", projectReportsRouter);
+  app.use("/api/image", authenticateToken, imageRouter);
   app.use("/api/project", authenticateToken, projectRouter);
   app.use("/api/subproject", subprojectRouter);
   app.use("/api/location", locationRouter);
@@ -30,25 +29,24 @@ module.exports = function(app) {
   app.use("/api/dynamicsection", dynamicSectionRouter);
   app.use("/api/invasivesection", invasivesectionRouter);
   app.use("/api/conclusivesection", conclusiveSectionRouter);
-  app.use("/api/tenants", authenticateToken,tenantRouter);
+  app.use("/api/tenants", authenticateToken, tenantRouter);
   app.use("/api/login", loginRouter);
-  app.use("/api/locationforms",locationFormRouter);
-
+  app.use("/api/locationforms", locationFormRouter);
 };
 
 function authenticateToken(req, res, next) {
   const token = req.headers.authorization;
 
   if (!token) {
-    return res.status(401).json({ error: 'Unauthorized: Token not provided' });
+    return res.status(401).json({ error: "Unauthorized: Token not provided" });
   }
 
   jwt.verify(token, process.env.TOKEN_KEY, (err, user) => {
     if (err) {
-      return res.status(403).json({ error: 'Unauthorized: Invalid token' });
+      return res.status(403).json({ error: "Unauthorized: Invalid token" });
     }
 
-    req.user = user;  // Attach user information to the request object
+    req.user = user; // Attach user information to the request object
     next();
   });
 }

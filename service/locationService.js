@@ -106,7 +106,7 @@ var getLocationsByParentId = async function (parentId) {
 const editLocation = async (locationId, location) => {
   try {
     const result = await LocationDAO.editLocation(locationId, location);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       const locationFromDB = await LocationDAO.getLocationById(locationId);
       // await updateParentHelper.removeLocationFromParent(locationId, locationFromDB);
       // await updateParentHelper.addLocationMetadataInParent(locationId, locationFromDB);

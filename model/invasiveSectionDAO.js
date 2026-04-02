@@ -1,23 +1,58 @@
-const ObjectId = require('mongodb').ObjectId;
-const mongo = require('../database/mongo');
+
+const { v4: uuidv4 } = require("uuid");
+const couchbase = require("../database/couchbase");
+
+async function getInvasiveSectionsCollection() {
+    return couchbase.InvasiveSections;
+}
 
 module.exports = {
     addInvasiveSection: async (invasiveSection) => {
-        return await mongo.InvasiveSections.insertOne(invasiveSection);
+        const id = uuidv4();
+        const collection = await getInvasiveSectionsCollection();
+        await collection.insert(id, invasiveSection);
+        return { insertedId: id, ok: 1 };
     },
     getAllInvasiveSections: async () => {
-        return await mongo.InvasiveSections.find({}).limit(50).sort({"_id": -1}).toArray();
+        const bucket = process.env.DB_BUCKET_NAME;
+        const scope = process.env.DB_SCOPE_NAME || "inventory";
+        const cluster = couchbase.cluster;
+        const query = `SELECT META(i).id as id, i.* FROM \`${bucket}\`.\`${scope}\`.InvasiveSections i ORDER BY META(i).id DESC LIMIT 50`;
+        const result = await cluster.query(query);
+        // Remove _id from each result, ensure id is present
+        return result.rows.map(row => {
+            const { _id, ...rest } = row;
+            return { ...rest, id: row.id };
+        });
     },
     getInvasiveSectionById: async (id) => {
-        return await mongo.InvasiveSections.findOne({ _id: new ObjectId(id) });
+        const collection = await getInvasiveSectionsCollection();
+        const doc = await collection.get(id);
+        const { _id, ...rest } = doc.content;
+        return { ...rest, id };
     },
     editInvasiveSection: async (id, newData) => {
-        return await mongo.InvasiveSections.updateOne({ _id: new ObjectId(id) }, { $set: newData },{upsert:false});
+        const collection = await getInvasiveSectionsCollection();
+        const doc = await collection.get(id);
+        const updatedDoc = { ...doc.content, ...newData };
+        await collection.replace(id, updatedDoc);
+        return { ok: 1 };
     },
     deleteInvasiveSection: async (id) => {
-        return await mongo.InvasiveSections.deleteOne({ _id: new ObjectId(id) });
+        const collection = await getInvasiveSectionsCollection();
+        await collection.remove(id);
+        return { ok: 1 };
     },
     getInvasiveSectionByParentId: async (parentId) => {
-        return await mongo.InvasiveSections.find({ parentid: new ObjectId(parentId) }).toArray();
+        const bucket = process.env.DB_BUCKET_NAME;
+        const scope = process.env.DB_SCOPE_NAME || "inventory";
+        const cluster = couchbase.cluster;
+        const query = `SELECT META(i).id as id, i.* FROM \`${bucket}\`.\`${scope}\`.InvasiveSection i WHERE i.parentid = $1`;
+        const result = await cluster.query(query, { parameters: [parentId] });
+        // Remove _id from each result, ensure id is present
+        return result.rows.map(row => {
+            const { _id, ...rest } = row;
+            return { ...rest, id: row.id };
+        });
     },
-}
+};

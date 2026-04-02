@@ -44,19 +44,21 @@ if (!(name&&parentid)) {
 }
 
 const parentProject = await Project.getProjectById(parentid);
-if(!parentProject.data){
+console.log("Parent Project Data:", parentProject);
+if(!parentProject || !parentProject.project || !parentProject.project._id){
   errResponse = new ErrorResponse(400,"Invalid Parent Id","");
   res.status(400).json(errResponse);
   return;
 }
 
 var creationtime= new Date(Date.now()).toISOString();
+console.log(creationtime);
 //console.log(creationtime);
 try{
   var newSubProject = {
       "name":name,
       "description":description,
-      "parentid": new ObjectId(parentid), 
+      "parentid": parentid, 
       "parenttype": parenttype,
       "type": "subproject",
       "url":url,    
@@ -93,10 +95,15 @@ return res.status(500).json(errResponse);
 
 
 router.route('/getSubProjectById')
-.post(async function(req,res){
-  try{
+.post(async function(req, res) {
+  try {
     var errResponse;
     const subprojectId = req.body.subprojectid;
+    if (!subprojectId) {
+      errResponse = newErrorResponse(400, false, 'Missing required field: subprojectid');
+      return res.status(400).json(errResponse);
+    }
+    console.log("Fetching SubProject with ID:", subprojectId);
     const userName = req.body.username;
     var result = await SubProjectService.getSubProjectById(subprojectId);
     if (result.reason) {
@@ -106,10 +113,9 @@ router.route('/getSubProjectById')
       //console.debug(result);
       return res.status(201).json(result);
     }
-  }
-  catch (exception) {
+  } catch (exception) {
     errResponse = new newErrorResponse(500, false, exception);
-    return  res.status(500).json(errResponse);
+    return res.status(500).json(errResponse);
   }
 })
 

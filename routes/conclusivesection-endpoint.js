@@ -78,7 +78,7 @@ router.route('/add')
             "conclusiveconsiderations" :conclusiveconsiderations,
             "eeeconclusive":eeeconclusive,
             "invasiverepairsinspectedandcompleted": invasiverepairsinspectedandcompleted.toLowerCase()==='true',
-            "parentid": new ObjectId(parentid), 
+            "parentid": parentid, 
             "propowneragreed": propowneragreed.toLowerCase()==='true',
             "conclusiveimages":conclusiveimages,
             "lbcconclusive":lbcconclusive
@@ -106,7 +106,7 @@ router.route('/:id')
       const newData = req.body;
 
       if(newData.parentid){
-        newData.parentid = new ObjectId(newData.parentid);
+        newData.parentid = newData.parentid;
       }
 
       if(newData.propowneragreed){

@@ -33,7 +33,7 @@ try{
       "createdby":createdBy,
       "url":url,
       "createdat":creationtime,    
-      "parentid": new ObjectId(parentid),
+      "parentid": parentid,
       "parenttype": parenttype,
       "type":type,
       "sections":[],

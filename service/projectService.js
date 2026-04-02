@@ -19,11 +19,10 @@ const SectionService = require("../service/sectionService");
 var addProject = async function (project) {
   try {
     const result = await ProjectDAO.addProject(project);
-    //Umesh TODO : think about whether we want service layer to know about underlying DB technology
-    if (result.insertedId) {
+    if (result.success === true) {
       return {
         success: true,
-        id: result.insertedId,
+        id: project.id || result.insertedId,
       };
     }
     return {
@@ -33,13 +32,13 @@ var addProject = async function (project) {
     };
   } catch (error) {
     return handleError(error);
-  }
-};
+  }};
 
 var getProjectById = async function (projectId) {
   try {
     const result = await ProjectDAO.getProjectById(projectId);
     if (result) {
+      // Attach Couchbase document key as id and _id
       return {
         success: true,
         project: result,
@@ -62,7 +61,7 @@ var deleteProjectPermanently = async function (projectId) {
     const sectionsResult = SectionService.getSectionsByParentId(projectId);
     if (sectionsResult.sections) {
       for (const section of sectionsResult.sections) {
-        await SectionService.deleteSectionPermanently(section._id);
+        await SectionService.deleteSectionPermanently(section.id);
       }
     }
     //Delete projectLocations
@@ -72,7 +71,7 @@ var deleteProjectPermanently = async function (projectId) {
 
     if (locationResult.locations) {
       for (const location of locationResult.locations) {
-        await LocationService.deleteLocationPermanently(location._id);
+        await LocationService.deleteLocationPermanently(location.id);
       }
     }
 
@@ -83,12 +82,12 @@ var deleteProjectPermanently = async function (projectId) {
 
     if (subProjectResult.subprojects) {
       for (const subProject of subProjectResult.subprojects) {
-        await SubprojectService.deleteSubProjectPermanently(subProject._id);
+        await SubprojectService.deleteSubProjectPermanently(subProject.id);
       }
     }
 
     const result = await ProjectDAO.deleteProjectPermanently(projectId);
-    if (result.deletedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -107,12 +106,12 @@ var archiveProject = async function(projectId){
   try {
     const result = await ProjectDAO.getProjectById(projectId);
     if (result) {
-      const {_id,...resultnoId} = result;
-      var archivedProj = await ArchivedProjectDAO.addArchivedProject(resultnoId);
-      if (archivedProj.insertedId) {
+      const {...rest} = result.id ? { ...result, id: result.id } : result; // Ensure id is included in the rest object
+      var archivedProj = await ArchivedProjectDAO.addArchivedProject({...rest});
+      if (archivedProj.ok === 1) {
         //delete the project
         const result = await ProjectDAO.deleteProjectPermanently(projectId);
-        if (result.deletedCount === 1) {
+        if (result.ok === 1) {
         return {
           success: true,
          };
@@ -175,7 +174,7 @@ var getAllProjects = async function () {
 var editProject = async function (projectId, newData) {
   try {
     const result = await ProjectDAO.editProject(projectId, newData);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -193,7 +192,7 @@ var editProject = async function (projectId, newData) {
 var assignProjectToUser = async function (projectId, username) {
   try {
     const result = await ProjectDAO.assignProjectToUser(projectId, username);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -214,7 +213,7 @@ var unassignUserFromProject = async function (projectId, username) {
       projectId,
       username
     );
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -281,7 +280,7 @@ var getProjectsByNameCreatedOnIsCompletedAndDeleted = async function ({
 var toggleProjectstatus = async function (projectId,iscomplete) {
     try {
         const result = await ProjectDAO.updateProjectStatus(projectId,iscomplete);
-        if (result.modifiedCount === 1) {
+        if (result.ok === 1) {
             return {
                 success: true,
             };

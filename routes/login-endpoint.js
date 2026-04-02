@@ -7,196 +7,202 @@ const bcrypt = require("bcrypt");
 var jwt = require("jsonwebtoken");
 const Role = require("../model/role");
 const Tenants = require("../service/tenantService");
+const couchbaseDb = require("../database/couchbase");
 
 require("dotenv").config();
+
+// Helper function to query users from Couchbase
+async function getCouchbaseUser(usernameOrEmail) {
+  try {
+    const cluster = couchbaseDb.cluster;
+    if (!cluster) throw new Error("Couchbase not initialized");
+
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.Users u WHERE u.username = $1 OR u.email = $1 LIMIT 1`;
+    const result = await cluster.query(query, {
+      parameters: [usernameOrEmail],
+    });
+
+    return result.rows && result.rows.length > 0 ? result.rows[0] : null;
+  } catch (error) {
+    console.error("Couchbase query error:", error);
+    throw error;
+  }
+}
+
+// Helper function to query super users from Couchbase
+async function getCouchbaseSuperUser(usernameOrEmail) {
+  try {
+    const cluster = couchbaseDb.cluster;
+    if (!cluster) throw new Error("Couchbase not initialized");
+
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.SuperUsers u WHERE u.username = $1 OR u.email = $1 LIMIT 1`;
+    const result = await cluster.query(query, {
+      parameters: [usernameOrEmail],
+    });
+
+    return result.rows && result.rows.length > 0 ? result.rows[0] : null;
+  } catch (error) {
+    console.error("Couchbase query error:", error);
+    throw error;
+  }
+}
 
 router.route("/:username").get(async function (req, res) {
   try {
     const username = req.params.username;
-    users.getUserbyUsername(username, async function (err, record) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        if (record) {
-          const { password, ...user } = record;
-          res.status(201).json(user);
-        } else res.status(401).send("user not found.");
-      }
-    });
-  } catch {
+    const record = await getCouchbaseUser(username);
+
+    if (record) {
+      const { password, ...user } = record;
+      res.status(201).json(user);
+    } else {
+      res.status(401).send("user not found.");
+    }
+  } catch (err) {
+    console.error("Error:", err);
     res.status(500).send("Internal server error.");
   }
 });
 
 //#region Login
 router.route("/login").post(async function (req, res) {
-  // our login logic goes here
   try {
-    // Get user input
-    const { username, password,isMobile,deviceId } = req.body;
+    const { username, password, isMobile, deviceId } = req.body;
 
-    // Validate user input
     if (!(username && password)) {
-      res.status(400).send("All input is required");
-      return;
+      return res.status(400).send("All input is required");
     }
-    // Validate if user exist in our database
-    users.getUserbyUsername(username, async function (err, record) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
 
-        if (record && record.isActive === false) {
-          res.status(409).send("User is not active.");
-          return;         
-        }  
-        if (record && (await bcrypt.compare(password, record.password))) {
-          // Create token
-          const { password, ...user } = record;
+    const record = await getCouchbaseUser(username);
+    if (!record) {
+      return res.status(401).send("Invalid Credentials");
+    }
 
-          //TODO check if that company is active and not marked for deletion.
-          var loginAllowed = await Tenants.isTenantActive(
-            user.companyIdentifier
-          );
-          if (loginAllowed.success) {
-            if (!loginAllowed.allowLogin) {
-              res.status(401).send("Invalid Credentials,company is inactive.");
-              return;
-            }
+    if (record.isActive === false) {
+      return res.status(409).send("User is not active.");
+    }
 
-          } else {
-            res.status(401).send("Invalid Credentials");
-            return;
-          }
-          //check user has a session is already on
-          if (isMobile) {
-            if (user.deviceId==null) {
-              users.updateDevideId(username,deviceId,function(err,result){
-                if (err) {
-                  console.log(err);
-                  res.status(500).send('internal server error');
-                }
-                });
-            }else{
-              if (user.deviceId!==deviceId) {
-                res.status(401).send("User is registerd with a different device, please contact administrator to unregister your device.");
-                return;
-              }  
-            }
-            
-          }
-          const token = jwt.sign(
-            {
-              user_id: record._id,
-              username,
-              company: record.companyIdentifier,
-            },
-            process.env.TOKEN_KEY,
-            {
-              expiresIn: "1d",
-            }
-          );
+    if (!(await bcrypt.compare(password, record.password))) {
+      return res.status(401).send("Invalid Credentials");
+    }
 
-          // save user token
-          user.token = token;
+    const loginAllowed = await Tenants.isTenantActive(record.companyIdentifier);
+    if (!loginAllowed.success || !loginAllowed.allowLogin) {
+      return res.status(401).send("Invalid Credentials,company is inactive.");
+    }
 
-          // user
-          res.status(201).json(user);
-          
-        } else res.status(401).send("Invalid Credentials");
+    if (isMobile) {
+      try {
+        const collection = couchbaseDb.Users;
+        const userId = record.id || record._id;
+
+        if (!record.deviceId) {
+          const doc = await collection.get(userId);
+          doc.content.deviceId = deviceId;
+          await collection.upsert(userId, doc.content);
+        } else if (record.deviceId !== deviceId) {
+          return res
+            .status(401)
+            .send(
+              "User is registered with a different device, please contact administrator to unregister your device.",
+            );
+        }
+      } catch (err) {
+        console.error("Device ID update error:", err);
+        return res.status(500).send("Internal server error");
       }
-    });
+    }
+
+    const { password: pwd, ...user } = record;
+    const token = jwt.sign(
+      {
+        user_id: record.id || record._id,
+        username,
+        company: record.companyIdentifier,
+      },
+      process.env.TOKEN_KEY,
+      { expiresIn: "1d" },
+    );
+
+    user.token = token;
+    res.status(201).json(user);
   } catch (err) {
-    console.log(err);
+    console.error("Login error:", err);
+    res.status(500).send("Internal server error");
   }
 });
 
 router.route("/logout").post(async function (req, res) {
-  // our login logic goes here
   try {
-    // Get user input
     const { username, password } = req.body;
 
-    // Validate user input
-    if (!(username&& password)) {
-      res.status(400).send("username and password is required");
+    if (!(username && password)) {
+      return res.status(400).send("username and password is required");
     }
-    // Validate if user exist in our database
-    users.getUserbyUsername(username, async function (err, record) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        if (record && (await bcrypt.compare(password, record.password))) {
-          // Create token
-          const { password, ...user } = record;
 
-          //TODO check if that company is active and not marked for deletion.
-          var loginAllowed = await Tenants.isTenantActive(
-            user.companyIdentifier
-          );
-          if (loginAllowed.success) {
-            if (!loginAllowed.allowLogin) {
-              res.status(401).send("Invalid Credentials");
-              return;
-            }
-          } else {
-            res.status(401).send("Invalid Credentials");
-            return;
-          }
-          
-            users.clearSession(username,function (err, result){
-              if (err) {
-                res.status(500).send("Server error");
-              }else{
-                res.status(result.status).send(result.message);
-              }
-            });
-        } else res.status(401).send("Invalid Credentials");
-      }
-    });
+    const record = await getCouchbaseUser(username);
+    if (!record) {
+      return res.status(401).send("Invalid Credentials");
+    }
+
+    if (!(await bcrypt.compare(password, record.password))) {
+      return res.status(401).send("Invalid Credentials");
+    }
+
+    const loginAllowed = await Tenants.isTenantActive(record.companyIdentifier);
+    if (!loginAllowed.success || !loginAllowed.allowLogin) {
+      return res.status(401).send("Invalid Credentials");
+    }
+
+    try {
+      const collection = couchbaseDb.Users;
+      const userId = record.id || record._id;
+      const doc = await collection.get(userId);
+      doc.content.hasActiveSession = false;
+      await collection.upsert(userId, doc.content);
+      return res.status(201).send("User session cleared successfully.");
+    } catch (err) {
+      console.error("Logout error:", err);
+      return res.status(500).send("Server error");
+    }
   } catch (err) {
-    console.log(err);
+    console.error("Logout error:", err);
+    res.status(500).send("Server error");
   }
 });
 
 //#endregion
 
 router.route("/superlogin").post(async function (req, res) {
-  // our login logic goes here
   try {
-    // Get user input
     const { username, password } = req.body;
 
-    // Validate user input
     if (!(username && password)) {
-      res.status(400).send("All input is required");
+      return res.status(400).send("All input is required");
     }
-    // Validate if user exist in our database
-    users.getSuperUserbyUsername(username, async function (err, record) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        if (record && (await bcrypt.compare(password, record.password))) {
-          // Create token
-          const { password, ...user } = record;
-          const token = jwt.sign(
-            { user_id: record._id, username },
-            process.env.TOKEN_KEY,
-            {
-              expiresIn: "1d",
-            }
-          );
 
-          // save user token
-          user.token = token;
+    const record = await getCouchbaseSuperUser(username);
+    if (!record) {
+      return res.status(401).send("Invalid Credentials");
+    }
 
-          // user
-          res.status(201).json(user);
-        } else res.status(401).send("Invalid Credentials");
-      }
-    });
+    if (!(await bcrypt.compare(password, record.password))) {
+      return res.status(401).send("Invalid Credentials");
+    }
+
+    const { password: pwd, ...user } = record;
+    const token = jwt.sign(
+      { user_id: record.id || record._id, username },
+      process.env.TOKEN_KEY,
+      { expiresIn: "1d" },
+    );
+
+    user.token = token;
+    user._id = record.id || record._id;
+    res.status(201).json(user);
   } catch (err) {
-    console.log(err);
+    console.error("Super login error:", err);
+    res.status(500).send("Internal server error");
   }
 });
 router.route("/registersuperuser").post(function (req, res) {
@@ -249,14 +255,14 @@ router.route("/registersuperuser").post(function (req, res) {
                     process.env.TOKEN_KEY,
                     {
                       expiresIn: "2d",
-                    }
+                    },
                   );
                   // save user token
                   user.token = token;
                   // return new user
                   res.status(201).json(user);
                 }
-              }
+              },
             );
           }
         });
@@ -268,41 +274,35 @@ router.route("/registersuperuser").post(function (req, res) {
 });
 
 router.route("/loginSuperUser").post(async function (req, res) {
-  // our login logic goes here
   try {
-    // Get user input
     const { username, password } = req.body;
 
-    // Validate user input
     if (!(username && password)) {
-      res.status(400).send("All input is required");
+      return res.status(400).send("All input is required");
     }
-    // Validate if user exist in our database
-    users.getSuperUserbyUsername(username, async function (err, record) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        if (record && (await bcrypt.compare(password, record.password))) {
-          // Create token
-          const { password, ...user } = record;
-          const token = jwt.sign(
-            { user_id: record._id, username },
-            process.env.TOKEN_KEY,
-            {
-              expiresIn: "1d",
-            }
-          );
 
-          // save user token
-          user.token = token;
+    const record = await getCouchbaseSuperUser(username);
+    if (!record) {
+      return res.status(401).send("Invalid Credentials");
+    }
 
-          // user
-          res.status(201).json(user);
-        } else res.status(401).send("Invalid Credentials");
-      }
-    });
+    if (!(await bcrypt.compare(password, record.password))) {
+      return res.status(401).send("Invalid Credentials");
+    }
+
+    const { password: pwd, ...user } = record;
+    const token = jwt.sign(
+      { user_id: record.id || record._id, username },
+      process.env.TOKEN_KEY,
+      { expiresIn: "1d" },
+    );
+
+    user.token = token;
+    user._id = record.id || record._id;
+    res.status(201).json(user);
   } catch (err) {
-    console.log(err);
+    console.error("Login super user error:", err);
+    res.status(500).send("Internal server error");
   }
 });
 

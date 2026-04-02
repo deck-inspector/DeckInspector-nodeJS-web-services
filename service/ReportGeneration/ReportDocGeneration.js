@@ -7,15 +7,15 @@ class ReportDocGeneration {
             console.time("generateReportDocs");
             const template = this.getTemplate(companyName);
 
-            const createdAtString = project.data.item.createdat;
+            const createdAtString = project.createdat || project.createdAt;
             const date = new Date(createdAtString);
             const data = {
                 project:{
                     reportType: reportType,
-                    name: project.data.item.name,
-                    address: project.data.item.address,
-                    description:project.data.item.description,
-                    createdBy:project.data.item.createdby,
+                    name: project.name,
+                    address: project.address,
+                    description: project.description,
+                    createdBy: project.createdby,
                     createdAt : date.toLocaleString(),
                     headerName: this.getProjectHeader(reportType)
                 }
@@ -23,8 +23,8 @@ class ReportDocGeneration {
             const filePath = projectId + '-projectheader.docx'
             const additionalJsContext = {
                 tile: async () => {
-                    const projurl = project.data.item.url === '' ? 'https://www.deckinspectors.com/wp-content/uploads/2020/07/logo_new_new-1.png' :
-                        project.data.item.url;
+                    const projurl = project.url === '' ? 'https://www.deckinspectors.com/wp-content/uploads/2020/07/logo_new_new-1.png' :
+                        project.url;
                     const resp = await fetch(
                         projurl
                     );

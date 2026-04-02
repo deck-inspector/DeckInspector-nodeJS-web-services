@@ -4,11 +4,10 @@ const TenantDAO = require("../model/tenantsDAO");
 var addTenant = async function (tenant) {
   try {
     const result = await TenantDAO.addTenant(tenant);
-    //Umesh TODO : think about whether we want service layer to know about underlying DB technology
-    if (result.insertedId) {
+    if (result.ok === 1) {
       return {
         success: true,
-        id: result.insertedId,
+        id: tenant.id || result.id,
       };
     }
     return {
@@ -64,7 +63,7 @@ var getTenantByCompanyIdentifier = async function (companyIdentifier) {
 var deleteTenantPermanently = async function (tenantId) {
   try {
     const result = await TenantDAO.deleteTenantPermanently(tenantId);
-    if (result.deletedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -100,7 +99,7 @@ var getAllTenants = async function () {
 var editTenant = async function (tenantId, newData) {
   try {
     const result = await TenantDAO.editTenant(tenantId, newData);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -118,7 +117,7 @@ var editTenant = async function (tenantId, newData) {
 var deleteTenant = async function (tenantId) {
   try {
     const result = await TenantDAO.deleteTenant(tenantId);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -136,7 +135,7 @@ var deleteTenant = async function (tenantId) {
 var addDiskSpace = async function (tenantId, space) {
   try {
     const result = await TenantDAO.addTenantDiskSpace(tenantId, space);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -154,7 +153,7 @@ var addDiskSpace = async function (tenantId, space) {
 var addUsedDiskSpace = async function (tenantId, space) {
   try {
     const result = await TenantDAO.addTenantUsedDiskSpace(tenantId, space);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -172,7 +171,7 @@ var addUsedDiskSpace = async function (tenantId, space) {
 var increaseTenantValidity = async function (tenantId, days) {
   try {
     const result = await TenantDAO.increaseTenantValidity(tenantId, days);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -189,7 +188,7 @@ var increaseTenantValidity = async function (tenantId, days) {
 var increaseTenantUsers = async function (tenantId, count) {
   try {
     const result = await TenantDAO.increaseTenantUsers(tenantId, count);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -207,7 +206,7 @@ var increaseTenantUsers = async function (tenantId, count) {
 var addCustomFormCount = async function (tenantId) {
   try {
     const result = await TenantDAO.addCustomFormCount(tenantId);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -224,7 +223,7 @@ var addCustomFormCount = async function (tenantId) {
 var increaseAllowedCustomForms = async function (tenantId, count) {
   try {
     const result = await TenantDAO.increaseAllowedCustomForms(tenantId, count);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -245,7 +244,7 @@ var updateStorageStats = async function (companyIdentifier, count, fileSize) {
       count,
       fileSize
     );
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -263,7 +262,7 @@ var updateStorageStats = async function (companyIdentifier, count, fileSize) {
 var toggleAccessForTenant = async function (tenantId, isActive) {
   try {
     const result = await TenantDAO.toggleTenantAccess(tenantId, isActive);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -281,7 +280,7 @@ var toggleAccessForTenant = async function (tenantId, isActive) {
 var toggleShowFooterLogo = async function (tenantId, value) {
   try {
     const result = await TenantDAO.toggleShowFooterlogo(tenantId, value);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -299,7 +298,7 @@ var toggleShowFooterLogo = async function (tenantId, value) {
 var addUpdateAdmin = async function (tenantId, adminDetails) {
   try {
     const result = await TenantDAO.updateAdminDetails(tenantId, adminDetails);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -317,7 +316,7 @@ var addUpdateAdmin = async function (tenantId, adminDetails) {
 var updateAddIconsForTenant = async function (tenantId, iconsData) {
   try {
     const result = await TenantDAO.updateAddIconsForTenant(tenantId, iconsData);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -341,7 +340,7 @@ var updateTenantsAzureStorageDataDetails = async function (
       tenantId,
       azureStorageDetails
     );
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -358,7 +357,7 @@ var updateTenantsAzureStorageDataDetails = async function (
 var updateLogoURL = async function (tenantId, logoURL) {
   try {
     const result = await TenantDAO.updateTenantLogo(tenantId, logoURL);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -375,7 +374,7 @@ var updateLogoURL = async function (tenantId, logoURL) {
 var updateTenantWebsite = async function (tenantId, website) {
   try {
     const result = await TenantDAO.updateTenantWebsite(tenantId, website);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -393,7 +392,7 @@ var updateTenantWebsite = async function (tenantId, website) {
 var updateValidityDate = async function (tenantId, endDate) {
   try {
     const result = await TenantDAO.updateEndDate(tenantId, endDate);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -411,7 +410,7 @@ var updateValidityDate = async function (tenantId, endDate) {
 var updateTenantExpenses = async function (tenantId, expense) {
   try {
     const result = await TenantDAO.updateTenantExpenses(tenantId, expense);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       return {
         success: true,
       };
@@ -447,10 +446,10 @@ var getDiskWarning = async function (tenantId) {
 var isTenantActive = async function (identifier) {
   try {
     const result = await TenantDAO.isTenantActive(identifier);
-    if (result) {
+    if (result.success) {
       return {
         success: true,
-        allowLogin: !result.isDeleted && result.isActive,
+        allowLogin: result.allowLogin,
       };
     }
     return {

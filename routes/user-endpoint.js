@@ -38,11 +38,7 @@ router.route("/register").post(async function (req, res) {
     const tenant = await Tenants.getTenantByCompanyIdentifier(
       companyIdentifier
     );
-    const allUsers = await new Promise((resolve, reject) => {
-      users.getAllUser(function (err, result) {
-        resolve(result);
-      });
-    });
+    const allUsers = await users.getAllUser();
     const filteredUsers = allUsers.users.filter(
       (user) => user.companyIdentifier === companyIdentifier
     );
@@ -87,20 +83,14 @@ router.route("/register").post(async function (req, res) {
     }
 
     // Check if the user already exists
-    const existingUserByEmail = await new Promise((resolve, reject) => {
-      users.getUser(email, function (err, record) {
-        resolve(record);
-      });
-    });
+    const existingUserByEmail = await users.getUser(email);
     if (existingUserByEmail) {
       return res.status(409).send("User with this email already exists.");
     }
 
-    const existingUserByUsername = await new Promise((resolve, reject) => {
-      users.getUserbyUsername(username, function (err, record) {
-        resolve(record);
-      });
-    });
+    const existingUserByUsername = await
+      users.getUserbyUsername(username);
+    
     if (existingUserByUsername) {
       return res.status(409).send("Username already exists.");
     }
@@ -120,7 +110,7 @@ router.route("/register").post(async function (req, res) {
     const encryptedPassword = await bcrypt.hash(password, 10);
 
     // Create user in the database
-    const newUser = await new Promise((resolve, reject) => {
+    const newUser = await 
       users.addUser(
         {
           first_name,
@@ -131,17 +121,9 @@ router.route("/register").post(async function (req, res) {
           mobile,
           email: email.toLowerCase(), // Convert email to lowercase
           password: encryptedPassword,
-        },
-        function (err, result) {
-          if (err) {
-            console.error("Error adding new user:", err);
-            reject(err); // Reject with error in case of error
-          } else {
-            resolve(result);
-          }
-        }
+          },
       );
-    });
+    
 
     // Create token
     const token = jwt.sign(
@@ -291,58 +273,54 @@ router.route("/update").post(async function (req, res) {
     const user = req.body;
     const companyIdentifier = req.user.company;
     //check if the count is exceeding the limit
-    var tenant = Tenants.getTenantByCompanyIdentifier(companyIdentifier);
-    
-    users.getAllUser(function (err, result) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        // console.debug(result);
-        var users = result.users.filter(
-          (user) => user.companyIdentifier === companyIdentifier
-        );
-        switch (user.access_type) {
-          case "both":
-            if (tenant.bothUserCount < users.filter((user) => user.bothUserCount)) {
-              res
-                .status(409)
-                .send("Cannot update, limit reached. Please contact system admin");
-              return;
-            }
-            break;
-          case "mobile":
-            if (
-              tenant.mobileUserCount < users.filter((user) => user.mobileUserCount)
-            ) {
-              res
-                .status(409)
-                .send("Cannot update, limit reached. Please contact system admin");
-              return;
-            }
-            break;
-          case "web":
-            if (tenant.webUserCount < users.filter((user) => user.webUserCount)) {
-              res
-                .status(409)
-                .send("Cannot update, limit reached. Please contact system admin");
-              return;
-            }
-            break;
+    var tenant = await Tenants.getTenantByCompanyIdentifier(companyIdentifier);
+    const result = await users.getAllUser();
+    var tenantUsers = result.users.filter(
+      (existingUser) => existingUser.companyIdentifier === companyIdentifier
+    );
+
+    switch (user.access_type) {
+      case "both":
+        if (
+          tenant.Tenant.bothUserCount <=
+          tenantUsers.filter((existingUser) => existingUser.access_type === "both")
+            .length
+        ) {
+          return res
+            .status(409)
+            .send("Cannot update, limit reached. Please contact system admin");
         }
-      }
-    });
+        break;
+      case "mobile":
+        if (
+          tenant.Tenant.mobileUserCount <=
+          tenantUsers.filter((existingUser) => existingUser.access_type === "mobile")
+            .length
+        ) {
+          return res
+            .status(409)
+            .send("Cannot update, limit reached. Please contact system admin");
+        }
+        break;
+      case "web":
+        if (
+          tenant.Tenant.webUserCount <=
+          tenantUsers.filter((existingUser) => existingUser.access_type === "web")
+            .length
+        ) {
+          return res
+            .status(409)
+            .send("Cannot update, limit reached. Please contact system admin");
+        }
+        break;
+    }
 
     
     
     if ("password" in user)
       user.password = await bcrypt.hash(user.password, 10);
-    users.updateUser(user, function (err, result) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        res.status(result.status).send(result.message);
-      }
-    });
+    const updateResult = await users.updateUser(user);
+    res.status(updateResult.status).send(updateResult.message);
   } catch (err) {
     console.log(err);
     res.status(500).send(`Internal server error ${err}`);
@@ -355,13 +333,8 @@ router.route("/delete").post(async function (req, res) {
   try {
     // Get user input
     const user = req.body;
-    users.removeUser(user, function (err, result) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        res.status(result.status).send(result.message);
-      }
-    });
+    const result = await users.removeUser(user);
+    res.status(result.status).send(result.message);
   } catch (err) {
     console.log(err);
     res.status(500).send(`Internal server error ${err}`);
@@ -373,38 +346,26 @@ router.route("/delete").post(async function (req, res) {
 router.route("/allusers").get(async function (req, res) {
   try {
     var companyIdentifier = req.user.company;
-    users.getAllUser(function (err, result) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        // console.debug(result);
-        result.users = result.users.filter(
-          (user) => user.companyIdentifier === companyIdentifier
-        );
-        res.status(result.status).json(result.users);
-      }
-    });
-  } catch (exception) {
-    res.status(500).send(`Intenal server error.${exception}"`);
+    const result = await users.getAllUser();
+    const filteredUsers = result.users.filter(
+      (user) => user.companyIdentifier === companyIdentifier
+    );
+    res.status(result.status).json(filteredUsers);
+  } catch (err) {
+    res.status(err.status || 500).send(err.message || "Internal server error.");
   }
 });
 
 router.route("/allusersbytenant").get(async function (req, res) {
   try {
     var companyIdentifier = req.query.company;
-    users.getAllUser(function (err, result) {
-      if (err) {
-        res.status(err.status).send(err.message);
-      } else {
-        console.debug(result);
-        result.users = result.users.filter(
-          (user) =>
-            user.companyIdentifier &&
-            user.companyIdentifier === companyIdentifier
-        );
-        res.status(result.status).json(result.users);
-      }
-    });
+    const result = await users.getAllUser();
+    result.users = result.users.filter(
+      (user) =>
+        user.companyIdentifier &&
+        user.companyIdentifier === companyIdentifier
+    );
+    res.status(result.status).json(result.users);
   } catch (exception) {
     res.status(500).send(`Intenal server error.${exception}"`);
   }
@@ -414,16 +375,9 @@ router.route("/allusersbytenant").get(async function (req, res) {
 router.route("/deviceId")
   .put(async function (req, res) {
     try {
-      const {username, deviceId} = req.body;
-      users.updateDevideId(username,deviceId,function(err,result){
-        if (err) {
-          console.log(err);
-          res.status(500).send('internal server error');
-        }
-        else{
-          res.status(201).json(result);
-        }
-        });
+      const { username, deviceId } = req.body;
+      const result = await users.updateDevideId(username, deviceId);
+      res.status(result.status).json(result);
     } catch {
       res.status(500).send("Internal server error.");
     }
@@ -434,34 +388,25 @@ router
   .get(async function (req, res) {
     try {
       const username = req.params.username;
-      users.getUserbyUsername(username, async function (err, record) {
-        if (err) {
-          res.status(err.status).send(err.message);
-        } else {
-          if (record) {
-            const { password, ...user } = record;
-            res.status(201).json(user);
-          } else res.status(401).send("user not found.");
-        }
-      });
-    } catch {
+      const result = await users.getUserbyUsername(username )
+      if (result) {
+        const { password, ...user } = result;
+        res.status(201).json(user);
+      } else {
+        res.status(401).send("user not found.");
+      }
+    } catch (err) {
+      console.error("Error:", err);
       res.status(500).send("Internal server error.");
     }
+        
   })
   .put(async function (req, res) {
     try {
       const username = req.params.username;
       const isActive = req.body.isActive;
-      users.updateUserStatus(username,isActive, async function (err, record) {
-        if (err) {
-          res.status(err.status).send(err.message);
-        } else {
-          if (record) {
-            const { password, ...user } = record;
-            res.status(201).json(user);
-          } else res.status(401).send("user not found.");
-        }
-      });
+      const result = await users.updateUserStatus(username, isActive);
+      res.status(result.status).send(result.message);
     } catch {
       res.status(500).send("Internal server error.");
     }
@@ -469,15 +414,8 @@ router
   .delete(async function (req, res) {
     try {
       const username = req.params.username;
-      users.removeUser({username}, async function (err, record) {
-        if (err) {
-          res.status(err.status).send(err.message);
-        } else {
-          if (record) {
-            res.status(201).json({message: "user delete successfully"});
-          } else res.status(401).send("user not found.");
-        }
-      });
+      const result = await users.removeUser({ username });
+      res.status(result.status).json({ message: result.message });
     } catch {
       res.status(500).send("Internal server error.Failed to delete user.");
     }
