@@ -24,11 +24,11 @@ async function executeQuery(statement, parameters = []) {
 module.exports = {
     addLocationForm: async (locationForm) => {
         try {
-            const locationFormId = `locationform_${uuidv4()}`;
+            const locationFormId = `${uuidv4()}`;
             const collection = await getLocationFormsCollection();
             const updatedQuestions = locationForm.questions.map(obj => ({ 
                 ...obj, 
-                "_id": `question_${uuidv4()}` 
+                "_id": `${uuidv4()}` 
             }));
             const locationFormDoc = {
                 ...locationForm,
@@ -78,7 +78,7 @@ module.exports = {
             const doc = await collection.get(id);
             const updatedQuestions = newData.questions.map(obj => ({ 
                 ...obj, 
-                "_id": obj._id || `question_${uuidv4()}` 
+                "_id": obj._id || `${uuidv4()}` 
             }));
             const updatedDoc = { ...doc.content, questions: updatedQuestions };
             await collection.upsert(id, updatedDoc);
@@ -106,7 +106,7 @@ module.exports = {
             const doc = await collection.get(locationFormId);
             const updatedQuestions = questions.map(obj => ({ 
                 ...obj, 
-                "_id": `question_${uuidv4()}` 
+                "_id": `${uuidv4()}` 
             }));
             const existingQuestions = doc.content.questions || [];
             const allQuestions = [...existingQuestions, ...updatedQuestions];
@@ -127,7 +127,7 @@ module.exports = {
             
             questions.push({
                 ...question,
-                "_id": question._id || `question_${uuidv4()}`
+                "_id": question._id || `${uuidv4()}`
             });
             
             await collection.upsert(locationFormId, { ...doc.content, questions });
