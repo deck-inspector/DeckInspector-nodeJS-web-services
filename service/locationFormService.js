@@ -82,7 +82,7 @@ var deleteLocationFormPermanently = async function (locationFormId) {
 const editLocationForm = async (locationFormId, locationForm) => {
   try {
     const result = await LocationFormDAO.editLocationForm(locationFormId, locationForm);
-    if (result.modifiedCount === 1) {
+    if (result.ok === 1) {
       
       return {
         success: true,
@@ -101,7 +101,7 @@ const editLocationForm = async (locationFormId, locationForm) => {
 const addQuestionsInLoctionForm = async (locationFormId, questions)=>{
     try {
         const result = await LocationFormDAO.addQuestionsToLocationForm(locationFormId,questions);
-        if (result.modifiedCount=1) {
+        if (result.ok === 1) {
           
           return {
             success: true,
@@ -119,7 +119,7 @@ const addQuestionsInLoctionForm = async (locationFormId, questions)=>{
 const addQuestionInLoctionForm = async (locationFormId, question)=>{
   try {
       const result = await LocationFormDAO.addQuestionToLocationForm(locationFormId,question);
-      if (result.modifiedCount=1) {
+      if (result.ok === 1) {
         
         return {
           success: true,
@@ -139,7 +139,7 @@ const addQuestionInLoctionForm = async (locationFormId, question)=>{
 const removeQuestionFromLoctionForm = async (locationFormId, questionId)=>{
     try {
         const result = await LocationFormDAO.removeQuestionFromLocationForm(locationFormId,questionId);
-        if (result.modifiedCount=1) {
+        if (result.ok === 1) {
           
           return {
             success: true,
@@ -158,7 +158,7 @@ const removeQuestionFromLoctionForm = async (locationFormId, questionId)=>{
 const addUpdateQuestionInLocationForm = async(locationFormId,questionId,question)=>{
     try {
         const result = await LocationFormDAO.addUpdateQuestionInLocationForm(locationFormId,questionId,question);
-        if (result.modifiedCount=1) {
+        if (result.ok === 1) {
           
           return {
             success: true,
