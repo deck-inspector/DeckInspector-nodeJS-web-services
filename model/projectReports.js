@@ -53,22 +53,20 @@ var addProjectReport = async function (projectReport, callback) {
 
 var getProjectReportsbyProjectId = async function (project_id, callback) {
     try {
-        const query = `SELECT META(r).id AS id, r.* 
+        const query = `SELECT r.* 
           FROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.ProjectReports r 
           WHERE r.project_id = $1`;
         
         const results = await executeQuery(query, [project_id]);
         
         if (results.length === 0) {
-            var error1 = new Error("getProjectReportsbyProjectId(). \nMessage: No Document Found.");
-            error1.status = 404;
-            callback(error1);
+            callback(null, []);
             return;
         }
         
-        // Map results to ensure ID is included
+        // Map results to ensure _id is included for compatibility
         const mappedResults = results.map(row => ({
-            _id: row._id || row.id,
+            _id: row.id,
             ...row
         }));
         

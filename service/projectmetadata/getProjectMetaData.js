@@ -111,7 +111,7 @@ async function getProjectWiseLocationsMetaData(projectId) {
     if(locationData.data && locationData.data.item)
     {
         for (const loc of locationData.data.item) {
-            locations.push({ locationId: loc.id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo});
+            locations.push({ locationId: loc.id || loc._id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo});
         }
     }
     locations.sort(function(loc1,loc2){
