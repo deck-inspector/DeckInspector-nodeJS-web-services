@@ -216,7 +216,7 @@ var transformData = function(section) {
   section.visualreview = capitalizeWords(section.visualreview);
   section.visualsignsofleak = capitalizeWords(convertBooleanToString(section.visualsignsofleak));
   section.furtherinvasivereviewrequired = capitalizeWords(convertBooleanToString((section.furtherinvasivereviewrequired)));
-  section.conditionalassessment = capitalizeWords(section.conditionalassessment.toString());
+  section.conditionalassessment = section.conditionalassessment != null ? capitalizeWords(section.conditionalassessment.toString()) : '';
   section.eee = RatingMapping[section.eee];
   section.lbc = RatingMapping[section.lbc];
   section.awe = RatingMapping[section.awe];

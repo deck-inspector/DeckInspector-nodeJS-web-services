@@ -6,6 +6,10 @@ const SubProjectService = require('../service/subProjectService');
 const ProjectService = require('../service/projectService');
 const LocationType = require('../model/locationType');
 
+function resolveId(entity) {
+    return entity.id || entity._id;
+}
+
 async function generateExcelForProject(projectId) {
     const { project: projectData } = await ProjectService.getProjectById(projectId);
     const workbook = new ExcelJS.Workbook();
@@ -53,12 +57,12 @@ async function addDataByLocationType(projectId, worksheet, headerMapping, locati
     const { subprojects } = await SubProjectService.getSubProjectByParentId(projectId);
     for (const subProject of subprojects || []) {
         const buildingData = { [mapping.buildingKey]: subProject.name };
-        const { locations } = await LocationService.getLocationsByParentId(subProject._id);
-        const filteredLocations = locations.filter(location => location.type === locationType);
+        const { locations } = await LocationService.getLocationsByParentId(resolveId(subProject));
+        const filteredLocations = (locations || []).filter(location => location.type === locationType);
 
         for (const location of filteredLocations) {
             const locationData = { [mapping.locationKey]: location.name };
-            const { sections } = await SectionService.getSectionsByParentId(location._id);
+            const { sections } = await SectionService.getSectionsByParentId(resolveId(location));
             for (const section of sections || []) {
                 const sectionData = {
                     [mapping.sectionNameKey]: section.name,
@@ -75,7 +79,7 @@ async function addCommonLocations(projectId, worksheet, headerMapping) {
     const { locations } = await LocationService.getLocationsByParentId(projectId);
     for (const location of locations || []) {
         const commonLocationData = { 'cLoc': location.name };
-        const { sections } = await SectionService.getSectionsByParentId(location._id);
+        const { sections } = await SectionService.getSectionsByParentId(resolveId(location));
         for (const section of sections || []) {
             const sectionData = {
                 'cLocName': section.name,
