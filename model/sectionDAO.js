@@ -18,7 +18,7 @@ module.exports = {
         const bucket = process.env.DB_BUCKET_NAME;
         const scope = process.env.DB_SCOPE_NAME || "inventory";
         const cluster = couchbase.cluster;
-        const query = `SELECT META(s).id as id, s.* FROM \`${bucket}\`.\`${scope}\`.Sections s LIMIT 50`;
+        const query = `SELECT META(s).id as id, s.* FROM \`${bucket}\`.\`${scope}\`.VisualSection s LIMIT 50`;
         const result = await cluster.query(query);
         return result.rows;
     },
@@ -47,7 +47,7 @@ module.exports = {
         const bucket = process.env.DB_BUCKET_NAME;
         const scope = process.env.DB_SCOPE_NAME || "inventory";
         const cluster = couchbase.cluster;
-        const query = `SELECT META(s).id as id, s.* FROM \`${bucket}\`.\`${scope}\`.Sections s WHERE s.parentid = $1`;
+        const query = `SELECT META(s).id as id, s.* FROM \`${bucket}\`.\`${scope}\`.VisualSection s WHERE s.parentid = $1`;
         const result = await cluster.query(query, { parameters: [parentId] });
         return result.rows;
     },

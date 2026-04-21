@@ -39,8 +39,7 @@ const getProjectHierarchyMetadata = async function(username)
     }catch(error){
         console.log("Error in getProjectHierarchyMetadata:", error);
         return {
-            "error": error,
-            "code": 500
+            "error": { code: 500, message: error.message || "Internal server error" }
         }
     }
 
@@ -66,8 +65,7 @@ async function getSingleProjectMetadata(projectId)
     }catch(error){
         console.log(error);
         return {
-            "error": error,
-            "code": 500
+            "error": { code: 500, message: error.message || "Internal server error" }
         }
     }
 }
