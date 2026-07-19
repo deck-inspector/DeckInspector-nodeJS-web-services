@@ -27,6 +27,13 @@ jobs:
           npm run build --if-present
           #npm run test --if-present
 
+      - name: Vendor python docx-merge libraries
+        run: |
+          pip download --only-binary=:all: --python-version 311 --platform manylinux2014_x86_64 --implementation cp -d pywheels docxcompose
+          mkdir -p pyvendor
+          for w in pywheels/*.whl; do unzip -qo "$w" -d pyvendor; done
+          rm -rf pywheels
+
       - name: Zip artifact for deployment
         run: zip release.zip ./* -r
 
