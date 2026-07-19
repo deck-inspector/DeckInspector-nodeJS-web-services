@@ -17,6 +17,7 @@ const {v4 : uuidv4} = require('uuid');
 var uploadBlob = require('../database/uploadimage');
 const projectReports = require("../model/projectReports");
 const {generateLocationReportDoc} = require("../service/projectreportgeneration");
+const FinalReportGenerator = require("../service/ReportGeneration/FinalReportGenerator.js");
 
 router.route('/add')
     .post(async function (req, res) {
@@ -373,6 +374,28 @@ router.route('/generatereport')
             });
             console.log(projectId);
             console.log('report uploaded');
+
+            // Auto-build the combined Final Report (tenant final template,
+            // auto-filled with project data, with the Visual report annexed).
+            if (reportFormat === 'docx' && reportType === 'Visual' && url) {
+                try {
+                    const tenantCompany = (req.user && req.user.company) ? req.user.company : companyName;
+                    const finalUrl = await FinalReportGenerator.generate(projectId, tenantCompany, projectName, uploader, url);
+                    projectReports.addProjectReport({
+                        project_id,
+                        name: `${projectName} - Final Report`,
+                        url: finalUrl,
+                        uploader,
+                        timestamp: (new Date(Date.now())).toISOString()
+                    }, function (err, result) {
+                        if (err) { console.log(err) }
+                        if (result) { console.log('Final Report record added') }
+                    });
+                    console.log('final report uploaded');
+                } catch (finalErr) {
+                    console.error('Error generating Final Report:', finalErr);
+                }
+            }
         } catch (err) {
             console.error('Error generating Report:', err);
             //return res.status(500).send('Error generating Report');
