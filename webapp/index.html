@@ -380,7 +380,10 @@ input,select{font-family:inherit;font-size:16px}
         <div class="empty" v-else-if="!sections.length">No inspection sections recorded for this unit yet.</div>
         <div class="seclist" v-else>
           <div class="scard" v-for="s in sections" :key="s._id || s.id">
-            <h4>{{ s.name }}</h4>
+            <div style="display:flex;align-items:flex-start;gap:8px">
+              <h4 style="flex:1">{{ s.name }}</h4>
+              <button class="btn-dl" style="padding:6px 12px;font-size:13px" @click="openSecEdit(s)">&#9998; Edit</button>
+            </div>
             <div class="tagrow">
               <span class="tag" :class="ratingClass(s.visualreview)" v-if="s.visualreview">Visual: {{ s.visualreview }}</span>
               <span class="tag" :class="String(s.visualsignsofleak).toLowerCase()==='yes' ? 'bad' : 'good'" v-if="s.visualsignsofleak!==undefined">Leaks: {{ s.visualsignsofleak }}</span>
@@ -437,6 +440,64 @@ input,select{font-family:inherit;font-size:16px}
         <button class="btn-cancel" @click="deleting=null">Cancel</button>
         <button class="btn-danger" @click="doDelete">Delete</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ============ EDIT INSPECTION SECTION ============ -->
+  <div class="overlay" v-if="secEditOpen" @click.self="secEditOpen=false">
+    <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
+      <h3>Edit Inspection &mdash; matches the report exactly</h3>
+      <div class="empty" v-if="loadingSec" style="padding:30px 0">Loading&hellip;</div>
+      <template v-else>
+        <div class="field"><label>Section Name</label><input v-model.trim="secForm.name"></div>
+        <div class="field"><label>Exterior Elements</label><input v-model="secForm.exteriorelements" placeholder="e.g. Decks, Railings, Integrations"><div style="font-size:12px;color:var(--ink-soft);margin-top:3px">Comma-separated, printed as-is on the report.</div></div>
+        <div class="field"><label>Water Proofing Elements</label><input v-model="secForm.waterproofingelements" placeholder="e.g. Flashings, Waterproofing, Coatings, Sealants"></div>
+        <div class="field"><label>Visual Review</label>
+          <div class="kindrow" style="margin:0">
+            <button class="kind" v-for="o in ['Good','Fair','Bad']" :key="o" :class="{on: secForm.visualreview===o}" @click="secForm.visualreview=o">{{ o }}</button>
+          </div>
+        </div>
+        <div class="field"><label>Any Visual Signs of leaks</label>
+          <div class="kindrow" style="margin:0">
+            <button class="kind" v-for="o in ['Yes','No']" :key="o" :class="{on: secForm.visualsignsofleak===o}" @click="secForm.visualsignsofleak=o">{{ o }}</button>
+          </div>
+        </div>
+        <div class="field"><label>Further Invasive Review Required</label>
+          <div class="kindrow" style="margin:0">
+            <button class="kind" v-for="o in ['Yes','No']" :key="o" :class="{on: secForm.furtherinvasivereviewrequired===o}" @click="secForm.furtherinvasivereviewrequired=o">{{ o }}</button>
+          </div>
+        </div>
+        <div class="field"><label>Condition Assessment</label>
+          <div class="kindrow" style="margin:0 0 6px">
+            <button class="kind" v-for="o in ['Pass','Fail']" :key="o" :class="{on: secForm.conditionalassessment===o}" @click="secForm.conditionalassessment=o">{{ o }}</button>
+          </div>
+          <input v-model.trim="secForm.conditionalassessment">
+        </div>
+        <div class="field"><label>Additional Considerations or Concerns</label><textarea v-model="secForm.additionalconsiderations" rows="3" style="width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:15px"></textarea></div>
+        <div class="field"><label>Life Expectancy (EEE)</label>
+          <div class="kindrow" style="margin:0 0 6px">
+            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: secForm.eee===o}" @click="secForm.eee=o">{{ o }}</button>
+          </div>
+          <input v-model.trim="secForm.eee">
+        </div>
+        <div class="field"><label>Life Expectancy (LBC)</label>
+          <div class="kindrow" style="margin:0 0 6px">
+            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: secForm.lbc===o}" @click="secForm.lbc=o">{{ o }}</button>
+          </div>
+          <input v-model.trim="secForm.lbc">
+        </div>
+        <div class="field"><label>Life Expectancy (AWE)</label>
+          <div class="kindrow" style="margin:0 0 6px">
+            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: secForm.awe===o}" @click="secForm.awe=o">{{ o }}</button>
+          </div>
+          <input v-model.trim="secForm.awe">
+        </div>
+        <div class="mrow">
+          <button class="btn-cancel" @click="secEditOpen=false">Cancel</button>
+          <button class="btn btn-primary" style="padding:12px 20px" :disabled="savingSec" @click="saveSecEdit">{{ savingSec ? 'Saving…' : 'Save Changes' }}</button>
+        </div>
+        <div style="font-size:12px;color:var(--ink-soft);margin-top:10px">Changes apply to the next report you create for this project.</div>
+      </template>
     </div>
   </div>
 
@@ -552,6 +613,9 @@ createApp({
       userForm: { first_name: '', last_name: '', username: '', email: '', mobile: '', password: '', access_type: 'both' },
       assignPick: '',
       editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '' },
+      secEditOpen: false, loadingSec: false, savingSec: false, secOriginal: null, secId: null,
+      secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '' },
+      lifeOptions: ['1-4 Years', '4-7 Years', '7-10 Years', '10+ Years'],
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       toasts: [], toastSeq: 0,
@@ -884,6 +948,74 @@ createApp({
         this.unitGenerating = false;
         if (e.message !== 'auth') this.toast('Could not start the unit report.', 'err');
       }
+    },
+
+    /* ---------- inspection section editing ---------- */
+    listToText(v) { return Array.isArray(v) ? v.join(', ') : (v || ''); },
+    ynText(v) { return (v === true || /^(yes|true)$/i.test(String(v))) ? 'Yes' : 'No'; },
+    async openSecEdit(s) {
+      this.secEditOpen = true; this.loadingSec = true;
+      this.secId = s._id || s.id;
+      try {
+        const res = await this.api('/section/getSectionById', { method: 'POST', json: { sectionid: this.secId, username: this.user.username } });
+        const data = await res.json();
+        const doc = data.section || data.item || data.data || data;
+        this.secOriginal = doc;
+        this.secForm = {
+          name: doc.name || s.name || '',
+          exteriorelements: this.listToText(doc.exteriorelements),
+          waterproofingelements: this.listToText(doc.waterproofingelements),
+          visualreview: doc.visualreview || '',
+          visualsignsofleak: this.ynText(doc.visualsignsofleak),
+          furtherinvasivereviewrequired: this.ynText(doc.furtherinvasivereviewrequired),
+          conditionalassessment: doc.conditionalassessment || '',
+          additionalconsiderations: doc.additionalconsiderations || '',
+          eee: doc.eee || '', lbc: doc.lbc || '', awe: doc.awe || '',
+        };
+      } catch (e) {
+        this.secEditOpen = false;
+        if (e.message !== 'auth') this.toast('Could not load this inspection section.', 'err');
+      } finally { this.loadingSec = false; }
+    },
+    backToType(originalVal, formText) {
+      // preserve the stored type: arrays stay arrays, strings stay strings
+      if (Array.isArray(originalVal)) return formText.split(',').map(x => x.trim()).filter(Boolean);
+      return formText;
+    },
+    ynBack(originalVal, formYesNo) {
+      const yes = formYesNo === 'Yes';
+      if (typeof originalVal === 'boolean' || originalVal === undefined || originalVal === null) return yes;
+      const s = String(originalVal);
+      if (/^(yes|no)$/i.test(s)) return yes ? 'Yes' : 'No';
+      if (/^(true|false)$/i.test(s)) return yes ? 'true' : 'false';
+      return yes;
+    },
+    async saveSecEdit() {
+      this.savingSec = true;
+      const o = this.secOriginal || {};
+      const payload = {
+        name: this.secForm.name,
+        exteriorelements: this.backToType(o.exteriorelements, this.secForm.exteriorelements),
+        waterproofingelements: this.backToType(o.waterproofingelements, this.secForm.waterproofingelements),
+        visualreview: this.secForm.visualreview,
+        visualsignsofleak: this.ynBack(o.visualsignsofleak, this.secForm.visualsignsofleak),
+        furtherinvasivereviewrequired: this.ynBack(o.furtherinvasivereviewrequired, this.secForm.furtherinvasivereviewrequired),
+        conditionalassessment: this.secForm.conditionalassessment,
+        additionalconsiderations: this.secForm.additionalconsiderations,
+        eee: this.secForm.eee, lbc: this.secForm.lbc, awe: this.secForm.awe,
+        editedat: new Date().toISOString(),
+        lasteditedby: this.user.username,
+      };
+      if (o.additionalconsiderationshtml !== undefined) payload.additionalconsiderationshtml = this.secForm.additionalconsiderations;
+      try {
+        const res = await this.api('/section/' + encodeURIComponent(this.secId), { method: 'PUT', json: payload });
+        if (!res.ok) throw new Error('bad');
+        this.secEditOpen = false;
+        this.toast('Inspection updated — it will print this way on the next report.');
+        this.loadSections();
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save the inspection.', 'err');
+      } finally { this.savingSec = false; }
     },
 
     openEdit() {
