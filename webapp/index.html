@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>E3 Inspection Reporting Solutions</title>
+<meta name="theme-color" content="#292c74">
+<link rel="apple-touch-icon" href="https://deckinspectorsappdata.blob.core.windows.net/deckinspectorsincondeckinspectorscom/E3%20Logo%20for%20Inspection%20Reporting%20Solutions.jpg">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <style>
 :root{
@@ -127,6 +129,31 @@ input,select{font-family:inherit;font-size:16px}
 @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .footer-note{text-align:center;color:#9aa9b5;font-size:13px;margin-top:40px}
 @media (max-width:560px){ .rbtns{width:100%} .rbtns .btn-dl{flex:1} }
+/* ---------- mobile ---------- */
+@media (max-width:680px){
+  .topbar{height:auto;min-height:56px;padding:8px 12px;flex-wrap:wrap;gap:8px}
+  .topbar .logo img{height:34px !important}
+  .topbar img[alt="Deck Inspectors"]{display:none}
+  .userchip span{display:none}
+  .userchip .avatar{width:30px;height:30px}
+  .btn-ghost{padding:7px 10px;font-size:14px}
+  .main{padding:16px 12px 60px}
+  .page-head h2{font-size:20px}
+  .search{min-width:150px}
+  .genrow{flex-direction:column}
+  .genrow .btn-big{width:100%;padding:15px 16px;font-size:16px}
+  .kindrow .kind{padding:10px 14px;font-size:14px}
+  .proj-head{padding:14px 14px;gap:12px}
+  .proj-head .pic{width:60px;height:60px}
+  .proj-head h2{font-size:18px}
+  .panel{padding:16px 14px}
+  .modal{padding:20px 16px;max-height:92vh;overflow-y:auto}
+  .login-card{padding:30px 22px}
+  .rlist li{gap:10px;padding:12px 2px}
+  .ricon{width:36px;height:36px;font-size:17px}
+  .unitgrid{grid-template-columns:1fr 1fr}
+  .seclist{grid-template-columns:1fr}
+}
 
 /* ---------- inspection browser ---------- */
 .card-btns{display:flex;gap:8px}
