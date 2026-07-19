@@ -186,6 +186,10 @@ input,select{font-family:inherit;font-size:16px}
   <template v-else>
     <div class="topbar">
       <div class="logo"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
+      <nav style="display:flex;gap:4px;margin-left:10px">
+        <button class="btn-ghost" :style="view!=='users' ? 'color:var(--brand);font-weight:800' : ''" @click="view='projects'">Projects</button>
+        <button class="btn-ghost" :style="view==='users' ? 'color:var(--brand);font-weight:800' : ''" @click="openUsers">Users</button>
+      </nav>
       <div class="spacer"></div>
       <img :src="logo" alt="Deck Inspectors" style="height:38px;margin-right:4px">
       <div class="userchip">
@@ -252,6 +256,16 @@ input,select{font-family:inherit;font-size:16px}
             <button class="btn-dl" @click="toggleComplete(current)">{{ current.iscomplete ? '&#8634; Reopen' : '&#10003; Mark Complete' }}</button>
             <button class="btn-del" @click="deletingProject = current">Delete Project</button>
           </div>
+          <div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:4px">
+            <span style="font-size:14px;color:var(--ink-soft);font-weight:600">Assigned:</span>
+            <span class="tag" v-for="u in assignedList" :key="u">{{ u }} <a style="cursor:pointer;color:var(--danger);font-weight:800;margin-left:4px" @click="unassignUser(u)">&#215;</a></span>
+            <span style="font-size:13px;color:var(--ink-soft)" v-if="!assignedList.length">no one yet</span>
+            <select v-model="assignPick" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:14px">
+              <option value="" disabled>Add inspector…</option>
+              <option v-for="u in users" :key="u.username" :value="u.username">{{ u.first_name }} {{ u.last_name }} ({{ u.username }})</option>
+            </select>
+            <button class="btn-dl" :disabled="!assignPick" @click="assignUser">Assign</button>
+          </div>
         </div>
 
         <div class="panel">
@@ -281,13 +295,13 @@ input,select{font-family:inherit;font-size:16px}
           <div class="empty" v-else-if="!reports.length">No reports yet — create one above.</div>
           <ul class="rlist">
             <li v-for="r in sortedReports" :key="r._id">
-              <div class="ricon" :class="isFinal(r) ? 'final' : 'word'">{{ isFinal(r) ? '&#11088;' : '&#128196;' }}</div>
+              <div class="ricon" :style="isFailed(r) ? 'background:var(--danger-soft);color:var(--danger)' : ''" :class="isFailed(r) ? '' : (isFinal(r) ? 'final' : 'word')">{{ isFailed(r) ? '&#9888;' : (isFinal(r) ? '&#11088;' : '&#128196;') }}</div>
               <div class="rinfo">
-                <div class="rname">{{ r.name }}<span class="newflag" v-if="isNew(r)">NEW</span></div>
-                <div class="rdate">{{ niceDate(r.timestamp) }} · {{ r.uploader || '' }}</div>
+                <div class="rname" :style="isFailed(r) ? 'color:var(--danger)' : ''">{{ r.name }}<span class="newflag" v-if="isNew(r)">NEW</span></div>
+                <div class="rdate">{{ niceDate(r.timestamp) }} · {{ r.uploader || '' }}<span v-if="isFailed(r)" style="color:var(--danger);font-weight:600"> · This run failed — try again, and tell Claude if it keeps happening.</span></div>
               </div>
               <div class="rbtns">
-                <a class="btn btn-dl" :href="r.url" target="_blank" rel="noopener">Download</a>
+                <a class="btn btn-dl" v-if="!isFailed(r)" :href="r.url" target="_blank" rel="noopener">Download</a>
                 <button class="btn-del" @click="confirmDelete(r)">Delete</button>
               </div>
             </li>
@@ -379,6 +393,32 @@ input,select{font-family:inherit;font-size:16px}
         </div>
       </template>
 
+      <!-- ============ USERS ============ -->
+      <template v-else-if="view==='users'">
+        <div class="page-head">
+          <h2>Users <span class="count" v-if="!loadingUsers">({{ users.length }})</span></h2>
+          <div class="spacer" style="flex:1"></div>
+          <button class="btn btn-reports" style="width:auto;padding:12px 20px" @click="userAddOpen=true">&#65291; Add User</button>
+        </div>
+        <div class="empty" v-if="loadingUsers">Loading users&hellip;</div>
+        <div class="panel" v-else-if="!users.length">No users found.</div>
+        <div class="panel" v-else style="padding:10px 24px">
+          <ul class="rlist">
+            <li v-for="u in users" :key="u.username">
+              <div class="ricon" :style="u.isActive===false ? 'background:var(--bg);color:var(--ink-soft)' : ''" :class="u.isActive===false ? '' : 'word'">&#128100;</div>
+              <div class="rinfo">
+                <div class="rname">{{ u.first_name }} {{ u.last_name }} <span class="tag" style="margin-left:6px">{{ u.username }}</span> <span class="tag" v-if="u.access_type">{{ u.access_type }}</span> <span class="tag bad" v-if="u.isActive===false">inactive</span></div>
+                <div class="rdate">{{ u.email }}<span v-if="u.mobile"> · {{ u.mobile }}</span></div>
+              </div>
+              <div class="rbtns">
+                <button class="btn-dl" @click="toggleUserActive(u)">{{ u.isActive===false ? 'Activate' : 'Deactivate' }}</button>
+                <button class="btn-del" @click="deletingUser=u">Delete</button>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </template>
+
     </div>
   </template>
 
@@ -432,6 +472,42 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ ADD USER ============ -->
+  <div class="overlay" v-if="userAddOpen" @click.self="userAddOpen=false">
+    <div class="modal">
+      <h3>Add User</h3>
+      <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>First name *</label><input v-model.trim="userForm.first_name"></div>
+      <div class="field" style="flex:1"><label>Last name</label><input v-model.trim="userForm.last_name"></div></div>
+      <div class="field"><label>Username *</label><input v-model.trim="userForm.username" autocomplete="off"></div>
+      <div class="field"><label>Email</label><input v-model.trim="userForm.email" type="email"></div>
+      <div class="field"><label>Mobile</label><input v-model.trim="userForm.mobile"></div>
+      <div class="field"><label>Temporary password *</label><input v-model="userForm.password" type="text" autocomplete="off"><div style="font-size:12px;color:var(--ink-soft);margin-top:4px">Share it with the inspector; they can change it later.</div></div>
+      <div class="field"><label>Access</label>
+        <div class="kindrow" style="margin:0">
+          <button class="kind" :class="{on: userForm.access_type==='app'}" @click="userForm.access_type='app'">Mobile App</button>
+          <button class="kind" :class="{on: userForm.access_type==='web'}" @click="userForm.access_type='web'">Web</button>
+          <button class="kind" :class="{on: userForm.access_type==='both'}" @click="userForm.access_type='both'">Both</button>
+        </div>
+      </div>
+      <div class="mrow">
+        <button class="btn-cancel" @click="userAddOpen=false">Cancel</button>
+        <button class="btn btn-primary" style="padding:12px 20px" :disabled="!userForm.username || !userForm.first_name || !userForm.password || savingUser" @click="saveUser">{{ savingUser ? 'Saving…' : 'Create User' }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DELETE USER CONFIRM ============ -->
+  <div class="overlay" v-if="deletingUser" @click.self="deletingUser=null">
+    <div class="modal">
+      <h3>Delete this user?</h3>
+      <p><b>{{ deletingUser.first_name }} {{ deletingUser.last_name }}</b> ({{ deletingUser.username }})<br><br>They lose access to the app immediately.</p>
+      <div class="mrow">
+        <button class="btn-cancel" @click="deletingUser=null">Cancel</button>
+        <button class="btn-danger" @click="doDeleteUser">Delete User</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ TOASTS ============ -->
   <div class="toasts">
     <div class="toast" :class="t.kind" v-for="t in toasts" :key="t.id">{{ t.msg }}</div>
@@ -456,6 +532,9 @@ createApp({
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel' },
       tplFile: null, uploadingTpl: false,
+      users: [], loadingUsers: false, userAddOpen: false, savingUser: false, deletingUser: null,
+      userForm: { first_name: '', last_name: '', username: '', email: '', mobile: '', password: '', access_type: 'both' },
+      assignPick: '',
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       toasts: [], toastSeq: 0,
@@ -484,6 +563,11 @@ createApp({
     },
     kindLabel() {
       return this.reportKind === 'InvasiveOnly' ? 'Invasive Only Report' : this.reportKind + ' Report';
+    },
+    assignedList() {
+      const a = this.current && this.current.assignedto;
+      if (Array.isArray(a)) return a.filter(Boolean);
+      return a ? [a] : [];
     },
   },
   created() {
@@ -558,7 +642,9 @@ createApp({
     openReports(p) {
       this.current = p; this.view = 'reports'; this.reports = [];
       this.generating = false; this.generateStartedAt = null;
+      this.assignPick = '';
       this.loadReports();
+      if (!this.users.length) this.loadUsers();
     },
     projectId(p) { return p.id || p._id; },
     async loadReports() {
@@ -570,6 +656,7 @@ createApp({
       finally { this.loadingReports = false; }
     },
     isFinal(r) { return /final report/i.test(r.name || ''); },
+    isFailed(r) { return /FAILED/.test(r.name || ''); },
     isNew(r) {
       return this.generateStartedAt && new Date(r.timestamp || 0) >= this.generateStartedAt;
     },
@@ -603,11 +690,14 @@ createApp({
       this.pollTimer = setInterval(async () => {
         ticks++;
         await this.loadReports();
-        const fresh = this.reports.filter(r => this.isNew(r)).length;
-        if (fresh >= expected || ticks > 40) {  // 40 x 15s = 10 min cap
+        const freshOnes = this.reports.filter(r => this.isNew(r));
+        const fresh = freshOnes.length;
+        const failed = freshOnes.some(r => this.isFailed(r));
+        if (failed || fresh >= expected || ticks > 40) {  // 40 x 15s = 10 min cap
           this.generating = false;
           this.stopPolling();
-          if (fresh > 0) this.toast(fresh >= 2 ? 'Visual + Final Report are ready!' : 'Report is ready!');
+          if (failed) this.toast('Report FAILED — see the list below. Try once more, and let Claude know if it repeats.', 'err');
+          else if (fresh > 0) this.toast(fresh >= 2 ? 'Visual + Final Report are ready!' : 'Report is ready!');
           else this.toast('Still working — check back in a minute and refresh.', 'err');
         }
       }, 15000);
@@ -776,6 +866,77 @@ createApp({
       } catch (e) {
         this.unitGenerating = false;
         if (e.message !== 'auth') this.toast('Could not start the unit report.', 'err');
+      }
+    },
+
+    /* ---------- users ---------- */
+    openUsers() { this.view = 'users'; this.loadUsers(); },
+    async loadUsers() {
+      this.loadingUsers = true;
+      try {
+        const res = await this.api('/user/allusersbytenant?company=' + encodeURIComponent((this.user && this.user.companyIdentifier) || ''));
+        const data = await res.json();
+        this.users = Array.isArray(data) ? data : (data.users || []);
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not load users.', 'err');
+      } finally { this.loadingUsers = false; }
+    },
+    async saveUser() {
+      this.savingUser = true;
+      try {
+        const res = await this.api('/user/register', { method: 'POST', json: Object.assign({}, this.userForm) });
+        if (!res.ok) { const t = await res.text(); throw new Error(t || 'bad'); }
+        this.userAddOpen = false;
+        this.userForm = { first_name: '', last_name: '', username: '', email: '', mobile: '', password: '', access_type: 'both' };
+        this.toast('User created.');
+        this.loadUsers();
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not create the user: ' + (e.message || ''), 'err');
+      } finally { this.savingUser = false; }
+    },
+    async toggleUserActive(u) {
+      try {
+        const res = await this.api('/user/update', { method: 'POST', json: Object.assign({}, u, { isActive: u.isActive === false }) });
+        if (!res.ok) throw new Error('bad');
+        u.isActive = u.isActive === false;
+        this.toast(u.isActive ? 'User activated.' : 'User deactivated.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not update the user.', 'err');
+      }
+    },
+    async doDeleteUser() {
+      const u = this.deletingUser; this.deletingUser = null;
+      try {
+        const res = await this.api('/user/delete', { method: 'POST', json: Object.assign({}, u) });
+        if (!res.ok) throw new Error('bad');
+        this.users = this.users.filter(x => x.username !== u.username);
+        this.toast('User deleted.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not delete the user.', 'err');
+      }
+    },
+    async assignUser() {
+      const username = this.assignPick;
+      if (!username) return;
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(this.current)) + '/assign', { method: 'POST', json: { username } });
+        if (!res.ok) throw new Error('bad');
+        if (!Array.isArray(this.current.assignedto)) this.current.assignedto = this.current.assignedto ? [this.current.assignedto] : [];
+        if (!this.current.assignedto.includes(username)) this.current.assignedto.push(username);
+        this.assignPick = '';
+        this.toast('Inspector assigned.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not assign.', 'err');
+      }
+    },
+    async unassignUser(username) {
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(this.current)) + '/unassign', { method: 'POST', json: { username } });
+        if (!res.ok) throw new Error('bad');
+        this.current.assignedto = this.assignedList.filter(x => x !== username);
+        this.toast('Inspector removed from project.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not remove.', 'err');
       }
     },
 
