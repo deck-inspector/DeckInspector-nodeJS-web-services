@@ -14,7 +14,7 @@ class ProjectReportUploader {
                 'reportType': reportType
             }
         };
-        const fileName = `${id}_${reportType}.docx`;
+        const fileName = `${id}_${reportType}_${new Date().toISOString().slice(0,19).replace(/[T:]/g, "-")}.docx`;
         let result = await uploadBlob.uploadFile(containerName, fileName, docxFilePath, uploadOptions);
         try{
             const jsonObject = JSON.parse(result);
