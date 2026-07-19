@@ -123,6 +123,33 @@ input,select{font-family:inherit;font-size:16px}
 @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .footer-note{text-align:center;color:#9aa9b5;font-size:13px;margin-top:40px}
 @media (max-width:560px){ .rbtns{width:100%} .rbtns .btn-dl{flex:1} }
+
+/* ---------- inspection browser ---------- */
+.card-btns{display:flex;gap:8px}
+.card-btns .btn{flex:1;padding:12px;font-size:15px}
+.btn-inspect{background:#33556b;color:#fff}
+.btn-inspect:hover{background:#27414f}
+.crumb{color:var(--ink-soft);font-size:14px;margin-bottom:14px}
+.crumb b{color:var(--ink)}
+.seclist{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
+.scard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
+.scard h4{font-size:16px;margin-bottom:8px}
+.tagrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tag{font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:var(--bg);color:var(--ink-soft)}
+.tag.good{background:#e3f4e9;color:#1e824c}
+.tag.fair{background:#fdf3e3;color:#b45f05}
+.tag.bad{background:var(--danger-soft);color:var(--danger)}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
+.photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:pointer;background:#e7edf2}
+.unitgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.ucard{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:16px 18px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:box-shadow .15s;border:none;text-align:left;font-size:15px}
+.ucard:hover{box-shadow:0 6px 20px rgba(28,39,51,.15)}
+.ucard .uicon{width:38px;height:38px;border-radius:9px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.ucard b{display:block}
+.ucard span{color:var(--ink-soft);font-size:13px}
+.grouphead{font-size:16px;font-weight:800;margin:22px 0 12px;color:var(--ink-soft)}
+.lightbox{position:fixed;inset:0;background:rgba(10,16,20,.92);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out}
+.lightbox img{max-width:96vw;max-height:92vh;border-radius:8px}
 </style>
 </head>
 <body>
@@ -187,7 +214,8 @@ input,select{font-family:inherit;font-size:16px}
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
                 <span style="color:var(--ink-soft);font-size:13px">{{ shortDate(p.createdat) }}</span>
               </div>
-              <div class="actions">
+              <div class="actions card-btns">
+                <button class="btn btn-inspect" @click="openInspect(p)">Inspection</button>
                 <button class="btn btn-reports" @click="openReports(p)">Reports</button>
               </div>
             </div>
@@ -245,8 +273,71 @@ input,select{font-family:inherit;font-size:16px}
         <div class="footer-note">Reports are kept in secure cloud storage. Generating a new Visual Report replaces the previous file for this project.</div>
       </template>
 
+      <!-- ============ INSPECTION: PROJECT STRUCTURE ============ -->
+      <template v-else-if="view==='inspect'">
+        <button class="back" @click="view='projects'">&#8592; All projects</button>
+        <div class="proj-head">
+          <div class="pic" :style="thumbStyle(current)"></div>
+          <div>
+            <h2>{{ current.name }}</h2>
+            <div class="addr">{{ current.address || 'No address on file' }}</div>
+          </div>
+          <div class="spacer" style="flex:1"></div>
+          <button class="btn btn-reports" style="width:auto;padding:12px 22px" @click="openReports(current)">Reports</button>
+        </div>
+        <div class="empty" v-if="loadingStructure">Loading inspection structure&hellip;</div>
+        <template v-else>
+          <div class="empty" v-if="!structure.subProjects.length && !structure.locations.length">No buildings or units recorded yet for this project.</div>
+          <template v-for="sp in structure.subProjects" :key="sp.id">
+            <div class="grouphead">&#127970; {{ sp.name }}</div>
+            <div class="unitgrid">
+              <button class="ucard" v-for="loc in sp.subProjectLocations" :key="loc.locationId" @click="openUnit(loc)">
+                <div class="uicon">&#128682;</div>
+                <div><b>{{ loc.locationName }}</b><span>{{ loc.locationType || 'Unit' }}</span></div>
+              </button>
+            </div>
+          </template>
+          <template v-if="structure.locations.length">
+            <div class="grouphead">&#128205; Units &amp; Areas</div>
+            <div class="unitgrid">
+              <button class="ucard" v-for="loc in structure.locations" :key="loc.locationId" @click="openUnit(loc)">
+                <div class="uicon">&#128682;</div>
+                <div><b>{{ loc.locationName }}</b><span>{{ loc.locationType || 'Unit' }}</span></div>
+              </button>
+            </div>
+          </template>
+        </template>
+      </template>
+
+      <!-- ============ INSPECTION: UNIT SECTIONS ============ -->
+      <template v-else-if="view==='unit'">
+        <button class="back" @click="view='inspect'">&#8592; {{ current.name }}</button>
+        <div class="crumb">Projects &rsaquo; <b>{{ current.name }}</b> &rsaquo; <b>{{ unit.locationName }}</b></div>
+        <div class="empty" v-if="loadingSections">Loading inspections&hellip;</div>
+        <div class="empty" v-else-if="!sections.length">No inspection sections recorded for this unit yet.</div>
+        <div class="seclist" v-else>
+          <div class="scard" v-for="s in sections" :key="s._id || s.id">
+            <h4>{{ s.name }}</h4>
+            <div class="tagrow">
+              <span class="tag" :class="ratingClass(s.visualreview)" v-if="s.visualreview">Visual: {{ s.visualreview }}</span>
+              <span class="tag" :class="String(s.visualsignsofleak).toLowerCase()==='yes' ? 'bad' : 'good'" v-if="s.visualsignsofleak!==undefined">Leaks: {{ s.visualsignsofleak }}</span>
+              <span class="tag" :class="String(s.furtherinvasivereviewrequired).toLowerCase()==='yes' ? 'fair' : 'good'" v-if="s.furtherinvasivereviewrequired!==undefined">Invasive: {{ s.furtherinvasivereviewrequired }}</span>
+            </div>
+            <div class="photos" v-if="(s.images||[]).length">
+              <img v-for="(img,i) in s.images" :key="i" :src="img" loading="lazy" @click="lightbox=img" alt="inspection photo">
+            </div>
+            <div class="hint" v-else style="margin:0">No photos.</div>
+          </div>
+        </div>
+      </template>
+
     </div>
   </template>
+
+  <!-- ============ LIGHTBOX ============ -->
+  <div class="lightbox" v-if="lightbox" @click="lightbox=null">
+    <img :src="lightbox" alt="photo">
+  </div>
 
   <!-- ============ DELETE CONFIRM ============ -->
   <div class="overlay" v-if="deleting" @click.self="deleting=null">
@@ -278,6 +369,8 @@ createApp({
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null,
       downloadingFinal: false, deleting: null,
+      structure: { subProjects: [], locations: [] }, loadingStructure: false,
+      unit: null, sections: [], loadingSections: false, lightbox: null,
       toasts: [], toastSeq: 0,
     };
   },
@@ -444,6 +537,49 @@ createApp({
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not download the Final Report.', 'err');
       } finally { this.downloadingFinal = false; }
+    },
+
+    /* ---------- inspection browsing ---------- */
+    openInspect(p) {
+      this.current = p; this.view = 'inspect';
+      this.structure = { subProjects: [], locations: [] };
+      this.loadStructure();
+    },
+    async loadStructure() {
+      this.loadingStructure = true;
+      try {
+        const res = await this.api('/project/getProjectMetadata/' + encodeURIComponent(this.projectId(this.current)));
+        const data = await res.json();
+        const item = (data.item && data.item[0]) || {};
+        this.structure = {
+          subProjects: item.subProjects || [],
+          locations: item.locations || [],
+        };
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not load the inspection structure.', 'err');
+      } finally { this.loadingStructure = false; }
+    },
+    openUnit(loc) {
+      this.unit = loc; this.view = 'unit'; this.sections = [];
+      this.loadSections();
+    },
+    async loadSections() {
+      this.loadingSections = true;
+      try {
+        const res = await this.api('/section/getSectionsByParentId', {
+          method: 'POST', json: { parentid: this.unit.locationId, username: this.user.username },
+        });
+        const data = await res.json();
+        this.sections = data.sections || [];
+      } catch (e) { /* empty is fine */ }
+      finally { this.loadingSections = false; }
+    },
+    ratingClass(v) {
+      const s = String(v || '').toLowerCase();
+      if (s.startsWith('good')) return 'good';
+      if (s.startsWith('fair')) return 'fair';
+      if (s.startsWith('bad') || s.startsWith('fail')) return 'bad';
+      return '';
     },
 
     confirmDelete(r) { this.deleting = r; },
