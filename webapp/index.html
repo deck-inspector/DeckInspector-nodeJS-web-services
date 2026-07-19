@@ -253,6 +253,7 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <div class="spacer" style="flex:1"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-dl" @click="openEdit">&#9998; Edit</button>
             <button class="btn-dl" @click="toggleComplete(current)">{{ current.iscomplete ? '&#8634; Reopen' : '&#10003; Mark Complete' }}</button>
             <button class="btn-del" @click="deletingProject = current">Delete Project</button>
           </div>
@@ -439,6 +440,21 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ EDIT PROJECT ============ -->
+  <div class="overlay" v-if="editOpen" @click.self="editOpen=false">
+    <div class="modal">
+      <h3>Edit Project</h3>
+      <div class="field"><label>Project name *</label><input v-model.trim="editForm.name"></div>
+      <div class="field"><label>Address</label><input v-model.trim="editForm.address" placeholder="Street, City, ST 12345"></div>
+      <div class="addr-warn" style="margin:-8px 0 12px" v-if="editForm.address && !addressLooksComplete(editForm.address)">&#9888; Use format: Street, City, ST 12345 so the Final Report auto-fills.</div>
+      <div class="field"><label>Description</label><input v-model.trim="editForm.description"></div>
+      <div class="mrow">
+        <button class="btn-cancel" @click="editOpen=false">Cancel</button>
+        <button class="btn btn-primary" style="padding:12px 20px" :disabled="!editForm.name || savingEdit" @click="saveEdit">{{ savingEdit ? 'Saving…' : 'Save Changes' }}</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ ADD PROJECT ============ -->
   <div class="overlay" v-if="addOpen" @click.self="addOpen=false">
     <div class="modal">
@@ -535,6 +551,7 @@ createApp({
       users: [], loadingUsers: false, userAddOpen: false, savingUser: false, deletingUser: null,
       userForm: { first_name: '', last_name: '', username: '', email: '', mobile: '', password: '', access_type: 'both' },
       assignPick: '',
+      editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '' },
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       toasts: [], toastSeq: 0,
@@ -867,6 +884,37 @@ createApp({
         this.unitGenerating = false;
         if (e.message !== 'auth') this.toast('Could not start the unit report.', 'err');
       }
+    },
+
+    openEdit() {
+      this.editForm = { name: this.current.name || '', address: this.current.address || '', description: this.current.description || '' };
+      this.editOpen = true;
+    },
+    async saveEdit() {
+      this.savingEdit = true;
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(this.current)), {
+          method: 'PUT',
+          json: {
+            name: this.editForm.name,
+            address: this.editForm.address,
+            description: this.editForm.description,
+            url: this.current.url || '',
+            lasteditedby: this.user.username,
+            editedat: new Date().toISOString(),
+            projecttype: this.current.projecttype,
+            formId: this.current.formId || null,
+          },
+        });
+        if (!res.ok) throw new Error('bad');
+        this.current.name = this.editForm.name;
+        this.current.address = this.editForm.address;
+        this.current.description = this.editForm.description;
+        this.editOpen = false;
+        this.toast('Project updated.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save the changes.', 'err');
+      } finally { this.savingEdit = false; }
     },
 
     /* ---------- users ---------- */
