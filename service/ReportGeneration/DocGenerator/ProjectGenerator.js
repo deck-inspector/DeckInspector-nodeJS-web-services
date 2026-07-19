@@ -150,10 +150,13 @@ class ProjectGenerator{
 
         projectHashcodeArray.push(ReportGenerationUtil.calculateHash(project));
         const projectHashCode = ReportGenerationUtil.combineHashesInArray(projectHashcodeArray);
+        // Always re-merge and re-upload the combined report. Chunk generation above
+        // stays hash-cached (the expensive part); the merge itself is cheap and
+        // guarantees fixes to the merge/sanitize pipeline reach existing projects.
         if (projectHashCode !== projectDoc.data.hashCode) {
             console.log("Project Hashcode changed.  Updating Project Doc");
-            await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
         }
+        await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
         await ProjectReportHashCodeService.deleteProjectReportHashCodeByIdAndReportType(projectId,reportType);
         const projectDocToSave = this.getProjectReportHascodeDocToSave(projectDoc, projectId,reportType);
         await ProjectReportHashCodeService.addProjectReportHashCode(projectDocToSave);
