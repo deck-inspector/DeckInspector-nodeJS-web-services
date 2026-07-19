@@ -205,6 +205,12 @@ input,select{font-family:inherit;font-size:16px}
             <span class="icon">&#128269;</span>
             <input v-model.trim="query" placeholder="Search by name or address…">
           </div>
+          <button class="btn btn-reports" style="width:auto;padding:12px 20px" @click="openAdd">&#65291; Add Project</button>
+        </div>
+        <div class="kindrow" v-if="!loadingProjects">
+          <button class="kind" :class="{on: filterMode==='active'}" @click="filterMode='active'">Active ({{ projectCounts.active }})</button>
+          <button class="kind" :class="{on: filterMode==='done'}" @click="filterMode='done'">Complete ({{ projectCounts.done }})</button>
+          <button class="kind" :class="{on: filterMode==='all'}" @click="filterMode='all'">All ({{ projects.length }})</button>
         </div>
         <div class="empty" v-if="loadingProjects">Loading projects…</div>
         <div class="empty" v-else-if="filteredProjects.length===0">No projects match.</div>
@@ -241,6 +247,11 @@ input,select{font-family:inherit;font-size:16px}
               &#9888; For the address boxes to auto-fill on the Final Report, format the address as: Street, City, ST 12345
             </div>
           </div>
+          <div class="spacer" style="flex:1"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-dl" @click="toggleComplete(current)">{{ current.iscomplete ? '&#8634; Reopen' : '&#10003; Mark Complete' }}</button>
+            <button class="btn-del" @click="deletingProject = current">Delete Project</button>
+          </div>
         </div>
 
         <div class="panel">
@@ -255,6 +266,7 @@ input,select{font-family:inherit;font-size:16px}
             <button class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create {{ kindLabel }} (Word)</button>
             <button class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="generating" @click="generateReport('pdf')">&#128462; Create {{ kindLabel }} (PDF)</button>
             <button class="btn btn-big btn-final" :disabled="downloadingFinal" @click="downloadFinal">&#11015; Download Latest Final Report</button>
+            <button class="btn btn-big" style="background:var(--bg);color:var(--ink);border:1.5px solid var(--line)" :disabled="downloadingExcel" @click="downloadExcel">&#128202; Project Data (Excel)</button>
           </div>
           <div class="progress" v-if="generating">
             <div class="spinner"></div>
@@ -280,6 +292,14 @@ input,select{font-family:inherit;font-size:16px}
               </div>
             </li>
           </ul>
+        </div>
+        <div class="panel">
+          <h3>Final Report Template</h3>
+          <div class="hint">This Word template is what the system fills in and combines with the Visual Report. Upload a new version any time you change it.</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+            <input type="file" accept=".docx" @change="onTplFile" style="font-size:14px">
+            <button class="btn btn-dl" :disabled="!tplFile || uploadingTpl" @click="uploadTemplate">{{ uploadingTpl ? 'Uploading…' : '&#11014; Upload New Template' }}</button>
+          </div>
         </div>
         <div class="footer-note">Reports are kept in secure cloud storage. Generating a new Visual Report replaces the previous file for this project.</div>
       </template>
@@ -324,6 +344,23 @@ input,select{font-family:inherit;font-size:16px}
       <template v-else-if="view==='unit'">
         <button class="back" @click="view='inspect'">&#8592; {{ current.name }}</button>
         <div class="crumb">Projects &rsaquo; <b>{{ current.name }}</b> &rsaquo; <b>{{ unit.locationName }}</b></div>
+        <div class="panel">
+          <h3>Create Report for {{ unit.locationName }} Only</h3>
+          <div class="hint">Builds a report covering just this unit. It will appear in the project&#8217;s Reports list in a few minutes.</div>
+          <div class="kindrow">
+            <button class="kind" :class="{on: reportKind==='Visual'}" @click="reportKind='Visual'">Visual</button>
+            <button class="kind" :class="{on: reportKind==='Invasive'}" @click="reportKind='Invasive'">Invasive</button>
+            <button class="kind" :class="{on: reportKind==='InvasiveOnly'}" @click="reportKind='InvasiveOnly'">Invasive Only</button>
+          </div>
+          <div class="genrow">
+            <button class="btn btn-big btn-word" :disabled="unitGenerating" @click="generateUnitReport('docx')">&#128196; Unit {{ kindLabel }} (Word)</button>
+            <button class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="unitGenerating" @click="generateUnitReport('pdf')">&#128462; Unit {{ kindLabel }} (PDF)</button>
+          </div>
+          <div class="progress" v-if="unitGenerating">
+            <div class="spinner"></div>
+            <div>Unit report started — find it under this project&#8217;s <b>Reports</b> in a couple of minutes.</div>
+          </div>
+        </div>
         <div class="empty" v-if="loadingSections">Loading inspections&hellip;</div>
         <div class="empty" v-else-if="!sections.length">No inspection sections recorded for this unit yet.</div>
         <div class="seclist" v-else>
@@ -362,6 +399,39 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ ADD PROJECT ============ -->
+  <div class="overlay" v-if="addOpen" @click.self="addOpen=false">
+    <div class="modal">
+      <h3>Add Project</h3>
+      <div class="field"><label>Project name *</label><input v-model.trim="addForm.name" placeholder="e.g. 780 S. Garfield Ave. Apts"></div>
+      <div class="field"><label>Address</label><input v-model.trim="addForm.address" placeholder="Street, City, ST 12345"></div>
+      <div class="addr-warn" style="margin:-8px 0 12px" v-if="addForm.address && !addressLooksComplete(addForm.address)">&#9888; Use format: Street, City, ST 12345 so the Final Report auto-fills.</div>
+      <div class="field"><label>Description</label><input v-model.trim="addForm.description" placeholder="Optional"></div>
+      <div class="field"><label>Type</label>
+        <div class="kindrow" style="margin:0">
+          <button class="kind" :class="{on: addForm.projecttype==='multilevel'}" @click="addForm.projecttype='multilevel'">Multi-building</button>
+          <button class="kind" :class="{on: addForm.projecttype==='singlelevel'}" @click="addForm.projecttype='singlelevel'">Single</button>
+        </div>
+      </div>
+      <div class="mrow">
+        <button class="btn-cancel" @click="addOpen=false">Cancel</button>
+        <button class="btn btn-primary" style="padding:12px 20px" :disabled="!addForm.name || savingProject" @click="saveProject">{{ savingProject ? 'Saving…' : 'Create Project' }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DELETE PROJECT CONFIRM ============ -->
+  <div class="overlay" v-if="deletingProject" @click.self="deletingProject=null">
+    <div class="modal">
+      <h3>Delete this project?</h3>
+      <p><b>{{ deletingProject.name }}</b><br><br>The project is archived and disappears from the app. Its inspection data is not destroyed — it can be restored later if ever needed.</p>
+      <div class="mrow">
+        <button class="btn-cancel" @click="deletingProject=null">Cancel</button>
+        <button class="btn-danger" @click="doDeleteProject">Delete Project</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ TOASTS ============ -->
   <div class="toasts">
     <div class="toast" :class="t.kind" v-for="t in toasts" :key="t.id">{{ t.msg }}</div>
@@ -382,7 +452,10 @@ createApp({
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
-      downloadingFinal: false, deleting: null,
+      downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false,
+      filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
+      addForm: { name: '', address: '', description: '', projecttype: 'multilevel' },
+      tplFile: null, uploadingTpl: false,
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       toasts: [], toastSeq: 0,
@@ -398,8 +471,13 @@ createApp({
     filteredProjects() {
       const q = this.query.toLowerCase();
       let list = this.projects;
+      if (this.filterMode === 'active') list = list.filter(p => !p.iscomplete);
+      if (this.filterMode === 'done') list = list.filter(p => p.iscomplete);
       if (q) list = list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q));
       return [...list].sort((x, y) => new Date(y.createdat || 0) - new Date(x.createdat || 0));
+    },
+    projectCounts() {
+      return { active: this.projects.filter(p => !p.iscomplete).length, done: this.projects.filter(p => p.iscomplete).length };
     },
     sortedReports() {
       return [...this.reports].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
@@ -596,6 +674,109 @@ createApp({
       if (s.startsWith('fair')) return 'fair';
       if (s.startsWith('bad') || s.startsWith('fail')) return 'bad';
       return '';
+    },
+
+    /* ---------- project management ---------- */
+    openAdd() {
+      this.addForm = { name: '', address: '', description: '', projecttype: 'multilevel' };
+      this.addOpen = true;
+    },
+    async saveProject() {
+      this.savingProject = true;
+      try {
+        const res = await this.api('/project/add', {
+          method: 'POST',
+          json: {
+            name: this.addForm.name, description: this.addForm.description, address: this.addForm.address,
+            createdby: this.user.username, url: '', assignedto: [],
+            projecttype: this.addForm.projecttype, editedat: new Date().toISOString(), formId: null,
+          },
+        });
+        if (!res.ok) throw new Error('bad');
+        this.addOpen = false;
+        this.toast('Project created.');
+        this.loadProjects();
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not create the project.', 'err');
+      } finally { this.savingProject = false; }
+    },
+    async toggleComplete(p) {
+      const to = p.iscomplete ? 0 : 1;
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/toggleprojectstatus/' + to, { method: 'POST' });
+        if (!res.ok) throw new Error('bad');
+        p.iscomplete = !p.iscomplete;
+        this.toast(p.iscomplete ? 'Project marked complete.' : 'Project reopened.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not update the project.', 'err');
+      }
+    },
+    async doDeleteProject() {
+      const p = this.deletingProject; this.deletingProject = null;
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)), { method: 'DELETE' });
+        if (!res.ok) throw new Error('bad');
+        this.projects = this.projects.filter(x => this.projectId(x) !== this.projectId(p));
+        this.view = 'projects';
+        this.toast('Project deleted.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not delete the project.', 'err');
+      }
+    },
+    async downloadExcel() {
+      this.downloadingExcel = true;
+      try {
+        const res = await this.api('/project/generateexcel', { method: 'POST', json: { projectid: this.projectId(this.current) } });
+        if (!res.ok) throw new Error('bad');
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = this.current.name + ' - Data.xlsx';
+        document.body.appendChild(a); a.click(); a.remove();
+        this.toast('Excel downloaded.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not build the Excel file.', 'err');
+      } finally { this.downloadingExcel = false; }
+    },
+    onTplFile(e) { this.tplFile = (e.target.files && e.target.files[0]) || null; },
+    async uploadTemplate() {
+      if (!this.tplFile) return;
+      this.uploadingTpl = true;
+      try {
+        const fd = new FormData();
+        fd.append('file', this.tplFile);
+        fd.append('companyName', (this.user && this.user.companyIdentifier) || '');
+        const res = await this.api('/project/replacefinalreporttemplate', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error('bad');
+        this.tplFile = null;
+        this.toast('Final Report template replaced. It is used for the next report you create.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not upload the template.', 'err');
+      } finally { this.uploadingTpl = false; }
+    },
+    async generateUnitReport(format) {
+      this.unitGenerating = true;
+      try {
+        const res = await this.api('/project/generate-location-report', {
+          method: 'POST',
+          json: {
+            projectId: this.projectId(this.current),
+            id: this.unit.locationId,
+            sectionImageProperties: { compressionQuality: 100, imageFactor: '3' },
+            companyName: (this.user && this.user.companyIdentifier) || 'DeckInspectors',
+            reportType: this.reportKind,
+            reportFormat: format,
+            projectName: this.current.name + ' - ' + this.unit.locationName,
+            user: this.user.username,
+          },
+        });
+        if (!res.ok) throw new Error('bad');
+        this.toast('Unit report started.');
+        setTimeout(() => { this.unitGenerating = false; }, 150000);
+      } catch (e) {
+        this.unitGenerating = false;
+        if (e.message !== 'auth') this.toast('Could not start the unit report.', 'err');
+      }
     },
 
     confirmDelete(r) { this.deleting = r; },
