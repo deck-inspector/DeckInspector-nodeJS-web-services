@@ -94,8 +94,24 @@ var removeReport = async function (id, callback) {
     }
 };
 
+var getLatestFinalReportForCompany = async function (companyIdentifier) {
+    try {
+        const query = `SELECT r.*
+          FROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.ProjectReports r
+          JOIN \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.Project p ON META(p).id = r.project_id
+          WHERE r.name LIKE '%Final Report%' AND p.companyIdentifier = $1
+          ORDER BY r.timestamp DESC LIMIT 1`;
+        const results = await executeQuery(query, [companyIdentifier]);
+        return results.length > 0 ? results[0] : null;
+    } catch (error) {
+        console.error("Error getting latest final report for company:", error);
+        return null;
+    }
+};
+
 module.exports = {
     addProjectReport: addProjectReport,
     getProjectReportsbyProjectId: getProjectReportsbyProjectId,
-    removeReport: removeReport
+    removeReport: removeReport,
+    getLatestFinalReportForCompany: getLatestFinalReportForCompany
 };
