@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E3 Inspection Reporting</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+<style>
+:root{
+  --ink:#1c2733; --ink-soft:#51616f; --line:#dde5ec; --bg:#f2f5f8; --card:#ffffff;
+  --brand:#1f6f54; --brand-dark:#175843; --brand-soft:#e6f2ed;
+  --accent:#d97706; --danger:#c0392b; --danger-soft:#fdecea;
+  --ok:#1e824c; --radius:14px; --shadow:0 2px 10px rgba(28,39,51,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:16px}
+button{font-family:inherit;cursor:pointer;border:none}
+input,select{font-family:inherit;font-size:16px}
+[v-cloak]{display:none}
+
+/* ---------- login ---------- */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#12362a 0%,#1f6f54 60%,#2c8f6e 100%);padding:20px}
+.login-card{background:var(--card);border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:44px 40px;width:100%;max-width:420px}
+.login-card h1{font-size:26px;margin-bottom:4px}
+.login-card .sub{color:var(--ink-soft);margin-bottom:28px}
+.field{margin-bottom:18px}
+.field label{display:block;font-weight:600;font-size:14px;margin-bottom:6px;color:var(--ink-soft)}
+.field input{width:100%;padding:14px 16px;border:1.5px solid var(--line);border-radius:10px;transition:border .15s}
+.field input:focus{outline:none;border-color:var(--brand)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;font-weight:700;border-radius:12px;transition:transform .05s, background .15s, box-shadow .15s}
+.btn:active{transform:scale(.98)}
+.btn-primary{background:var(--brand);color:#fff;padding:15px 26px;font-size:17px;box-shadow:var(--shadow)}
+.btn-primary:hover{background:var(--brand-dark)}
+.btn-primary:disabled{background:#9db8ae;cursor:default}
+.btn-block{width:100%}
+.login-err{background:var(--danger-soft);color:var(--danger);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:14px}
+
+/* ---------- shell ---------- */
+.topbar{background:#fff;border-bottom:1px solid var(--line);padding:0 clamp(16px,4vw,40px);height:64px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:20}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;color:var(--brand)}
+.logo .mark{width:34px;height:34px;border-radius:9px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px}
+.topbar .spacer{flex:1}
+.userchip{display:flex;align-items:center;gap:10px;color:var(--ink-soft);font-size:14px}
+.userchip .avatar{width:34px;height:34px;border-radius:50%;background:var(--brand-soft);color:var(--brand);font-weight:700;display:flex;align-items:center;justify-content:center}
+.btn-ghost{background:transparent;color:var(--ink-soft);padding:9px 14px;border-radius:10px;font-weight:600}
+.btn-ghost:hover{background:var(--bg)}
+.main{max-width:1180px;margin:0 auto;padding:28px clamp(16px,4vw,40px) 80px}
+
+/* ---------- dashboard ---------- */
+.page-head{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:22px}
+.page-head h2{font-size:24px}
+.page-head .count{color:var(--ink-soft);font-weight:400;font-size:15px}
+.search{flex:1;min-width:220px;max-width:420px;position:relative}
+.search input{width:100%;padding:12px 16px 12px 42px;border:1.5px solid var(--line);border-radius:12px;background:#fff}
+.search input:focus{outline:none;border-color:var(--brand)}
+.search .icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ink-soft)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
+.pcard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .15s}
+.pcard:hover{box-shadow:0 6px 22px rgba(28,39,51,.14)}
+.pcard .thumb{height:150px;background:#e7edf2 center/cover no-repeat;position:relative}
+.pcard .thumb .noimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#a9b8c4;font-size:40px}
+.pcard .body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:6px;flex:1}
+.pcard h3{font-size:17px;line-height:1.3}
+.pcard .addr{color:var(--ink-soft);font-size:14px;min-height:20px}
+.pcard .meta{display:flex;gap:8px;align-items:center;margin-top:2px}
+.chip{font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px}
+.chip.open{background:var(--brand-soft);color:var(--brand)}
+.chip.done{background:#e8eaf6;color:#3949ab}
+.pcard .actions{margin-top:auto;padding-top:14px}
+.btn-reports{width:100%;background:var(--brand);color:#fff;padding:13px;font-size:16px}
+.btn-reports:hover{background:var(--brand-dark)}
+.empty{color:var(--ink-soft);text-align:center;padding:60px 0}
+
+/* ---------- reports view ---------- */
+.back{display:inline-flex;align-items:center;gap:8px;color:var(--brand);font-weight:700;background:none;padding:8px 0;font-size:15px;margin-bottom:8px}
+.proj-head{display:flex;gap:18px;align-items:center;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 22px;margin-bottom:24px;flex-wrap:wrap}
+.proj-head .pic{width:84px;height:84px;border-radius:12px;background:#e7edf2 center/cover no-repeat;flex-shrink:0}
+.proj-head h2{font-size:22px}
+.proj-head .addr{color:var(--ink-soft)}
+.addr-warn{font-size:13px;color:var(--accent);margin-top:4px}
+.panel{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:24px}
+.panel h3{font-size:18px;margin-bottom:6px}
+.panel .hint{color:var(--ink-soft);font-size:14px;margin-bottom:18px}
+.genrow{display:flex;gap:14px;flex-wrap:wrap}
+.btn-big{padding:16px 24px;font-size:17px;border-radius:14px;font-weight:800}
+.btn-word{background:var(--brand);color:#fff}
+.btn-word:hover{background:var(--brand-dark)}
+.btn-final{background:var(--accent);color:#fff}
+.btn-final:hover{background:#b45f05}
+.btn-big:disabled{opacity:.55;cursor:default}
+.progress{display:flex;align-items:center;gap:12px;background:var(--brand-soft);border-radius:12px;padding:14px 18px;margin-top:16px;font-weight:600;color:var(--brand-dark)}
+.spinner{width:20px;height:20px;border:3px solid rgba(31,111,84,.25);border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.rlist{list-style:none}
+.rlist li{display:flex;align-items:center;gap:14px;padding:14px 6px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.rlist li:last-child{border-bottom:none}
+.ricon{width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.ricon.word{background:#e8f0fe;color:#1a56db}
+.ricon.final{background:#fdf3e3;color:#b45f05}
+.rinfo{flex:1;min-width:180px}
+.rinfo .rname{font-weight:700;font-size:15px;word-break:break-word}
+.rinfo .rdate{color:var(--ink-soft);font-size:13px}
+.rbtns{display:flex;gap:8px}
+.btn-dl{background:var(--brand-soft);color:var(--brand-dark);padding:10px 18px;font-weight:700;border-radius:10px}
+.btn-dl:hover{background:#d3e8df}
+.btn-del{background:var(--danger-soft);color:var(--danger);padding:10px 14px;font-weight:700;border-radius:10px}
+.btn-del:hover{background:#f6d7d2}
+.newflag{font-size:11px;font-weight:800;background:var(--ok);color:#fff;border-radius:99px;padding:2px 8px;margin-left:8px;vertical-align:2px}
+
+/* ---------- modal / toast ---------- */
+.overlay{position:fixed;inset:0;background:rgba(18,30,40,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal{background:#fff;border-radius:16px;padding:28px;max-width:440px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.3)}
+.modal h3{margin-bottom:10px}
+.modal p{color:var(--ink-soft);margin-bottom:22px;line-height:1.5}
+.modal .mrow{display:flex;gap:12px;justify-content:flex-end}
+.btn-cancel{background:var(--bg);color:var(--ink);padding:12px 20px;font-weight:700;border-radius:10px}
+.btn-danger{background:var(--danger);color:#fff;padding:12px 20px;font-weight:700;border-radius:10px}
+.toasts{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:10px;z-index:99;width:min(480px,92vw)}
+.toast{border-radius:12px;padding:14px 18px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.18);animation:pop .2s ease}
+.toast.ok{background:#153f2e;color:#d9f2e6}
+.toast.err{background:#4a150e;color:#fbdcd5}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.footer-note{text-align:center;color:#9aa9b5;font-size:13px;margin-top:40px}
+@media (max-width:560px){ .rbtns{width:100%} .rbtns .btn-dl{flex:1} }
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <!-- ============ LOGIN ============ -->
+  <div class="login-wrap" v-if="!user">
+    <div class="login-card">
+      <h1>E3 Inspection Reporting</h1>
+      <div class="sub">Deck Inspectors, Inc.</div>
+      <div class="login-err" v-if="loginError">{{ loginError }}</div>
+      <form @submit.prevent="doLogin">
+        <div class="field">
+          <label>Username</label>
+          <input v-model.trim="loginForm.username" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input v-model="loginForm.password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary btn-block" :disabled="loggingIn">
+          <span v-if="!loggingIn">Sign In</span><span v-else>Signing in…</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ APP SHELL ============ -->
+  <template v-else>
+    <div class="topbar">
+      <div class="logo"><div class="mark">E3</div><span>Inspection Reporting</span></div>
+      <div class="spacer"></div>
+      <div class="userchip">
+        <div class="avatar">{{ initials }}</div>
+        <span>{{ user.first_name || user.username }}</span>
+      </div>
+      <button class="btn-ghost" @click="logout">Sign out</button>
+    </div>
+
+    <div class="main">
+
+      <!-- ============ DASHBOARD ============ -->
+      <template v-if="view==='projects'">
+        <div class="page-head">
+          <h2>Projects <span class="count" v-if="!loadingProjects">({{ filteredProjects.length }})</span></h2>
+          <div class="search">
+            <span class="icon">&#128269;</span>
+            <input v-model.trim="query" placeholder="Search by name or address…">
+          </div>
+        </div>
+        <div class="empty" v-if="loadingProjects">Loading projects…</div>
+        <div class="empty" v-else-if="filteredProjects.length===0">No projects match.</div>
+        <div class="grid" v-else>
+          <div class="pcard" v-for="p in filteredProjects" :key="p.id">
+            <div class="thumb" :style="thumbStyle(p)">
+              <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
+            </div>
+            <div class="body">
+              <h3>{{ p.name }}</h3>
+              <div class="addr">{{ p.address || 'No address on file' }}</div>
+              <div class="meta">
+                <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
+                <span style="color:var(--ink-soft);font-size:13px">{{ shortDate(p.createdat) }}</span>
+              </div>
+              <div class="actions">
+                <button class="btn btn-reports" @click="openReports(p)">Reports</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ============ REPORTS ============ -->
+      <template v-else-if="view==='reports'">
+        <button class="back" @click="view='projects'">&#8592; All projects</button>
+        <div class="proj-head">
+          <div class="pic" :style="thumbStyle(current)"></div>
+          <div>
+            <h2>{{ current.name }}</h2>
+            <div class="addr">{{ current.address || 'No address on file' }}</div>
+            <div class="addr-warn" v-if="current.address && !addressLooksComplete(current.address)">
+              &#9888; For the address boxes to auto-fill on the Final Report, format the address as: Street, City, ST 12345
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Create Reports</h3>
+          <div class="hint">Creating a Visual Report also builds the combined <b>Final Report</b> (your Final template filled in, with the Visual attached) — one document, ready for DocuSign.</div>
+          <div class="genrow">
+            <button class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create Visual Report (Word)</button>
+            <button class="btn btn-big btn-word" style="background:#33556b" :disabled="generating" @click="generateReport('pdf')">&#128462; Create Visual Report (PDF)</button>
+            <button class="btn btn-big btn-final" :disabled="downloadingFinal" @click="downloadFinal">&#11015; Download Latest Final Report</button>
+          </div>
+          <div class="progress" v-if="generating">
+            <div class="spinner"></div>
+            <div>Building your report — usually 1–3 minutes. The list below updates automatically; you can keep working.</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Report Files</h3>
+          <div class="hint" v-if="reports.length">Newest first. Deleting removes the entry from this list.</div>
+          <div class="empty" v-if="loadingReports && !reports.length">Loading…</div>
+          <div class="empty" v-else-if="!reports.length">No reports yet — create one above.</div>
+          <ul class="rlist">
+            <li v-for="r in sortedReports" :key="r._id">
+              <div class="ricon" :class="isFinal(r) ? 'final' : 'word'">{{ isFinal(r) ? '&#11088;' : '&#128196;' }}</div>
+              <div class="rinfo">
+                <div class="rname">{{ r.name }}<span class="newflag" v-if="isNew(r)">NEW</span></div>
+                <div class="rdate">{{ niceDate(r.timestamp) }} · {{ r.uploader || '' }}</div>
+              </div>
+              <div class="rbtns">
+                <a class="btn btn-dl" :href="r.url" target="_blank" rel="noopener">Download</a>
+                <button class="btn-del" @click="confirmDelete(r)">Delete</button>
+              </div>
+            </li>
+          </ul>
+        </div>
+        <div class="footer-note">Reports are kept in secure cloud storage. Generating a new Visual Report replaces the previous file for this project.</div>
+      </template>
+
+    </div>
+  </template>
+
+  <!-- ============ DELETE CONFIRM ============ -->
+  <div class="overlay" v-if="deleting" @click.self="deleting=null">
+    <div class="modal">
+      <h3>Delete this report entry?</h3>
+      <p><b>{{ deleting.name }}</b><br>({{ niceDate(deleting.timestamp) }})<br><br>This removes it from the list. You can always generate a fresh report.</p>
+      <div class="mrow">
+        <button class="btn-cancel" @click="deleting=null">Cancel</button>
+        <button class="btn-danger" @click="doDelete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TOASTS ============ -->
+  <div class="toasts">
+    <div class="toast" :class="t.kind" v-for="t in toasts" :key="t.id">{{ t.msg }}</div>
+  </div>
+</div>
+
+<script>
+const API = location.origin + '/api';
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+      user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
+      view: 'projects', projects: [], loadingProjects: false, query: '',
+      current: null, reports: [], loadingReports: false,
+      generating: false, generateStartedAt: null, pollTimer: null,
+      downloadingFinal: false, deleting: null,
+      toasts: [], toastSeq: 0,
+    };
+  },
+  computed: {
+    initials() {
+      const u = this.user || {};
+      const a = (u.first_name || u.username || '?')[0] || '?';
+      const b = (u.last_name || '')[0] || '';
+      return (a + b).toUpperCase();
+    },
+    filteredProjects() {
+      const q = this.query.toLowerCase();
+      let list = this.projects;
+      if (q) list = list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q));
+      return [...list].sort((x, y) => new Date(y.createdat || 0) - new Date(x.createdat || 0));
+    },
+    sortedReports() {
+      return [...this.reports].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+    },
+  },
+  created() {
+    try {
+      const saved = localStorage.getItem('e3v2_user');
+      if (saved) { this.user = JSON.parse(saved); this.loadProjects(); }
+    } catch (e) { /* ignore */ }
+  },
+  methods: {
+    /* ---------- infrastructure ---------- */
+    async api(pathname, opts = {}) {
+      const headers = Object.assign({}, opts.headers || {});
+      if (this.user && this.user.token) headers['Authorization'] = this.user.token;
+      if (opts.json !== undefined) {
+        headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(opts.json);
+      }
+      const res = await fetch(API + pathname, Object.assign({}, opts, { headers }));
+      if (res.status === 401 || res.status === 403) {
+        if (this.user) { this.logout(); this.toast('Session expired — please sign in again.', 'err'); }
+        throw new Error('auth');
+      }
+      return res;
+    },
+    toast(msg, kind = 'ok') {
+      const id = ++this.toastSeq;
+      this.toasts.push({ id, msg, kind });
+      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 4200);
+    },
+
+    /* ---------- auth ---------- */
+    async doLogin() {
+      this.loggingIn = true; this.loginError = '';
+      try {
+        const res = await fetch(API + '/login/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: this.loginForm.username, password: this.loginForm.password }),
+        });
+        if (!res.ok) { this.loginError = (await res.text()) || 'Sign-in failed.'; return; }
+        this.user = await res.json();
+        localStorage.setItem('e3v2_user', JSON.stringify(this.user));
+        this.loginForm.password = '';
+        this.loadProjects();
+      } catch (e) {
+        this.loginError = 'Could not reach the server. Check your connection.';
+      } finally { this.loggingIn = false; }
+    },
+    logout() {
+      this.stopPolling();
+      this.user = null; this.view = 'projects'; this.projects = []; this.current = null;
+      localStorage.removeItem('e3v2_user');
+    },
+
+    /* ---------- projects ---------- */
+    async loadProjects() {
+      this.loadingProjects = true;
+      try {
+        const res = await this.api('/project/allprojects');
+        const data = await res.json();
+        this.projects = (data.projects || []).filter(p => !p.isdeleted);
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not load projects.', 'err');
+      } finally { this.loadingProjects = false; }
+    },
+    hasImage(p) { return p && p.url && /^https?:/i.test(p.url); },
+    thumbStyle(p) { return this.hasImage(p) ? { backgroundImage: `url('${p.url}')` } : {}; },
+    shortDate(d) { if (!d) return ''; const x = new Date(d); return isNaN(x) ? '' : x.toLocaleDateString(); },
+    niceDate(d) { if (!d) return ''; const x = new Date(d); return isNaN(x) ? '' : x.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); },
+    addressLooksComplete(a) { return /,.+(,)?\s*[A-Z]{2}\.?\s*\d{5}/.test(a || ''); },
+
+    /* ---------- reports ---------- */
+    openReports(p) {
+      this.current = p; this.view = 'reports'; this.reports = [];
+      this.generating = false; this.generateStartedAt = null;
+      this.loadReports();
+    },
+    projectId(p) { return p.id || p._id; },
+    async loadReports() {
+      this.loadingReports = true;
+      try {
+        const res = await this.api('/projectreports/' + encodeURIComponent(this.projectId(this.current)));
+        this.reports = res.ok ? (await res.json() || []) : [];
+      } catch (e) { /* list may just be empty */ }
+      finally { this.loadingReports = false; }
+    },
+    isFinal(r) { return /final report/i.test(r.name || ''); },
+    isNew(r) {
+      return this.generateStartedAt && new Date(r.timestamp || 0) >= this.generateStartedAt;
+    },
+    async generateReport(format) {
+      this.generating = true;
+      this.generateStartedAt = new Date(Date.now() - 5000);
+      try {
+        await this.api('/project/generatereport', {
+          method: 'POST',
+          json: {
+            id: this.projectId(this.current),
+            sectionImageProperties: { compressionQuality: 100, imageFactor: '3' },
+            companyName: (this.user && this.user.companyIdentifier) || 'DeckInspectors',
+            reportType: 'Visual',
+            reportFormat: format,
+            projectName: this.current.name,
+            user: this.user.username,
+          },
+        });
+        this.toast('Report started — it will appear in the list below.');
+        this.startPolling(format);
+      } catch (e) {
+        this.generating = false;
+        if (e.message !== 'auth') this.toast('Could not start the report.', 'err');
+      }
+    },
+    startPolling(format) {
+      this.stopPolling();
+      const startCount = this.reports.length;
+      const expected = format === 'docx' ? 2 : 1; // docx also creates the Final Report
+      let ticks = 0;
+      this.pollTimer = setInterval(async () => {
+        ticks++;
+        await this.loadReports();
+        const fresh = this.reports.filter(r => this.isNew(r)).length;
+        if (fresh >= expected || ticks > 40) {  // 40 x 15s = 10 min cap
+          this.generating = false;
+          this.stopPolling();
+          if (fresh > 0) this.toast(fresh >= 2 ? 'Visual + Final Report are ready!' : 'Report is ready!');
+          else this.toast('Still working — check back in a minute and refresh.', 'err');
+        }
+      }, 15000);
+    },
+    stopPolling() { if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; } },
+
+    async downloadFinal() {
+      this.downloadingFinal = true;
+      try {
+        const res = await this.api('/project/finalreport', {
+          method: 'POST',
+          json: { companyName: (this.user && this.user.companyIdentifier) || '' },
+        });
+        if (!res.ok) throw new Error('bad');
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = (this.current ? this.current.name + ' - ' : '') + 'Final Report.docx';
+        document.body.appendChild(a); a.click(); a.remove();
+        this.toast('Final Report downloaded.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not download the Final Report.', 'err');
+      } finally { this.downloadingFinal = false; }
+    },
+
+    confirmDelete(r) { this.deleting = r; },
+    async doDelete() {
+      const r = this.deleting; this.deleting = null;
+      try {
+        const res = await this.api('/projectreports/delete', { method: 'POST', json: { _id: r._id } });
+        if (!res.ok) throw new Error('bad');
+        this.reports = this.reports.filter(x => x._id !== r._id);
+        this.toast('Report entry deleted.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not delete that entry.', 'err');
+      }
+    },
+  },
+}).mount('#app');
+</script>
+</body>
+</html>
