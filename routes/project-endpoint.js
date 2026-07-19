@@ -445,6 +445,25 @@ router.route('/finalreport')
     .post(async function (req, res){
       try{
         const {companyName} = req.body;
+
+        // Prefer the tenant's most recently generated combined Final Report
+        // (final template auto-filled + visual annex) so the button downloads
+        // one complete document. Falls back to the raw template if none exists.
+        try {
+          const tenantCompany = (req.user && req.user.company) ? req.user.company : companyName;
+          const latest = await projectReports.getLatestFinalReportForCompany(tenantCompany);
+          if (latest && latest.url) {
+            const urlArray = latest.url.toString().split('/');
+            const buffer = await uploadBlob.getBlobBuffer(urlArray[urlArray.length - 1], urlArray[urlArray.length - 2]);
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+            res.setHeader('Content-Disposition', `attachment; filename="${(latest.name || 'Final Report').replace(/"/g, '')}.docx"`);
+            console.log('Final Report (combined) sent:', latest.name, latest.timestamp);
+            return res.send(buffer);
+          }
+        } catch (combinedErr) {
+          console.error('Combined final report lookup failed, falling back to template:', combinedErr.message);
+        }
+
         const cleanName = companyName.replaceAll(/\s/g, "").replace('.ondeckinspectors.com','');
         const absolutePath = path.join(__dirname, '..', `${cleanName}_FinalTemplate.docx`);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
