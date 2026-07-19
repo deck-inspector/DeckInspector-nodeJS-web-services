@@ -353,7 +353,23 @@ router.route('/generatereport')
             const timestampTemp = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}-${now.getMinutes().toString().padStart(2, '0')}-${now.getSeconds().toString().padStart(2, '0')}`;
             const docpath = `${projectName}_${reportType}_${timestampTemp}`;
             res.status(200).json({message: 'Generating report'});
-           const url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath);
+           let url;
+           try {
+               url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath);
+           } catch (genErr) {
+               console.error('Report generation FAILED:', genErr);
+               url = null;
+           }
+           if (!url) {
+               projectReports.addProjectReport({
+                   project_id: projectId,
+                   name: `${projectName} - ${reportType} report FAILED`,
+                   url: '',
+                   uploader,
+                   timestamp: (new Date(Date.now())).toISOString()
+               }, function (err, result) { if (err) { console.log(err) } });
+               return;
+           }
            console.log(url);
            const project_id = projectId;
            const name = projectName;
@@ -394,6 +410,13 @@ router.route('/generatereport')
                     console.log('final report uploaded');
                 } catch (finalErr) {
                     console.error('Error generating Final Report:', finalErr);
+                    projectReports.addProjectReport({
+                        project_id,
+                        name: `${projectName} - Final Report FAILED`,
+                        url: '',
+                        uploader,
+                        timestamp: (new Date(Date.now())).toISOString()
+                    }, function (err, result) { if (err) { console.log(err) } });
                 }
             }
         } catch (err) {
