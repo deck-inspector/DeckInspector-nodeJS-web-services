@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>E3 Inspection Reporting</title>
+<title>E3 Inspection Reporting Solutions</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <style>
 :root{
   --ink:#1c2733; --ink-soft:#51616f; --line:#dde5ec; --bg:#f2f5f8; --card:#ffffff;
-  --brand:#e08600; --brand-dark:#b96e00; --brand-soft:#fdf1dd;
-  --charcoal:#4a4a48; --charcoal-dark:#333331; --accent:#2e6e9e; --danger:#c0392b; --danger-soft:#fdecea;
+  --brand:#292c74; --brand-dark:#1d2054; --brand-soft:#e9eaf6;
+  --charcoal:#4a4a48; --charcoal-dark:#333331; --accent:#a32c2a; --accent-dark:#822220; --danger:#c0392b; --danger-soft:#fdecea;
   --ok:#1e824c; --radius:14px; --shadow:0 2px 10px rgba(28,39,51,.08);
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -20,7 +20,7 @@ input,select{font-family:inherit;font-size:16px}
 [v-cloak]{display:none}
 
 /* ---------- login ---------- */
-.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#333331 0%,#4a4a48 55%,#8a5a10 100%);padding:20px}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#14163a 0%,#292c74 60%,#6e1f1e 100%);padding:20px}
 .login-card{background:var(--card);border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:44px 40px;width:100%;max-width:420px}
 .login-card h1{font-size:26px;margin-bottom:4px}
 .login-card .sub{color:var(--ink-soft);margin-bottom:28px}
@@ -87,7 +87,7 @@ input,select{font-family:inherit;font-size:16px}
 .btn-word{background:var(--brand);color:#fff}
 .btn-word:hover{background:var(--brand-dark)}
 .btn-final{background:var(--accent);color:#fff}
-.btn-final:hover{background:#255a83}
+.btn-final:hover{background:var(--accent-dark)}
 .btn-big:disabled{opacity:.55;cursor:default}
 .progress{display:flex;align-items:center;gap:12px;background:var(--brand-soft);border-radius:12px;padding:14px 18px;margin-top:16px;font-weight:600;color:var(--brand-dark)}
 .spinner{width:20px;height:20px;border:3px solid rgba(31,111,84,.25);border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
@@ -107,6 +107,10 @@ input,select{font-family:inherit;font-size:16px}
 .btn-del{background:var(--danger-soft);color:var(--danger);padding:10px 14px;font-weight:700;border-radius:10px}
 .btn-del:hover{background:#f6d7d2}
 .newflag{font-size:11px;font-weight:800;background:var(--ok);color:#fff;border-radius:99px;padding:2px 8px;margin-left:8px;vertical-align:2px}
+
+.kindrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.kind{padding:11px 20px;border-radius:99px;font-weight:700;font-size:15px;background:var(--bg);color:var(--ink-soft);border:1.5px solid var(--line)}
+.kind.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 
 /* ---------- modal / toast ---------- */
 .overlay{position:fixed;inset:0;background:rgba(18,30,40,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
@@ -158,8 +162,8 @@ input,select{font-family:inherit;font-size:16px}
   <!-- ============ LOGIN ============ -->
   <div class="login-wrap" v-if="!user">
     <div class="login-card">
-      <img :src="logoE3" alt="Deck Inspectors — E3 Certified Inspector" style="width:330px;max-width:100%;margin:0 auto 14px;display:block">
-      <h1 style="text-align:center">Inspection Reporting</h1>
+      <img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="width:240px;max-width:100%;margin:0 auto 14px;display:block">
+      <h1 style="text-align:center">Inspection Reporting Solutions</h1>
       <div class="sub" style="text-align:center">Deck Inspectors, Inc.</div>
       <div class="login-err" v-if="loginError">{{ loginError }}</div>
       <form @submit.prevent="doLogin">
@@ -181,8 +185,9 @@ input,select{font-family:inherit;font-size:16px}
   <!-- ============ APP SHELL ============ -->
   <template v-else>
     <div class="topbar">
-      <div class="logo"><img :src="logo" alt="Deck Inspectors" style="height:40px"></div>
+      <div class="logo"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
       <div class="spacer"></div>
+      <img :src="logo" alt="Deck Inspectors" style="height:38px;margin-right:4px">
       <div class="userchip">
         <div class="avatar">{{ initials }}</div>
         <span>{{ user.first_name || user.username }}</span>
@@ -240,10 +245,15 @@ input,select{font-family:inherit;font-size:16px}
 
         <div class="panel">
           <h3>Create Reports</h3>
-          <div class="hint">Creating a Visual Report also builds the combined <b>Final Report</b> (your Final template filled in, with the Visual attached) — one document, ready for DocuSign.</div>
+          <div class="hint">Pick the inspection type, then create the report as Word or PDF. A Word <b>Visual Report</b> also builds the combined <b>Final Report</b> (your Final template filled in, with the Visual attached) — one document, ready for DocuSign.</div>
+          <div class="kindrow">
+            <button class="kind" :class="{on: reportKind==='Visual'}" @click="reportKind='Visual'">Visual</button>
+            <button class="kind" :class="{on: reportKind==='Invasive'}" @click="reportKind='Invasive'">Invasive</button>
+            <button class="kind" :class="{on: reportKind==='InvasiveOnly'}" @click="reportKind='InvasiveOnly'">Invasive Only</button>
+          </div>
           <div class="genrow">
-            <button class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create Visual Report (Word)</button>
-            <button class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="generating" @click="generateReport('pdf')">&#128462; Create Visual Report (PDF)</button>
+            <button class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create {{ kindLabel }} (Word)</button>
+            <button class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="generating" @click="generateReport('pdf')">&#128462; Create {{ kindLabel }} (PDF)</button>
             <button class="btn btn-big btn-final" :disabled="downloadingFinal" @click="downloadFinal">&#11015; Download Latest Final Report</button>
           </div>
           <div class="progress" v-if="generating">
@@ -361,7 +371,7 @@ input,select{font-family:inherit;font-size:16px}
 <script>
 const API = location.origin + '/api';
 const LOGO = 'https://deckinspectors.com/wp-content/uploads/2025/07/cropped-1-DI-Logo-Stacked.jpg';
-const LOGO_E3 = 'https://deckinspectors.com/wp-content/uploads/2025/08/Deck-Inspector-E3-logo_2.png';
+const LOGO_E3 = 'https://deckinspectorsappdata.blob.core.windows.net/deckinspectorsincondeckinspectorscom/E3%20Logo%20for%20Inspection%20Reporting%20Solutions.jpg';
 const { createApp } = Vue;
 
 createApp({
@@ -371,7 +381,7 @@ createApp({
       user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
-      generating: false, generateStartedAt: null, pollTimer: null,
+      generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
       downloadingFinal: false, deleting: null,
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
@@ -393,6 +403,9 @@ createApp({
     },
     sortedReports() {
       return [...this.reports].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+    },
+    kindLabel() {
+      return this.reportKind === 'InvasiveOnly' ? 'Invasive Only Report' : this.reportKind + ' Report';
     },
   },
   created() {
@@ -492,23 +505,22 @@ createApp({
             id: this.projectId(this.current),
             sectionImageProperties: { compressionQuality: 100, imageFactor: '3' },
             companyName: (this.user && this.user.companyIdentifier) || 'DeckInspectors',
-            reportType: 'Visual',
+            reportType: this.reportKind,
             reportFormat: format,
             projectName: this.current.name,
             user: this.user.username,
           },
         });
         this.toast('Report started — it will appear in the list below.');
-        this.startPolling(format);
+        this.startPolling(format, this.reportKind);
       } catch (e) {
         this.generating = false;
         if (e.message !== 'auth') this.toast('Could not start the report.', 'err');
       }
     },
-    startPolling(format) {
+    startPolling(format, kind) {
       this.stopPolling();
-      const startCount = this.reports.length;
-      const expected = format === 'docx' ? 2 : 1; // docx also creates the Final Report
+      const expected = (format === 'docx' && kind === 'Visual') ? 2 : 1; // Visual Word also creates the Final Report
       let ticks = 0;
       this.pollTimer = setInterval(async () => {
         ticks++;
