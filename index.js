@@ -20,6 +20,8 @@ app.timeout = 600000;
 
 // New web app (v2) — served alongside the API at /app
 app.use("/app", express.static(path.join(__dirname, "webapp")));
+// Launch: serve the web app at the root as well (e3-web.com cutover)
+app.use(express.static(path.join(__dirname, "webapp")));
 
 require("./routes")(app);
 app.get("/", (req, res) => {
