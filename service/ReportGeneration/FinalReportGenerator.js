@@ -372,7 +372,7 @@ class FinalReportGenerator {
         fs.writeFileSync(tmpFile, mergedBuffer);
 
         const containerName = 'projectreports';
-        const fileName = `${projectId}_FinalReport.docx`;
+        const fileName = `${projectId}_FinalReport_${new Date().toISOString().slice(0,19).replace(/[T:]/g, "-")}.docx`;
         const uploadOptions = {
             metadata: { 'uploader': uploader || 'system' },
             tags: { 'id': String(projectId), 'reportType': 'FinalReport' }
