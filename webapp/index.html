@@ -158,7 +158,7 @@ input,select{font-family:inherit;font-size:16px}
   <!-- ============ LOGIN ============ -->
   <div class="login-wrap" v-if="!user">
     <div class="login-card">
-      <img :src="logo" alt="Deck Inspectors" style="width:250px;max-width:100%;margin:0 auto 14px;display:block">
+      <img :src="logoE3" alt="Deck Inspectors — E3 Certified Inspector" style="width:330px;max-width:100%;margin:0 auto 14px;display:block">
       <h1 style="text-align:center">Inspection Reporting</h1>
       <div class="sub" style="text-align:center">Deck Inspectors, Inc.</div>
       <div class="login-err" v-if="loginError">{{ loginError }}</div>
@@ -361,12 +361,13 @@ input,select{font-family:inherit;font-size:16px}
 <script>
 const API = location.origin + '/api';
 const LOGO = 'https://deckinspectors.com/wp-content/uploads/2025/07/cropped-1-DI-Logo-Stacked.jpg';
+const LOGO_E3 = 'https://deckinspectors.com/wp-content/uploads/2025/08/Deck-Inspector-E3-logo_2.png';
 const { createApp } = Vue;
 
 createApp({
   data() {
     return {
-      logo: LOGO,
+      logo: LOGO, logoE3: LOGO_E3,
       user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
