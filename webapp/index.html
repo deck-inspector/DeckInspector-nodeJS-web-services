@@ -183,6 +183,21 @@ input,select{font-family:inherit;font-size:16px}
 .grouphead{font-size:16px;font-weight:800;margin:22px 0 12px;color:var(--ink-soft)}
 .lightbox{position:fixed;inset:0;background:rgba(10,16,20,.92);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out}
 .lightbox img{max-width:96vw;max-height:92vh;border-radius:8px}
+
+/* ---------- directory tree / tabs / documents ---------- */
+.inspect-layout{display:flex;gap:20px;align-items:flex-start}
+.dirtree{width:250px;flex-shrink:0;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 10px;position:sticky;top:80px;max-height:calc(100vh - 100px);overflow-y:auto}
+.dirtree .tnode{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:14px;color:var(--ink);border:none;background:none;width:100%;text-align:left}
+.dirtree .tnode:hover{background:var(--bg)}
+.dirtree .tnode.on{background:var(--brand-soft);color:var(--brand);font-weight:700}
+.dirtree .tkids{margin-left:14px;border-left:1.5px solid var(--line);padding-left:6px}
+.dirtree .troot{font-weight:800;font-size:15px}
+.tabbar{display:flex;gap:6px;border-bottom:2px solid var(--line);margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.tabbtn{padding:12px 18px;font-weight:700;font-size:15px;background:none;color:var(--ink-soft);border:none;border-bottom:3px solid transparent;margin-bottom:-2px;border-radius:0}
+.tabbtn.on{color:var(--brand);border-bottom-color:var(--accent)}
+.tabadd{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;font-size:18px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-left:6px}
+.tabadd:hover{background:var(--accent-dark)}
+@media (max-width:680px){ .dirtree{display:none} .tabbtn{padding:10px 10px;font-size:14px} }
 </style>
 </head>
 <body>
@@ -257,11 +272,12 @@ input,select{font-family:inherit;font-size:16px}
               <div class="addr">{{ p.address || 'No address on file' }}</div>
               <div class="meta">
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
-                <span style="color:var(--ink-soft);font-size:13px">{{ shortDate(p.createdat) }}</span>
+                <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ p.editedat ? niceDate(p.editedat) : shortDate(p.createdat) }}</span>
               </div>
               <div class="actions card-btns">
                 <button class="btn btn-inspect" @click="openInspect(p)">Inspection</button>
                 <button class="btn btn-reports" @click="openReports(p)">Reports</button>
+                <button class="btn btn-dl" style="flex:0 0 auto;padding:12px 14px" title="Project documents" @click="openDocs(p)">&#128206;</button>
               </div>
             </div>
           </div>
@@ -360,11 +376,37 @@ input,select{font-family:inherit;font-size:16px}
           <div class="spacer" style="flex:1"></div>
           <button class="btn-dl" @click="openStructAdd('building', null)">&#65291; Building</button>
           <button class="btn-dl" @click="openStructAdd('unit', null)">&#65291; Location</button>
+          <button class="btn-dl" :disabled="downloadingExcel" @click="downloadExcel">&#128202; Download Excel</button>
+          <button class="btn-dl" @click="openEdit">&#9998; Edit</button>
+          <button class="btn-dl" @click="openDocs(current)">&#128206; Documents</button>
           <button class="btn btn-reports" style="width:auto;padding:12px 22px" @click="openReports(current)">Reports</button>
         </div>
+        <div class="inspect-layout">
+        <div class="dirtree">
+          <button class="tnode troot" @click="structTab='buildings'">&#128193; {{ current.name }}</button>
+          <div class="tkids">
+            <template v-for="sp in structure.subProjects" :key="'t'+sp.id">
+              <button class="tnode" :class="{on: structTab==='buildings'}" @click="structTab='buildings'">&#127970; {{ sp.name }}</button>
+              <div class="tkids">
+                <button class="tnode" v-for="loc in sp.subProjectLocations" :key="'t'+loc.locationId" @click="openUnit(loc)">&#128682; {{ loc.locationName }}</button>
+              </div>
+            </template>
+            <button class="tnode" :class="{on: structTab==='locations'}" @click="structTab='locations'">&#128205; Common Locations</button>
+            <div class="tkids">
+              <button class="tnode" v-for="loc in structure.locations" :key="'t'+loc.locationId" @click="openUnit(loc)">&#128682; {{ loc.locationName }}</button>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0">
         <div class="empty" v-if="loadingStructure">Loading inspection structure&hellip;</div>
         <template v-else>
-          <div class="empty" v-if="!structure.subProjects.length && !structure.locations.length">No buildings or units recorded yet for this project.</div>
+          <div class="tabbar">
+            <button class="tabbtn" :class="{on: structTab==='buildings'}" @click="structTab='buildings'">Project Buildings ({{ structure.subProjects.length }})</button>
+            <button class="tabbtn" :class="{on: structTab==='locations'}" @click="structTab='locations'">Project Common Locations ({{ structure.locations.length }})</button>
+            <button class="tabadd" :title="structTab==='buildings' ? 'Add building' : 'Add common location'" @click="structTab==='buildings' ? openStructAdd('building', null) : openStructAdd('unit', null)">&#65291;</button>
+          </div>
+          <template v-if="structTab==='buildings'">
+          <div class="empty" v-if="!structure.subProjects.length">No buildings yet &mdash; use the &#65291; button above to add one.</div>
           <template v-for="sp in structure.subProjects" :key="sp.id">
             <div class="grouphead" style="display:flex;align-items:center;gap:10px">&#127970; {{ sp.name }}
               <button class="btn-dl" style="padding:4px 10px;font-size:12px" @click="openStructEdit('building', sp)">&#9998;</button>
@@ -380,8 +422,9 @@ input,select{font-family:inherit;font-size:16px}
               </div>
             </div>
           </template>
-          <template v-if="structure.locations.length">
-            <div class="grouphead">&#128205; Units &amp; Areas</div>
+          </template>
+          <template v-else>
+          <div class="empty" v-if="!structure.locations.length">No common locations yet &mdash; use the &#65291; button above to add one.</div>
             <div class="unitgrid">
               <div class="ucard" v-for="loc in structure.locations" :key="loc.locationId" @click="openUnit(loc)" style="cursor:pointer">
                 <div class="uicon">&#128682;</div>
@@ -392,6 +435,8 @@ input,select{font-family:inherit;font-size:16px}
             </div>
           </template>
         </template>
+        </div>
+        </div>
       </template>
 
       <!-- ============ INSPECTION: UNIT SECTIONS ============ -->
@@ -691,6 +736,48 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ PROJECT DOCUMENTS ============ -->
+  <div class="overlay" v-if="docsOpen" @click.self="closeDocs">
+    <div class="modal" style="max-width:560px">
+      <h3>Project Documents</h3>
+      <p style="margin-bottom:14px"><b>{{ docsProject ? docsProject.name : '' }}</b> &mdash; contracts, layouts, and signed reports live here.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <input type="file" :key="'df'+docs.length" @change="onDocFile" style="font-size:14px">
+        <button class="btn btn-dl" :disabled="!docFile || uploadingDoc" @click="uploadDoc">{{ uploadingDoc ? 'Uploading&hellip;' : '&#11014; Upload' }}</button>
+      </div>
+      <div class="empty" v-if="loadingDocs" style="padding:20px 0">Loading&hellip;</div>
+      <div class="empty" v-else-if="!docs.length" style="padding:20px 0">No documents yet &mdash; upload the first one above.</div>
+      <ul class="rlist" v-else>
+        <li v-for="d in docs" :key="d._id">
+          <div class="ricon word">&#128196;</div>
+          <div class="rinfo">
+            <div class="rname">{{ d.name }}</div>
+            <div class="rdate">{{ niceDate(d.timestamp) }}<span v-if="d.uploader"> &middot; {{ d.uploader }}</span></div>
+          </div>
+          <div class="rbtns">
+            <a class="btn btn-dl" :href="d.url" target="_blank" rel="noopener">Download</a>
+            <button class="btn-del" @click="docDeleting = d">Delete</button>
+          </div>
+        </li>
+      </ul>
+      <div class="mrow" style="margin-top:14px">
+        <button class="btn-cancel" @click="closeDocs">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DOCUMENT DELETE CONFIRM ============ -->
+  <div class="overlay" v-if="docDeleting" @click.self="docDeleting=null">
+    <div class="modal">
+      <h3>Delete this document?</h3>
+      <p><b>{{ docDeleting.name }}</b><br><br>This removes it from the project&#8217;s documents list.</p>
+      <div class="mrow">
+        <button class="btn-cancel" @click="docDeleting=null">Cancel</button>
+        <button class="btn-danger" @click="doDelDoc">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ TOASTS ============ -->
   <div class="toasts">
     <div class="toast" :class="t.kind" v-for="t in toasts" :key="t.id">{{ t.msg }}</div>
@@ -727,6 +814,8 @@ createApp({
       lifeOptions: ['1-4 Years', '4-7 Years', '7-10 Years', '10+ Years'],
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
+      structTab: 'buildings',
+      docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFile: null, uploadingDoc: false, docDeleting: null,
       toasts: [], toastSeq: 0,
     };
   },
@@ -919,7 +1008,7 @@ createApp({
 
     /* ---------- inspection browsing ---------- */
     openInspect(p) {
-      this.current = p; this.view = 'inspect';
+      this.current = p; this.view = 'inspect'; this.structTab = 'buildings';
       this.structure = { subProjects: [], locations: [] };
       this.loadStructure();
     },
@@ -1358,6 +1447,66 @@ createApp({
         this.toast('Inspector removed from project.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not remove.', 'err');
+      }
+    },
+
+    /* ---------- project documents ---------- */
+    openDocs(p) {
+      this.docsProject = p; this.docsOpen = true;
+      this.docs = []; this.docFile = null;
+      this.loadDocs();
+    },
+    closeDocs() { this.docsOpen = false; this.docsProject = null; },
+    async loadDocs() {
+      this.loadingDocs = true;
+      try {
+        const res = await fetch(API + '/projectdocuments/' + encodeURIComponent(this.projectId(this.docsProject)));
+        if (res.ok) {
+          const j = await res.json();
+          this.docs = Array.isArray(j) ? j : (j.documents || j.data || []);
+        } else { this.docs = []; }
+      } catch (e) { this.docs = []; }
+      finally { this.loadingDocs = false; }
+    },
+    onDocFile(e) { this.docFile = (e.target.files && e.target.files[0]) || null; },
+    async uploadDoc() {
+      if (!this.docFile || !this.docsProject) return;
+      this.uploadingDoc = true;
+      try {
+        const fd = new FormData();
+        fd.append('picture', this.docFile, this.docFile.name);
+        fd.append('containerName', String(this.docsProject.name || 'project').replace(/\s+/g, '').toLowerCase());
+        fd.append('uploader', 'deck');
+        fd.append('entityName', this.docsProject.name || 'project');
+        const up = await this.api('/image/upload', { method: 'POST', body: fd });
+        if (!up.ok) throw new Error('upload');
+        const ud = await up.json();
+        const url = ud.url || (ud.data && ud.data.url) || '';
+        if (!url) throw new Error('upload');
+        const res = await fetch(API + '/projectdocuments/add', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project_id: this.projectId(this.docsProject), name: this.docFile.name, url: url, uploader: this.user.username }),
+        });
+        if (!res.ok) throw new Error('bad');
+        this.docFile = null;
+        this.toast('Document uploaded.');
+        this.loadDocs();
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not upload the document.', 'err');
+      } finally { this.uploadingDoc = false; }
+    },
+    async doDelDoc() {
+      const d = this.docDeleting; this.docDeleting = null;
+      try {
+        const res = await fetch(API + '/projectdocuments/delete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ _id: d._id }),
+        });
+        if (!res.ok) throw new Error('bad');
+        this.docs = this.docs.filter(x => x._id !== d._id);
+        this.toast('Document deleted.');
+      } catch (e) {
+        this.toast('Could not delete the document.', 'err');
       }
     },
 
