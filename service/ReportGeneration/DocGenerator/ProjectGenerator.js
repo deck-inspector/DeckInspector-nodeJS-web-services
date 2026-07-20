@@ -150,17 +150,24 @@ class ProjectGenerator{
 
         projectHashcodeArray.push(ReportGenerationUtil.calculateHash(project));
         const projectHashCode = ReportGenerationUtil.combineHashesInArray(projectHashcodeArray);
-        // Always re-merge and re-upload the combined report. Chunk generation above
-        // stays hash-cached (the expensive part); the merge itself is cheap and
-        // guarantees fixes to the merge/sanitize pipeline reach existing projects.
-        if (projectHashCode !== projectDoc.data.hashCode) {
-            console.log("Project Hashcode changed.  Updating Project Doc");
+        // RESTORED FAST-PATH: return the already-built report when the project
+        // is unchanged and a cached file exists. Only re-merge when the data
+        // changed or there is no cache yet; if a re-merge yields no file, fall
+        // back to the last good report instead of writing a FAILED record.
+        const cachedFilePath = (projectDoc.doc && projectDoc.doc.filePath) || null;
+        if (projectHashCode !== projectDoc.data.hashCode || !cachedFilePath) {
+            console.log('Re-merging project report (data changed or no cached file).');
+            await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
+            if (projectDoc.doc && projectDoc.doc.filePath) {
+                await ProjectReportHashCodeService.deleteProjectReportHashCodeByIdAndReportType(projectId,reportType);
+                const projectDocToSave = this.getProjectReportHascodeDocToSave(projectDoc, projectId,reportType);
+                await ProjectReportHashCodeService.addProjectReportHashCode(projectDocToSave);
+            } else if (cachedFilePath) {
+                console.error('Re-merge produced no file; serving cached report for project ' + projectId);
+                return cachedFilePath;
+            }
         }
-        await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
-        await ProjectReportHashCodeService.deleteProjectReportHashCodeByIdAndReportType(projectId,reportType);
-        const projectDocToSave = this.getProjectReportHascodeDocToSave(projectDoc, projectId,reportType);
-        await ProjectReportHashCodeService.addProjectReportHashCode(projectDocToSave);
-        return projectDoc.doc.filePath
+        return (projectDoc.doc && projectDoc.doc.filePath) || cachedFilePath
     }
 
     async saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode) {
