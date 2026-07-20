@@ -118,7 +118,7 @@ input,select{font-family:inherit;font-size:16px}
 
 /* ---------- modal / toast ---------- */
 .overlay{position:fixed;inset:0;background:rgba(18,30,40,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
-.modal{background:#fff;border-radius:16px;padding:28px;max-width:440px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.3)}
+.modal{background:#fff;border-radius:16px;padding:28px;max-width:640px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.3);max-height:92vh;overflow-y:auto}
 .modal h3{margin-bottom:10px}
 .modal p{color:var(--ink-soft);margin-bottom:22px;line-height:1.5}
 .modal .mrow{display:flex;gap:12px;justify-content:flex-end}
@@ -214,7 +214,7 @@ input,select{font-family:inherit;font-size:16px}
   <!-- ============ APP SHELL ============ -->
   <template v-else>
     <div class="topbar">
-      <div class="logo"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
+      <div class="logo" style="cursor:pointer" title="Home" @click="view='projects'"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
       <nav style="display:flex;gap:4px;margin-left:10px">
         <button class="btn-ghost" :style="view!=='users' ? 'color:var(--brand);font-weight:800' : ''" @click="view='projects'">Projects</button>
         <button class="btn-ghost" :style="view==='users' ? 'color:var(--brand);font-weight:800' : ''" @click="openUsers">Users</button>
@@ -486,7 +486,7 @@ input,select{font-family:inherit;font-size:16px}
   </div>
 
   <!-- ============ STRUCTURE: ADD/EDIT BUILDING / UNIT / INSPECTION POINT ============ -->
-  <div class="overlay" v-if="structOpen" @click.self="structOpen=false">
+  <div class="overlay" v-if="structOpen">
     <div class="modal">
       <h3>{{ struct.mode==='edit' ? 'Edit' : 'Add' }} {{ struct.kind==='building' ? 'Building' : (struct.kind==='section' ? 'Inspection Point' : 'Unit / Area') }}</h3>
       <div class="field"><label>Name *</label><input v-model.trim="struct.name" placeholder="e.g. Building A, Unit 101, Private Deck"></div>
@@ -518,7 +518,7 @@ input,select{font-family:inherit;font-size:16px}
   </div>
 
   <!-- ============ EDIT INSPECTION SECTION ============ -->
-  <div class="overlay" v-if="secEditOpen" @click.self="secEditOpen=false">
+  <div class="overlay" v-if="secEditOpen">
     <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
       <h3>Edit Inspection &mdash; matches the report exactly</h3>
       <div class="empty" v-if="loadingSec" style="padding:30px 0">Loading&hellip;</div>
@@ -576,7 +576,7 @@ input,select{font-family:inherit;font-size:16px}
   </div>
 
   <!-- ============ EDIT PROJECT ============ -->
-  <div class="overlay" v-if="editOpen" @click.self="editOpen=false">
+  <div class="overlay" v-if="editOpen">
     <div class="modal">
       <h3>Edit Project</h3>
       <div class="field"><label>Project name *</label><input v-model.trim="editForm.name"></div>
@@ -607,7 +607,7 @@ input,select{font-family:inherit;font-size:16px}
   </div>
 
   <!-- ============ ADD PROJECT ============ -->
-  <div class="overlay" v-if="addOpen" @click.self="addOpen=false">
+  <div class="overlay" v-if="addOpen">
     <div class="modal">
       <h3>Add Project</h3>
       <div class="field"><label>Project name *</label><input v-model.trim="addForm.name" placeholder="e.g. 780 S. Garfield Ave. Apts"></div>
@@ -656,7 +656,7 @@ input,select{font-family:inherit;font-size:16px}
   </div>
 
   <!-- ============ ADD USER ============ -->
-  <div class="overlay" v-if="userAddOpen" @click.self="userAddOpen=false">
+  <div class="overlay" v-if="userAddOpen">
     <div class="modal">
       <h3>Add User</h3>
       <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>First name *</label><input v-model.trim="userForm.first_name"></div>
