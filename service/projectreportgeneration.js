@@ -11,21 +11,14 @@ require("./ReportGeneration/ReportGenerationUtil");
 const generateProjectReport = async function generate(projectId,sectionImageProperties,companyName,reportType,
                                                       reportFormat, fileName)
 {
-    try{
-        const project  = await projects.getProjectById(projectId);
-
-        // const fileName = project.data.item.name.split(' ').join('_') + "_"+ reportType;
-        if (reportFormat==='pdf') {
-            const projectHtml =  await getProjectHtml(project, sectionImageProperties, reportType);
-            const path = await generatePdfFile(fileName,projectHtml,companyName);
-        }else{
-            return await GenerateReport.generateReport(projectId,reportType);
-        }
-
-    }
-    catch(err){
-        console.log(err);
-        // callback("");
+    const project  = await projects.getProjectById(projectId);
+    if (reportFormat==='pdf') {
+        const projectHtml =  await getProjectHtml(project, sectionImageProperties, reportType);
+        return await generatePdfFile(fileName,projectHtml,companyName);
+    } else {
+        const generatedUrl = await GenerateReport.generateReport(projectId,reportType);
+        if (!generatedUrl) { throw new Error('generateReport returned no url (merge or upload produced no file)'); }
+        return generatedUrl;
     }
 }
 
