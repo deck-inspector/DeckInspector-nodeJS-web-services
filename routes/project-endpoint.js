@@ -353,17 +353,18 @@ router.route('/generatereport')
             const timestampTemp = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}-${now.getMinutes().toString().padStart(2, '0')}-${now.getSeconds().toString().padStart(2, '0')}`;
             const docpath = `${projectName}_${reportType}_${timestampTemp}`;
             res.status(200).json({message: 'Generating report'});
-           let url;
+           let url; let failMsg = '';
            try {
                url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath);
            } catch (genErr) {
                console.error('Report generation FAILED:', genErr);
+               failMsg = (genErr && genErr.message) ? String(genErr.message) : String(genErr);
                url = null;
            }
            if (!url) {
                projectReports.addProjectReport({
                    project_id: projectId,
-                   name: `${projectName} - ${reportType} report FAILED`,
+                   name: `${projectName} - ${reportType} report FAILED [${(failMsg || 'no error').slice(0,200)}]`,
                    url: '',
                    uploader,
                    timestamp: (new Date(Date.now())).toISOString()
