@@ -359,7 +359,7 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <div class="spacer" style="flex:1"></div>
           <button class="btn-dl" @click="openStructAdd('building', null)">&#65291; Building</button>
-          <button class="btn-dl" @click="openStructAdd('unit', null)">&#65291; Unit / Area</button>
+          <button class="btn-dl" @click="openStructAdd('unit', null)">&#65291; Location</button>
           <button class="btn btn-reports" style="width:auto;padding:12px 22px" @click="openReports(current)">Reports</button>
         </div>
         <div class="empty" v-if="loadingStructure">Loading inspection structure&hellip;</div>
@@ -488,7 +488,7 @@ input,select{font-family:inherit;font-size:16px}
   <!-- ============ STRUCTURE: ADD/EDIT BUILDING / UNIT / INSPECTION POINT ============ -->
   <div class="overlay" v-if="structOpen">
     <div class="modal">
-      <h3>{{ struct.mode==='edit' ? 'Edit' : 'Add' }} {{ struct.kind==='building' ? 'Building' : (struct.kind==='section' ? 'Inspection Point' : 'Unit / Area') }}</h3>
+      <h3>{{ struct.mode==='edit' ? 'Edit' : 'Add' }} {{ struct.kind==='building' ? 'Building' : (struct.kind==='section' ? 'Inspection Point' : 'Location / Unit') }}</h3>
       <div class="field"><label>Name *</label><input v-model.trim="struct.name" placeholder="e.g. Building A, Unit 101, Private Deck"></div>
       <div class="field" v-if="struct.kind!=='section'"><label>Description</label><input v-model.trim="struct.description"></div>
       <div class="field" v-if="struct.kind==='unit'"><label>Type</label>
@@ -777,6 +777,10 @@ createApp({
       }
       const res = await fetch(API + pathname, Object.assign({}, opts, { headers }));
       if (res.status === 401 || res.status === 403) {
+        if (res.status === 403 && !opts._retried) {
+          await new Promise(r => setTimeout(r, 1500));
+          return this.api(pathname, Object.assign({}, opts, { _retried: true }));
+        }
         if (this.user) { this.logout(); this.toast('Session expired — please sign in again.', 'err'); }
         throw new Error('auth');
       }
