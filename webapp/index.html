@@ -367,14 +367,6 @@ input,select{font-family:inherit;font-size:16px}
             </li>
           </ul>
         </div>
-        <div class="panel">
-          <h3>Final Report Template</h3>
-          <div class="hint">This Word template is what the system fills in and combines with the Visual Report. Upload a new version any time you change it.</div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-            <input type="file" accept=".docx" @change="onTplFile" style="font-size:14px">
-            <button class="btn btn-dl" :disabled="!tplFile || uploadingTpl" @click="uploadTemplate">{{ uploadingTpl ? 'Uploading…' : '&#11014; Upload New Template' }}</button>
-          </div>
-        </div>
         <div class="footer-note">Reports are kept in secure cloud storage. Generating a new Visual Report replaces the previous file for this project.</div>
       </template>
 
