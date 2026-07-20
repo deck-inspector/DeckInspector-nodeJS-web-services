@@ -198,6 +198,10 @@ input,select{font-family:inherit;font-size:16px}
 .tabadd{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;font-size:18px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-left:6px}
 .tabadd:hover{background:var(--accent-dark)}
 @media (max-width:680px){ .dirtree{display:none} .tabbtn{padding:10px 10px;font-size:14px} }
+.assignrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:2px}
+.assignrow select{padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;color:var(--ink-soft);max-width:180px;background:#fff}
+.assignrow .tag a{cursor:pointer;color:var(--danger);font-weight:800;margin-left:3px}
+.btn-ghost.navon{color:var(--brand);font-weight:800;box-shadow:inset 0 -3px 0 var(--accent)}
 </style>
 </head>
 <body>
@@ -229,10 +233,10 @@ input,select{font-family:inherit;font-size:16px}
   <!-- ============ APP SHELL ============ -->
   <template v-else>
     <div class="topbar">
-      <div class="logo" style="cursor:pointer" title="Home" @click="view='projects'"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
+      <div class="logo" style="cursor:pointer" title="Home" @click="goHome()"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
       <nav style="display:flex;gap:4px;margin-left:10px">
-        <button class="btn-ghost" :style="view!=='users' ? 'color:var(--brand);font-weight:800' : ''" @click="view='projects'">Projects</button>
-        <button class="btn-ghost" :style="view==='users' ? 'color:var(--brand);font-weight:800' : ''" @click="openUsers">Users</button>
+        <button class="btn-ghost" :class="{navon: view!=='users'}" @click="goHome()">Projects</button>
+        <button class="btn-ghost" :class="{navon: view==='users'}" @click="openUsers">&#128100; Users</button>
       </nav>
       <div class="spacer"></div>
       <img :src="logo" alt="Deck Inspectors" style="height:38px;margin-right:4px">
@@ -274,10 +278,19 @@ input,select{font-family:inherit;font-size:16px}
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
                 <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ p.editedat ? niceDate(p.editedat) : shortDate(p.createdat) }}</span>
               </div>
+              <div class="assignrow">
+                <span class="tag" v-for="u in assignedOf(p)" :key="u">&#128100; {{ u }} <a @click.stop="unassignFrom(p, u)">&#215;</a></span>
+                <select @change="assignFrom(p, $event)">
+                  <option value="" selected>&#65291; Assign inspector&#8230;</option>
+                  <option v-for="u in users" :key="u.username" :value="u.username">{{ u.first_name }} {{ u.last_name }}</option>
+                </select>
+              </div>
               <div class="actions card-btns">
                 <button class="btn btn-inspect" @click="openInspect(p)">Inspection</button>
                 <button class="btn btn-reports" @click="openReports(p)">Reports</button>
                 <button class="btn btn-dl" style="flex:0 0 auto;padding:12px 14px" title="Project documents" @click="openDocs(p)">&#128206;</button>
+                <button class="btn btn-dl" style="flex:0 0 auto;padding:12px 12px" :title="p.iscomplete ? 'Reopen project' : 'Mark complete'" @click="toggleComplete(p)">{{ p.iscomplete ? '&#8634;' : '&#10003;' }}</button>
+                <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete project" @click="deletingProject = p">&#128465;</button>
               </div>
             </div>
           </div>
@@ -286,12 +299,13 @@ input,select{font-family:inherit;font-size:16px}
 
       <!-- ============ REPORTS ============ -->
       <template v-else-if="view==='reports'">
-        <button class="back" @click="view='projects'">&#8592; All projects</button>
+        <button class="back" @click="goHome()">&#8592; All projects</button>
         <div class="proj-head">
           <div class="pic" :style="thumbStyle(current)"></div>
           <div>
             <h2>{{ current.name }}</h2>
             <div class="addr">{{ current.address || 'No address on file' }}</div>
+            <div class="addr" style="font-weight:700;color:var(--brand)">&#128197; Inspection: {{ current.editedat ? niceDate(current.editedat) : 'not set' }}<span v-if="current.createdby" style="color:var(--ink-soft);font-weight:400"> &middot; &#128100; {{ current.createdby }}</span></div>
             <div class="addr-warn" v-if="current.address && !addressLooksComplete(current.address)">
               &#9888; For the address boxes to auto-fill on the Final Report, format the address as: Street, City, ST 12345
             </div>
@@ -366,12 +380,13 @@ input,select{font-family:inherit;font-size:16px}
 
       <!-- ============ INSPECTION: PROJECT STRUCTURE ============ -->
       <template v-else-if="view==='inspect'">
-        <button class="back" @click="view='projects'">&#8592; All projects</button>
+        <button class="back" @click="goHome()">&#8592; All projects</button>
         <div class="proj-head">
           <div class="pic" :style="thumbStyle(current)"></div>
           <div>
             <h2>{{ current.name }}</h2>
             <div class="addr">{{ current.address || 'No address on file' }}</div>
+            <div class="addr" style="font-weight:700;color:var(--brand)">&#128197; Inspection: {{ current.editedat ? niceDate(current.editedat) : 'not set' }}<span v-if="current.createdby" style="color:var(--ink-soft);font-weight:400"> &middot; &#128100; {{ current.createdby }}</span></div>
           </div>
           <div class="spacer" style="flex:1"></div>
           <button class="btn-dl" @click="openStructAdd('building', null)">&#65291; Building</button>
@@ -441,7 +456,7 @@ input,select{font-family:inherit;font-size:16px}
 
       <!-- ============ INSPECTION: UNIT SECTIONS ============ -->
       <template v-else-if="view==='unit'">
-        <button class="back" @click="view='inspect'">&#8592; {{ current.name }}</button>
+        <button class="back" @click="openInspect(current)">&#8592; {{ current.name }}</button>
         <div class="crumb">Projects &rsaquo; <b>{{ current.name }}</b> &rsaquo; <b>{{ unit.locationName }}</b></div>
         <div class="panel">
           <h3>Create Report for {{ unit.locationName }} Only</h3>
@@ -854,6 +869,8 @@ createApp({
       const saved = localStorage.getItem('e3v2_user');
       if (saved) { this.user = JSON.parse(saved); this.loadProjects(); }
     } catch (e) { /* ignore */ }
+    history.replaceState({ v: 'projects' }, '');
+    window.addEventListener('popstate', (e) => this.onPop(e));
   },
   methods: {
     /* ---------- infrastructure ---------- */
@@ -911,6 +928,7 @@ createApp({
         const res = await this.api('/project/allprojects');
         const data = await res.json();
         this.projects = (data.projects || []).filter(p => !p.isdeleted);
+        if (!this.users.length) this.loadUsers();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not load projects.', 'err');
       } finally { this.loadingProjects = false; }
@@ -923,6 +941,7 @@ createApp({
 
     /* ---------- reports ---------- */
     openReports(p) {
+      history.pushState({ v: 'reports', pid: this.projectId(p) }, '');
       this.current = p; this.view = 'reports'; this.reports = [];
       this.generating = false; this.generateStartedAt = null;
       this.assignPick = '';
@@ -1008,6 +1027,7 @@ createApp({
 
     /* ---------- inspection browsing ---------- */
     openInspect(p) {
+      history.pushState({ v: 'inspect', pid: this.projectId(p) }, '');
       this.current = p; this.view = 'inspect'; this.structTab = 'buildings';
       this.structure = { subProjects: [], locations: [] };
       this.loadStructure();
@@ -1027,6 +1047,7 @@ createApp({
       } finally { this.loadingStructure = false; }
     },
     openUnit(loc) {
+      history.pushState({ v: 'unit', pid: this.projectId(this.current), loc: { locationId: loc.locationId, locationName: loc.locationName, locationType: loc.locationType } }, '');
       this.unit = loc; this.view = 'unit'; this.sections = [];
       this.loadSections();
     },
@@ -1380,7 +1401,7 @@ createApp({
     },
 
     /* ---------- users ---------- */
-    openUsers() { this.view = 'users'; this.loadUsers(); },
+    openUsers() { history.pushState({ v: 'users' }, ''); this.view = 'users'; this.loadUsers(); },
     async loadUsers() {
       this.loadingUsers = true;
       try {
@@ -1508,6 +1529,57 @@ createApp({
       } catch (e) {
         this.toast('Could not delete the document.', 'err');
       }
+    },
+
+    /* ---------- per-card inspector assignment ---------- */
+    assignedOf(p) {
+      const a = p && p.assignedto;
+      if (Array.isArray(a)) return a.filter(Boolean);
+      return a ? [a] : [];
+    },
+    async assignFrom(p, e) {
+      const username = e.target.value;
+      e.target.value = '';
+      if (!username) return;
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/assign', { method: 'POST', json: { username } });
+        if (!res.ok) throw new Error('bad');
+        if (!Array.isArray(p.assignedto)) p.assignedto = p.assignedto ? [p.assignedto] : [];
+        if (!p.assignedto.includes(username)) p.assignedto.push(username);
+        this.toast('Inspector assigned.');
+      } catch (err) {
+        if (err.message !== 'auth') this.toast('Could not assign.', 'err');
+      }
+    },
+    async unassignFrom(p, username) {
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/unassign', { method: 'POST', json: { username } });
+        if (!res.ok) throw new Error('bad');
+        p.assignedto = this.assignedOf(p).filter(x => x !== username);
+        this.toast('Inspector removed.');
+      } catch (err) {
+        if (err.message !== 'auth') this.toast('Could not remove.', 'err');
+      }
+    },
+
+    /* ---------- browser history (back button) ---------- */
+    goHome() {
+      history.pushState({ v: 'projects' }, '');
+      this.view = 'projects';
+    },
+    onPop(e) {
+      const st = (e && e.state) || { v: 'projects' };
+      if (!this.user) return;
+      if (st.v === 'users') { this.view = 'users'; if (!this.users.length) this.loadUsers(); return; }
+      if (st.v === 'reports' || st.v === 'inspect' || st.v === 'unit') {
+        const p = this.projects.find(x => this.projectId(x) === st.pid);
+        if (!p) { this.view = 'projects'; return; }
+        this.current = p;
+        if (st.v === 'reports') { this.view = 'reports'; this.reports = []; this.assignPick = ''; this.loadReports(); if (!this.users.length) this.loadUsers(); return; }
+        if (st.v === 'inspect') { this.view = 'inspect'; this.structTab = 'buildings'; this.structure = { subProjects: [], locations: [] }; this.loadStructure(); return; }
+        this.unit = st.loc; this.view = 'unit'; this.sections = []; this.loadSections(); return;
+      }
+      this.view = 'projects';
     },
 
     confirmDelete(r) { this.deleting = r; },
