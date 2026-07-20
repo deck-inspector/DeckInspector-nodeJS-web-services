@@ -105,6 +105,8 @@ input,select{font-family:inherit;font-size:16px}
 .rinfo .rdate{color:var(--ink-soft);font-size:13px}
 .rbtns{display:flex;gap:8px}
 .btn-dl{background:var(--brand-soft);color:var(--brand-dark);padding:10px 18px;font-weight:700;border-radius:10px}
+.btn-edit{background:var(--brand);color:#fff;padding:12px 26px;font-weight:800;font-size:16px;border-radius:10px;box-shadow:0 2px 8px rgba(41,44,116,.35);flex-shrink:0}
+.btn-edit:hover{background:var(--brand-dark)}
 .btn-dl:hover{background:#d3e8df}
 .btn-del{background:var(--danger-soft);color:var(--danger);padding:10px 14px;font-weight:700;border-radius:10px}
 .btn-del:hover{background:#f6d7d2}
@@ -162,7 +164,7 @@ input,select{font-family:inherit;font-size:16px}
 .btn-inspect:hover{background:var(--charcoal-dark)}
 .crumb{color:var(--ink-soft);font-size:14px;margin-bottom:14px}
 .crumb b{color:var(--ink)}
-.seclist{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
+.seclist{display:grid;grid-template-columns:1fr;gap:18px}
 .scard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
 .scard h4{font-size:16px;margin-bottom:8px}
 .tagrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
@@ -170,8 +172,8 @@ input,select{font-family:inherit;font-size:16px}
 .tag.good{background:#e3f4e9;color:#1e824c}
 .tag.fair{background:#fdf3e3;color:#b45f05}
 .tag.bad{background:var(--danger-soft);color:var(--danger)}
-.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
-.photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:pointer;background:#e7edf2}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.photos img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;cursor:pointer;background:#e7edf2}
 .unitgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
 .ucard{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:16px 18px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:box-shadow .15s;border:none;text-align:left;font-size:15px}
 .ucard:hover{box-shadow:0 6px 20px rgba(28,39,51,.15)}
@@ -409,7 +411,7 @@ input,select{font-family:inherit;font-size:16px}
           <div class="scard" v-for="s in sections" :key="s._id || s.id">
             <div style="display:flex;align-items:flex-start;gap:8px">
               <h4 style="flex:1">{{ s.name }}</h4>
-              <button class="btn-dl" style="padding:6px 12px;font-size:13px" @click="openSecEdit(s)">&#9998; Edit</button>
+              <button class="btn-edit" @click="openSecEdit(s)">&#9998; Edit</button>
             </div>
             <div class="tagrow">
               <span class="tag" :class="ratingClass(s.visualreview)" v-if="s.visualreview">Visual: {{ s.visualreview }}</span>
