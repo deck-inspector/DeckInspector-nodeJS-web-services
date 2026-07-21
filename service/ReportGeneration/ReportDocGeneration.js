@@ -1,6 +1,7 @@
 const fs = require("fs");
 const ReportGenerationUtil = require("./ReportGenerationUtil.js");
 const ProjectReportType = require("../../model/projectReportType");
+const tenantsDAO = require("../../model/tenantsDAO");
 class ReportDocGeneration {
     async generateReportDoc(projectId, project,companyName,sectionImageProperties,reportType){
         try{
@@ -9,14 +10,23 @@ class ReportDocGeneration {
 
             const createdAtString = project.createdat || project.createdAt;
             const date = new Date(createdAtString);
+            // Report shows the CLIENT COMPANY as the inspector (not the username)
+            // and the date WITHOUT a time (David, Jul 20-21 2026).
+            let companyDisplayName = '';
+            try {
+                const tenant = project.companyIdentifier
+                    ? await tenantsDAO.getTenantByCompanyIdentifier(project.companyIdentifier)
+                    : null;
+                if (tenant && tenant.name) companyDisplayName = tenant.name;
+            } catch (e) { console.log('ReportDocGeneration: tenant lookup failed', e.message); }
             const data = {
                 project:{
                     reportType: reportType,
                     name: project.name,
-                    address: project.address,
+                    address: (project.address || '').replace(/\s+/g, ' ').trim(),
                     description: project.description,
-                    createdBy: project.createdby,
-                    createdAt : date.toLocaleString(),
+                    createdBy: companyDisplayName || project.createdby,
+                    createdAt : date.toLocaleDateString(),
                     headerName: this.getProjectHeader(reportType)
                 }
             };
