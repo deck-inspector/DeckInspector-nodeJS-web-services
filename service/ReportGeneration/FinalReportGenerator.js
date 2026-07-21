@@ -388,6 +388,44 @@ class FinalReportGenerator {
         }
     }
 
+    // Per-tenant FOOTER from the Multi-Tenant admin (David, Jul 21 2026):
+    // footer text comes from tenant.footerText; the footer seal/logo obeys
+    // the admin's showFooterlogo toggle. Fields left unset in the admin keep
+    // the template's footer unchanged.
+    async injectTenantFooter(zip, companyIdentifier) {
+        try {
+            if (!companyIdentifier) return;
+            const tenant = await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier);
+            if (!tenant) return;
+            const footerFile = zip.file('word/footer1.xml');
+            if (!footerFile) { console.log('FinalReport: no footer1 in template'); return; }
+            let footer = footerFile.asText();
+            let changed = false;
+            if (tenant.showFooterlogo === false) {
+                const before = footer.length;
+                footer = footer.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, '');
+                if (footer.length !== before) { changed = true; console.log('FinalReport: footer logo removed (admin toggle off)'); }
+            }
+            const ft = (tenant.footerText || '').toString().trim();
+            if (ft) {
+                let first = true;
+                footer = footer.replace(/(<w:t(?: [^>]*)?>)([\s\S]*?)(<\/w:t>)/g, (m, open, inner, close) => {
+                    if (first) {
+                        first = false;
+                        if (!/xml:space/.test(open)) open = open.replace('<w:t', '<w:t xml:space="preserve"');
+                        return open + this.xmlEscape(ft) + close;
+                    }
+                    return open + close;
+                });
+                changed = true;
+                console.log('FinalReport: footer text set from admin for', companyIdentifier);
+            }
+            if (changed) zip.file('word/footer1.xml', footer);
+        } catch (e) {
+            console.error('FinalReport: footer injection failed (report continues):', e.message);
+        }
+    }
+
     async fillTemplate(templatePath, data, companyIdentifier) {
         const content = fs.readFileSync(templatePath);
         const zip = new PizZip(content);
@@ -439,6 +477,7 @@ class FinalReportGenerator {
 
         zip.file('word/document.xml', doc);
         await this.injectTenantLogo(zip, companyIdentifier);
+        await this.injectTenantFooter(zip, companyIdentifier);
         return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
     }
 
