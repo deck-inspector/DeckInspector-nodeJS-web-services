@@ -42,6 +42,37 @@ try {
   
 });
 
+// Stream a report file from blob storage with a friendly download name.
+// GET /api/projectreports/downloadfile?u=<blob url>&n=<file name>
+// Only files on our own storage account are allowed.
+router.route('/downloadfile')
+.get(async function (req, res) {
+  try {
+    const axios = require('axios');
+    const u = req.query.u || '';
+    let n = (req.query.n || 'report.docx').toString();
+    if (!u.startsWith('https://deckinspectorsappdata.blob.core.windows.net/')) {
+      return res.status(400).send('Invalid file location.');
+    }
+    // sanitize the filename for all platforms
+    n = n.replace(/[\\/:*?"<>|]/g, '.').replace(/\s+/g, ' ').trim().slice(0, 150);
+    const ext = (u.split('?')[0].match(/\.(docx|pdf|xlsx)$/i) || [,'docx'])[1].toLowerCase();
+    if (!n.toLowerCase().endsWith('.' + ext)) n = n + '.' + ext;
+    const types = {
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      pdf: 'application/pdf',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    };
+    const resp = await axios.get(u, { responseType: 'arraybuffer', timeout: 120000 });
+    res.setHeader('Content-Type', types[ext] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${n.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(n)}`);
+    res.send(Buffer.from(resp.data));
+  } catch (err) {
+    console.error('downloadfile error:', err.message);
+    res.status(500).send('Could not download the file.');
+  }
+});
+
 router.route('/:project_id')
 .get(async function(req,res){
   try{
