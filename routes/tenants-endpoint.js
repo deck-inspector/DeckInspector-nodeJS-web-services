@@ -436,6 +436,26 @@ router.route("/:id/updatewebsite").post(async function (req, res) {
   }
 });
 
+// Contact phone number shown on generated reports (Admin panel field).
+router.route("/:id/updatephone").post(async function (req, res) {
+  try {
+    var errResponse;
+    const tenantId = req.params.id;
+    const { phone } = req.body;
+
+    var result = await TenantService.updateTenantPhone(tenantId, phone);
+    if (result.reason) {
+      return res.status(result.code).json(result);
+    }
+    if (result) {
+      return res.status(201).json(result);
+    }
+  } catch (exception) {
+    errResponse = new newErrorResponse(500, false, exception);
+    return res.status(500).json(errResponse);
+  }
+});
+
 router.route("/:id/updateexpenses").post(async function (req, res) {
   try {
     var errResponse;
