@@ -155,7 +155,10 @@ class ProjectGenerator{
         // changed or there is no cache yet; if a re-merge yields no file, fall
         // back to the last good report instead of writing a FAILED record.
         const cachedFilePath = (projectDoc.doc && projectDoc.doc.filePath) || null;
-        if (projectHashCode !== projectDoc.data.hashCode || !cachedFilePath) {
+        // Always re-merge (docxcompose): merge-pipeline fixes must reach
+        // existing projects; chunk generation above stays hash-cached. The
+        // cachedFilePath fallback below still protects against merge failure.
+        if (true) {
             console.log('Re-merging project report (data changed or no cached file).');
             await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
             if (projectDoc.doc && projectDoc.doc.filePath) {
