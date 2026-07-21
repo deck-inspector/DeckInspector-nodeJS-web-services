@@ -90,23 +90,44 @@ class FinalReportGenerator {
             } catch (e) { console.log('FinalReport: section count failed for', locId, e.message); }
         }
 
-        // Best-effort split of "street, city, ST 12345" style addresses.
+        // Split the address into street / city / state / zip. Handles both
+        // "street, city, ST 12345" and the mobile-app style with a line
+        // break between street and city ("street\ncity, ST 12345").
         const rawAddress = (project.address || '').trim();
-        let addressStreet = rawAddress;
+        const flatAddress = rawAddress.replace(/\s+/g, ' ').trim();
+        let addressStreet = flatAddress;
         let addressCity = '';
         let addressState = '';
         let addressZip = '';
-        const addrMatch = rawAddress.match(/^(.*?),\s*([^,]+?),?\s*([A-Z]{2})?\.?\s*(\d{5})?\s*$/);
-        if (addrMatch && addrMatch[2]) {
-            addressStreet = addrMatch[1].trim();
-            addressCity = addrMatch[2].trim();
-            addressState = (addrMatch[3] || '').trim();
-            addressZip = (addrMatch[4] || '').trim();
+        let streetPart = '';
+        let restPart = '';
+        if (/\r|\n/.test(rawAddress)) {
+            const nlLines = rawAddress.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
+            streetPart = nlLines[0] || '';
+            restPart = nlLines.slice(1).join(', ');
+        } else {
+            const cIdx = flatAddress.indexOf(',');
+            if (cIdx !== -1) {
+                streetPart = flatAddress.slice(0, cIdx).trim();
+                restPart = flatAddress.slice(cIdx + 1).trim();
+            }
+        }
+        if (restPart) {
+            const m = restPart.replace(/\s+/g, ' ').match(/^(.*?),?\s*([A-Z]{2})\.?\s*(\d{5})(?:-\d{4})?\s*$/);
+            if (m) {
+                addressStreet = streetPart;
+                addressCity = m[1].replace(/,\s*$/, '').trim();
+                addressState = m[2];
+                addressZip = m[3];
+            } else {
+                addressStreet = streetPart;
+                addressCity = restPart;
+            }
         }
 
         return {
             projectName: project.name || '',
-            projectAddress: rawAddress,
+            projectAddress: flatAddress,
             addressStreet: addressStreet,
             addressCity: addressCity,
             addressState: addressState,
