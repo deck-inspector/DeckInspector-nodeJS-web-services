@@ -65,12 +65,19 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
 server.listen(app.get("port"), async function () {
   console.log("Express server listening on port " + server.address().port);
 
-  // Initialize Couchbase connection on app startup
-  try {
-    await connectToDatabase();
-    console.log("Couchbase database connection established successfully");
-  } catch (error) {
-    console.error("Failed to connect to Couchbase:", error);
-    process.exit(1);
-  }
+  // Initialize Couchbase connection on app startup.
+  // RESILIENT STARTUP: the Capella cluster is scheduled OFF nights/weekends.
+  // If the app (re)starts while the database is off, do NOT exit — keep the
+  // web server up and retry the connection every 60s until the cluster is
+  // back on. The app then recovers automatically with no manual restart.
+  const connectWithRetry = async (attempt) => {
+    try {
+      await connectToDatabase();
+      console.log("Couchbase database connection established successfully");
+    } catch (error) {
+      console.error(`Couchbase connect attempt ${attempt} failed (cluster may be off-schedule). Retrying in 60s:`, error.message);
+      setTimeout(() => connectWithRetry(attempt + 1), 60000);
+    }
+  };
+  connectWithRetry(1);
 });
