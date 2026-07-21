@@ -38,8 +38,10 @@ module.exports = {
           docType: "ProjectReportHashCode",
           createdAt: new Date().toISOString(),
         };
-        const collection = await getProjectReportHashCodeCollection();
-        await collection.insert(hashCodeId, hashCodeWithMeta);
+        // KV insert was timing out against the degraded data service; the
+        // query service stays healthy, so write through N1QL instead.
+        const insertQuery = `INSERT INTO \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.ProjectReportHashCode (KEY, VALUE) VALUES ($1, $2)`;
+        await executeQuery(insertQuery, [hashCodeId, hashCodeWithMeta]);
         console.log(`ProjectReportHashCode added with ID: ${hashCodeId}`);
         return { insertedId: hashCodeId, success: true };
       } catch (error) {
