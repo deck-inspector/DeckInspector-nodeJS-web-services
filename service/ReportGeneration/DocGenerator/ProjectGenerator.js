@@ -127,14 +127,14 @@ class ProjectGenerator{
         // Project Locations
         for (const location of locations) {
             if (projectDoc.locationMap.has(location.id.toString())) {
-                const locationDoc = await LocationGenerator.updateLocation(location._id,
+                const locationDoc = await LocationGenerator.updateLocation(location._id || location.id,
                     projectDoc.locationMap.get(location.id.toString()),reportType);
                 if (locationDoc !== null) {
                     projectDoc.locationMap.get(location.id.toString()).doc= locationDoc;
                 }
             } else {
                 console.log("New location is added");
-                const locationDoc = await LocationGenerator.createLocation(location._id,reportType);
+                const locationDoc = await LocationGenerator.createLocation(location._id || location.id,reportType);
                 projectDoc.locationMap.set(location.id.toString(), locationDoc);
             }
             let newLocationDoc = projectDoc.locationMap.get(location.id.toString());
