@@ -173,7 +173,7 @@ var getSectionById = async function (id) {
         // KV get was timing out against the data service and crashed report
         // generation. Reroute to the query service (N1QL), keeping the exact
         // same return shape (including transformData). Read-only.
-        const query = "SELECT s.* FROM `" + process.env.DB_BUCKET_NAME + "`.`" + (process.env.DB_SCOPE_NAME || "inventory") + "`.Section s USE KEYS $1";
+        const query = "SELECT s.* FROM `" + process.env.DB_BUCKET_NAME + "`.`" + (process.env.DB_SCOPE_NAME || "inventory") + "`.VisualSection s USE KEYS $1";
         const rows = await executeQuery(query, [id]);
 
         if (rows && rows.length > 0) {
