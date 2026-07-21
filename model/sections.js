@@ -170,11 +170,14 @@ var capitalizeWords = function (word) {
 var getSectionById = async function (id) {
     var response = {};
     try {
-        const collection = await getSectionsCollection();
-        const doc = await collection.get(id);
-        
-        if (doc && doc.content) {
-            const result = doc.content;
+        // KV get was timing out against the data service and crashed report
+        // generation. Reroute to the query service (N1QL), keeping the exact
+        // same return shape (including transformData). Read-only.
+        const query = "SELECT s.* FROM `" + process.env.DB_BUCKET_NAME + "`.`" + (process.env.DB_SCOPE_NAME || "inventory") + "`.Section s USE KEYS $1";
+        const rows = await executeQuery(query, [id]);
+
+        if (rows && rows.length > 0) {
+            const result = rows[0];
             transformData(result);
             response = {
                 "data": {
