@@ -95,28 +95,18 @@ var getAllProjects = async function () {
 
 var getProjectById = async function (id) {
   try {
-    const collection = await getProjectsCollection();
-
-    console.log("Fetching project with ID:", id,collection);
-
-
-    // Couchbase KV fetch
-    const doc = await collection.get(id);
-    const content = doc.content || {};
-
-    console.log("Fetched project:", content);
-
-    // Couchbase-safe projection
+    // KV read (collection.get) has been timing out against the cluster data
+    // service while the query service stays responsive (the path getAllProjects
+    // uses). Fetch the project by id via N1QL so a slow/unresponsive KV path
+    // cannot block report generation. Read-only; no data is modified.
+    const query = "SELECT META(p).id as id, p.* FROM `" + process.env.DB_BUCKET_NAME + "`.`" + (process.env.DB_SCOPE_NAME || "inventory") + "`.Project p USE KEYS $1";
+    const rows = await executeQuery(query, [id]);
+    if (!rows || rows.length === 0) {
+      return { success: false, error: { code: 404, message: "No Project found." } };
+    }
+    const content = rows[0] || {};
     delete content.files;
-
-    // 🔥 Return in desired format with success flag and _id
-    return {
-      success: true,
-      project: {
-        ...content
-      }
-    };
-
+    return { success: true, project: { ...content } };
   } catch (err) {
     console.error("Error fetching project by ID:", err);
 
