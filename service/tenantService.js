@@ -371,6 +371,23 @@ var updateLogoURL = async function (tenantId, logoURL) {
     return handleError(error);
   }
 };
+var updateTenantPhone = async function (tenantId, phone) {
+  try {
+    const result = await TenantDAO.updateTenantPhone(tenantId, phone);
+    if (result.ok === 1) {
+      return {
+        success: true,
+      };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No Tenant found with the given ID/failed to update.",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
 var updateTenantWebsite = async function (tenantId, website) {
   try {
     const result = await TenantDAO.updateTenantWebsite(tenantId, website);
@@ -490,6 +507,7 @@ module.exports = {
   updateAddIconsForTenant,
   updateTenantsAzureStorageDataDetails,
   addCustomFormCount,
+  updateTenantPhone,
   updateLogoURL,
   updateTenantWebsite,
   updateTenantExpenses,
