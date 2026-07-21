@@ -351,6 +351,14 @@ class FinalReportGenerator {
             if (!headerFile || !relsFile) { console.log('FinalReport: template has no header1 to stamp'); return; }
             let header = headerFile.asText();
             if (header.indexOf('rIdTenantLogo') !== -1) return; // already stamped
+            // The report header must carry ONLY the admin's 'Report Header'
+            // image: strip any logo baked into the uploaded template first so
+            // reports never show two logos regardless of the template used.
+            const strippedHeader = header.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, '');
+            if (strippedHeader.length !== header.length) {
+                header = strippedHeader;
+                console.log('FinalReport: removed template-baked header logo(s)');
+            }
             const dims = this.getImageDims(buf, ext);
             const EMU = 914400;
             const cy = Math.round(0.85 * EMU);
