@@ -361,7 +361,7 @@ input,select{font-family:inherit;font-size:16px}
                 <div class="rdate">{{ niceDate(r.timestamp) }} · {{ r.uploader || '' }}<span v-if="isFailed(r)" style="color:var(--danger);font-weight:600"> · This run failed — try again, and tell Claude if it keeps happening.</span></div>
               </div>
               <div class="rbtns">
-                <a class="btn btn-dl" v-if="!isFailed(r)" :href="r.url" target="_blank" rel="noopener">Download</a>
+                <a class="btn btn-dl" v-if="!isFailed(r)" :href="reportDownloadHref(r)">Download</a>
                 <button class="btn-del" @click="confirmDelete(r)">Delete</button>
               </div>
             </li>
@@ -950,7 +950,16 @@ createApp({
       finally { this.loadingReports = false; }
     },
     isFinal(r) { return /final report/i.test(r.name || ''); },
-    isFailed(r) { return /FAILED/.test(r.name || ''); },
+    reportDownloadHref(r) {
+        // Download via our API so the file is named after the report
+        // (e.g. "780 S. Garfield Ave. Apts Jul 21, 2026, 8.25 AM.docx")
+        // instead of the raw storage GUID.
+        const d = r.timestamp ? new Date(r.timestamp) : null;
+        const when = (d && !isNaN(d)) ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+        const name = ((r.name || 'Report') + (when ? ' ' + when : ''));
+        return API + '/projectreports/downloadfile?u=' + encodeURIComponent(r.url || '') + '&n=' + encodeURIComponent(name);
+      },
+      isFailed(r) { return /FAILED/.test(r.name || ''); },
     isNew(r) {
       return this.generateStartedAt && new Date(r.timestamp || 0) >= this.generateStartedAt;
     },
