@@ -475,6 +475,26 @@ class FinalReportGenerator {
             doc = doc.slice(0, cellStart) + this.swapFirstTextRun(cell, value) + doc.slice(cellEnd);
         }
 
+        // Wherever the template says "Deck Inspectors" (any variant), print the
+        // CLIENT company name from the Admin panel; same for the phone number.
+        // Placeholder token first so a tenant name containing 'Deck Inspectors'
+        // cannot be re-matched and corrupted.
+        try {
+            const tenantRec = companyIdentifier ? await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier) : null;
+            if (tenantRec && tenantRec.name) {
+                const cname = this.xmlEscape(tenantRec.name);
+                doc = doc.split('Deck Inspectors, Inc.').join('%%CNAME%%');
+                doc = doc.split('Deck Inspectors Inc').join('%%CNAME%%');
+                doc = doc.split('Deck Inspectors').join('%%CNAME%%');
+                doc = doc.split('%%CNAME%%').join(cname);
+                console.log('FinalReport: company name substituted ->', tenantRec.name);
+            }
+            if (tenantRec && tenantRec.phone) {
+                doc = doc.split('888-224-0489').join(this.xmlEscape(tenantRec.phone));
+                console.log('FinalReport: phone substituted');
+            }
+        } catch (e) { console.log('FinalReport: company substitution failed', e.message); }
+
         zip.file('word/document.xml', doc);
         await this.injectTenantLogo(zip, companyIdentifier);
         await this.injectTenantFooter(zip, companyIdentifier);
