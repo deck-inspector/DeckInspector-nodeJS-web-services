@@ -359,6 +359,17 @@ class FinalReportGenerator {
                 header = strippedHeader;
                 console.log('FinalReport: removed template-baked header logo(s)');
             }
+            // The website line under the header logo belongs to the tenant:
+            // swap any template-baked web address for the admin's website.
+            const site = (tenant.website || '').toString().trim();
+            if (site) {
+                let swapped = 0;
+                header = header.replace(/(<w:t(?: [^>]*)?>)([^<]*)(<\/w:t>)/g, (m, open, inner, close) => {
+                    if (/www\.|http|\.com|\.net|\.org/i.test(inner)) { swapped++; return open + this.xmlEscape(site) + close; }
+                    return m;
+                });
+                if (swapped) console.log('FinalReport: header website set from admin (' + swapped + ')');
+            }
             const dims = this.getImageDims(buf, ext);
             const EMU = 914400;
             const cy = Math.round(0.85 * EMU);
@@ -520,6 +531,11 @@ class FinalReportGenerator {
                 console.log('FinalReport: phone substituted');
             }
         } catch (e) { console.log('FinalReport: company substitution failed', e.message); }
+
+        // 0.25\" clearance at the top and bottom of every page (David, Jul 21):
+        // header and footer start 360 twips (0.25 inch) from the paper edge.
+        doc = doc.replace(/(<w:pgMar[^>]*?w:header=")\d+(")/g, '$1360$2');
+        doc = doc.replace(/(<w:pgMar[^>]*?w:footer=")\d+(")/g, '$1360$2');
 
         zip.file('word/document.xml', doc);
         await this.injectTenantLogo(zip, companyIdentifier);
