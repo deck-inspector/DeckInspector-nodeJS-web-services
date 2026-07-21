@@ -332,6 +332,19 @@ module.exports = {
     }
   },
 
+  updateTenantPhone: async (id, phone) => {
+    try {
+      const collection = await getTenantsCollection();
+      const doc = await collection.get(id);
+      doc.content.phone = phone;
+      await collection.upsert(id, doc.content);
+      return { ok: 1 };
+    } catch (error) {
+      console.error("Error updating tenant phone:", error);
+      throw error;
+    }
+  },
+
   updateTenantLogo: async (id, logoURL) => {
     try {
       const collection = await getTenantsCollection();
