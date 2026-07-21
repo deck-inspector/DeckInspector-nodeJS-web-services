@@ -11,6 +11,8 @@ const sections = require("../../model/sections");
 const ReportGenerationUtil = require("./ReportGenerationUtil");
 const uploadBlob = require("../../database/uploadimage");
 const { getBlobBuffer } = require("../../database/uploadimage");
+const tenantsDAO = require("../../model/tenantsDAO");
+const axios = require("axios");
 
 // Builds the combined "Final Report": the tenant's Final template auto-filled
 // with project data, followed by the freshly generated Visual report as annex.
@@ -312,7 +314,81 @@ class FinalReportGenerator {
     // Fill the template's named content controls (Property Address, City, Date, ...)
     // and labeled count cells by minimal in-place text swap — the uploaded template
     // is used exactly as-is; only field text changes, nothing structural.
-    fillTemplate(templatePath, data) {
+    getImageDims(buf, ext) {
+        try {
+            if (ext === 'png') return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+            let i = 2;
+            while (i < buf.length - 9) {
+                if (buf[i] !== 0xFF) { i++; continue; }
+                const marker = buf[i + 1];
+                if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
+                    return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+                }
+                i += 2 + buf.readUInt16BE(i + 2);
+            }
+        } catch (e) { /* fall through */ }
+        return { w: 900, h: 260 };
+    }
+
+    // Stamp the tenant's logo (Multi-Tenant admin -> tenant.icons.logoUrl) into
+    // the template's blank header at generation time. The shared template ships
+    // with an empty header; each client's logo is applied here 'at print'.
+    async injectTenantLogo(zip, companyIdentifier) {
+        try {
+            if (!companyIdentifier) return;
+            const tenant = await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier);
+            const logoUrl = tenant && tenant.icons && tenant.icons.logoUrl;
+            if (!logoUrl) { console.log('FinalReport: no tenant logo set, header left as-is'); return; }
+            const resp = await axios.get(logoUrl, { responseType: 'arraybuffer', timeout: 60000 });
+            const buf = Buffer.from(resp.data);
+            const extMatch = logoUrl.split('?')[0].toLowerCase().match(/\.(png|jpe?g)$/);
+            const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'png';
+            const headerFile = zip.file('word/header1.xml');
+            const relsFile = zip.file('word/_rels/header1.xml.rels');
+            if (!headerFile || !relsFile) { console.log('FinalReport: template has no header1 to stamp'); return; }
+            let header = headerFile.asText();
+            if (header.indexOf('rIdTenantLogo') !== -1) return; // already stamped
+            const dims = this.getImageDims(buf, ext);
+            const EMU = 914400;
+            const cy = Math.round(0.85 * EMU);
+            const cx = Math.max(1, Math.round(cy * dims.w / Math.max(1, dims.h)));
+            const mediaPath = 'word/media/tenantlogo.' + ext;
+            zip.file(mediaPath, buf);
+            let rels = relsFile.asText();
+            rels = rels.replace('</Relationships>', '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + ext + '"/></Relationships>');
+            zip.file('word/_rels/header1.xml.rels', rels);
+            const ctPath = '[Content_Types].xml';
+            let ct = zip.file(ctPath).asText();
+            if (ct.indexOf('Extension="' + ext + '"') === -1) {
+                const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+                ct = ct.replace('</Types>', '<Default Extension="' + ext + '" ContentType="' + mime + '"/></Types>');
+                zip.file(ctPath, ct);
+            }
+            const drawing = '<w:p><w:pPr><w:pStyle w:val="Header"/><w:jc w:val="center"/></w:pPr>'
+                + '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+                + '<wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+                + '<wp:docPr id="990001" name="TenantLogo"/>'
+                + '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+                + '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+                + '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+                + '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+                + '<pic:nvPicPr><pic:cNvPr id="990001" name="TenantLogo"/><pic:cNvPicPr/></pic:nvPicPr>'
+                + '<pic:blipFill><a:blip r:embed="rIdTenantLogo"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+                + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>'
+                + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+                + '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
+            const rootMatch = header.match(/<w:hdr[^>]*>/);
+            if (!rootMatch) { console.log('FinalReport: header root not found'); return; }
+            const insertAt = header.indexOf(rootMatch[0]) + rootMatch[0].length;
+            header = header.slice(0, insertAt) + drawing + header.slice(insertAt);
+            zip.file('word/header1.xml', header);
+            console.log('FinalReport: tenant logo stamped (' + ext + ', ' + dims.w + 'x' + dims.h + ') for', companyIdentifier);
+        } catch (e) {
+            console.error('FinalReport: tenant logo injection failed (report continues without it):', e.message);
+        }
+    }
+
+    async fillTemplate(templatePath, data, companyIdentifier) {
         const content = fs.readFileSync(templatePath);
         const zip = new PizZip(content);
         let doc = zip.file('word/document.xml').asText();
@@ -362,6 +438,7 @@ class FinalReportGenerator {
         }
 
         zip.file('word/document.xml', doc);
+        await this.injectTenantLogo(zip, companyIdentifier);
         return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
     }
 
@@ -373,7 +450,7 @@ class FinalReportGenerator {
         const data = await this.collectProjectData(projectId);
         console.log('FinalReport: data', JSON.stringify(data));
 
-        const filledBuffer = this.fillTemplate(templatePath, data);
+        const filledBuffer = await this.fillTemplate(templatePath, data, companyName);
 
         // fetch the visual report we just uploaded
         const urlArray = visualReportUrl.toString().split('/');
