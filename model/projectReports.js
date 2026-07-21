@@ -39,8 +39,10 @@ var addProjectReport = async function (projectReport, callback) {
             docType: "ProjectReport",
             createdAt: new Date().toISOString(),
         };
-        const collection = await getProjectReportsCollection();
-        await collection.insert(reportId, reportWithMeta);
+        // KV insert was timing out against the degraded data service; the
+        // query service stays healthy, so write through N1QL instead.
+        const insertQuery = `INSERT INTO \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.ProjectReports (KEY, VALUE) VALUES ($1, $2)`;
+        await executeQuery(insertQuery, [reportId, reportWithMeta]);
         console.log(`ProjectReport added with ID: ${reportId}`);
         callback(null, { insertedId: reportId, success: true });
     } catch (error) {
