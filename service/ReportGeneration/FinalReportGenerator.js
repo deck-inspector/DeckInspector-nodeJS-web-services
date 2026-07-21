@@ -337,8 +337,11 @@ class FinalReportGenerator {
         try {
             if (!companyIdentifier) return;
             const tenant = await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier);
-            const logoUrl = tenant && tenant.icons && tenant.icons.logoUrl;
-            if (!logoUrl) { console.log('FinalReport: no tenant logo set, header left as-is'); return; }
+            // Admin semantics (David, Jul 21): 'Report Header' image is the ONLY
+            // logo on reports. 'Company Logo' (icons.logoUrl) is for the client
+            // web app header only and must NOT appear on reports.
+            const logoUrl = tenant && tenant.icons && tenant.icons.header;
+            if (!logoUrl) { console.log('FinalReport: no Report Header image set in admin, header left as-is'); return; }
             const resp = await axios.get(logoUrl, { responseType: 'arraybuffer', timeout: 60000 });
             const buf = Buffer.from(resp.data);
             const extMatch = logoUrl.split('?')[0].toLowerCase().match(/\.(png|jpe?g)$/);
@@ -406,6 +409,21 @@ class FinalReportGenerator {
                 footer = footer.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, '');
                 if (footer.length !== before) { changed = true; console.log('FinalReport: footer logo removed (admin toggle off)'); }
             }
+            // 'Report Footer' image from the admin is THE footer logo: swap the
+            // template's baked footer image bytes for the tenant's own.
+            try {
+                const footerImgUrl = tenant.icons && tenant.icons.footer;
+                if (footerImgUrl && tenant.showFooterlogo !== false) {
+                    const fRelsFile = zip.file('word/_rels/footer1.xml.rels');
+                    const fm = fRelsFile ? fRelsFile.asText().match(/Target="(media\/[^"]+)"/) : null;
+                    if (fm) {
+                        const fResp = await axios.get(footerImgUrl, { responseType: 'arraybuffer', timeout: 60000 });
+                        zip.file('word/' + fm[1], Buffer.from(fResp.data));
+                        console.log('FinalReport: footer image set from admin ->', fm[1]);
+                    }
+                }
+            } catch (fe) { console.log('FinalReport: footer image swap failed', fe.message); }
+
             const ft = (tenant.footerText || '').toString().trim();
             if (ft) {
                 let first = true;
