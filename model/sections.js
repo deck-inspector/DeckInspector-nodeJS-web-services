@@ -492,7 +492,7 @@ var addRemoveImages = async function (sectionId, count, isAdd, url) {
 var getSectionMetaDataForLocationId = async function(locationId) {
     try {
         var response = {};
-        const statement = `SELECT META(s).id as _id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.Section s WHERE s.parentid = $1`;
+        const statement = `SELECT META(s).id as _id, s.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_SCOPE_NAME || "inventory"}\`.VisualSection s WHERE s.parentid = $1`;
         const sectionDetails = await executeQuery(statement, [locationId]);
 
         if (sectionDetails.length > 0) {
