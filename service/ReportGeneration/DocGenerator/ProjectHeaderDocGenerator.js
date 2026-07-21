@@ -27,8 +27,11 @@ class ProjectHeaderDocGenerator{
         const actualProject = project.project || project;
         
         const newProjectHeaderHashCode = ReportGenerationUtil.calculateHash(actualProject);
-        if (newProjectHeaderHashCode !== projectHeaderDoc.hashCode) {
-            console.log("Project header doc is changed");
+        // Always regenerate the header page: it is cheap (one template render)
+        // and guarantees header fixes (date format, inspector name, logo) reach
+        // every report. The expensive section/location chunks stay hash-cached.
+        if (true) {
+            if (newProjectHeaderHashCode !== projectHeaderDoc.hashCode) console.log("Project header doc is changed");
             const generatedProjectHeaderDoc = await this.getProjectHeaderDoc(projectId, actualProject, companyName, null, reportType);
             let fileS3url = null;
             if (generatedProjectHeaderDoc != null) {
