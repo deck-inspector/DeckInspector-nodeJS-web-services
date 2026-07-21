@@ -9,6 +9,9 @@ const axios = require('axios');
 const PizZip = require('pizzip');
 const {getBlobBuffer} = require("../../database/uploadimage");
 const fspromises = require('fs').promises;
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
 
 class ReportGenerationUtil {
     constructor() {
@@ -78,6 +81,45 @@ class ReportGenerationUtil {
         return data;
     }
 
+    // Merge N docx buffers via docxcompose (python, vendored in pyvendor/).
+    // This is the only merge method verified to open cleanly in Word
+    // (no 'unreadable content' recovery prompt). Returns a buffer or null.
+    mergeViaPython(bufferList, tag) {
+        try {
+            if (!bufferList || bufferList.length === 0) return null;
+            if (bufferList.length === 1) return bufferList[0];
+            const appRoot = path.join(__dirname, '..', '..');
+            const script = path.join(appRoot, 'scripts', 'merge_docx.py');
+            const pyvendor = path.join(appRoot, 'pyvendor');
+            if (!fs.existsSync(script) || !fs.existsSync(pyvendor)) {
+                console.log('mergeViaPython: python merge assets missing, using Node fallback');
+                return null;
+            }
+            const tmpFiles = [];
+            for (let k = 0; k < bufferList.length; k++) {
+                const p = path.join(os.tmpdir(), `${tag}_m${k}.docx`);
+                fs.writeFileSync(p, bufferList[k]);
+                tmpFiles.push(p);
+            }
+            const outPath = path.join(os.tmpdir(), `${tag}_mout.docx`);
+            const r = spawnSync('python3', [script, ...tmpFiles, outPath], {
+                env: Object.assign({}, process.env, { PYTHONPATH: pyvendor }),
+                timeout: 180000
+            });
+            let out = null;
+            if (r.status === 0 && fs.existsSync(outPath)) {
+                out = fs.readFileSync(outPath);
+            } else {
+                console.error('mergeViaPython failed', r.status, (r.stderr || '').toString().slice(0, 400));
+            }
+            for (const f of [...tmpFiles, outPath]) { try { fs.unlinkSync(f); } catch (e) { /* ignore */ } }
+            return out;
+        } catch (e) {
+            console.error('mergeViaPython error', e);
+            return null;
+        }
+    }
+
     async mergeDocxArray(docxUrls, fileName) {
         try {
             const docFilePath = `${fileName}.docx`;
@@ -97,6 +139,14 @@ class ReportGenerationUtil {
             if (fileList.length === 0) {
                 console.error('No valid files to merge.');
                 return null;
+            }
+
+            // docxcompose first - Word-clean output; DocxMerger below is fallback.
+            const pyMerged = this.mergeViaPython(fileList, fileName);
+            if (pyMerged) {
+                await fspromises.writeFile(docFilePath, pyMerged);
+                console.log('Merged DOCX file saved (docxcompose):', docFilePath);
+                return docFilePath;
             }
 
             const docx = new DocxMerger({}, fileList);
