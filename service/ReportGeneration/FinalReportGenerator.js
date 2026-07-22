@@ -330,140 +330,139 @@ class FinalReportGenerator {
         return { w: 900, h: 260 };
     }
 
-    // Stamp the tenant's logo (Multi-Tenant admin -> tenant.icons.logoUrl) into
-    // the template's blank header at generation time. The shared template ships
-    // with an empty header; each client's logo is applied here 'at print'.
+    // Shared: build an inline image run.
+    inlineImageXml(rid, cx, cy, id, name) {
+        return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+            + '<wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+            + '<wp:docPr id="' + id + '" name="' + name + '"/>'
+            + '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+            + '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+            + '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            + '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            + '<pic:nvPicPr><pic:cNvPr id="' + id + '" name="' + name + '"/><pic:cNvPicPr/></pic:nvPicPr>'
+            + '<pic:blipFill><a:blip r:embed="' + rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>'
+            + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+            + '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+    }
+
+    ensureContentType(zip, ext) {
+        const ctPath = '[Content_Types].xml';
+        let ct = zip.file(ctPath).asText();
+        if (ct.indexOf('Extension="' + ext + '"') === -1) {
+            const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+            ct = ct.replace('</Types>', '<Default Extension="' + ext + '" ContentType="' + mime + '"/></Types>');
+            zip.file(ctPath, ct);
+        }
+    }
+
+    ensureImageRel(zip, relPath, rel, rid) {
+        const f = zip.file(relPath);
+        if (f) {
+            let rels = f.asText();
+            if (rels.indexOf(rid) === -1) rels = rels.replace('</Relationships>', rel + '</Relationships>');
+            zip.file(relPath, rels);
+        } else {
+            zip.file(relPath, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + String.fromCharCode(10) + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rel + '</Relationships>');
+        }
+    }
+
+    // Stamp the tenant's 'Report Header' image (+ website line) into EVERY
+    // header of the template. Templates ship with empty headers; each client's
+    // branding comes from the Multi-Tenant admin at generation time. Any
+    // template-baked header content is replaced so there is exactly one logo.
     async injectTenantLogo(zip, companyIdentifier) {
         try {
             if (!companyIdentifier) return;
             const tenant = await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier);
-            // Admin semantics (David, Jul 21): 'Report Header' image is the ONLY
-            // logo on reports. 'Company Logo' (icons.logoUrl) is for the client
-            // web app header only and must NOT appear on reports.
             const logoUrl = tenant && tenant.icons && tenant.icons.header;
             if (!logoUrl) { console.log('FinalReport: no Report Header image set in admin, header left as-is'); return; }
             const resp = await axios.get(logoUrl, { responseType: 'arraybuffer', timeout: 60000 });
             const buf = Buffer.from(resp.data);
             const extMatch = logoUrl.split('?')[0].toLowerCase().match(/\.(png|jpe?g)$/);
             const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'png';
-            const headerFile = zip.file('word/header1.xml');
-            const relsFile = zip.file('word/_rels/header1.xml.rels');
-            if (!headerFile || !relsFile) { console.log('FinalReport: template has no header1 to stamp'); return; }
-            let header = headerFile.asText();
-            if (header.indexOf('rIdTenantLogo') !== -1) return; // already stamped
-            // The report header must carry ONLY the admin's 'Report Header'
-            // image: strip any logo baked into the uploaded template first so
-            // reports never show two logos regardless of the template used.
-            const strippedHeader = header.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, '');
-            if (strippedHeader.length !== header.length) {
-                header = strippedHeader;
-                console.log('FinalReport: removed template-baked header logo(s)');
-            }
-            // The website line under the header logo belongs to the tenant:
-            // swap any template-baked web address for the admin's website.
-            const site = (tenant.website || '').toString().trim();
-            if (site) {
-                let swapped = 0;
-                header = header.replace(/(<w:t(?: [^>]*)?>)([^<]*)(<\/w:t>)/g, (m, open, inner, close) => {
-                    if (/www\.|http|\.com|\.net|\.org/i.test(inner)) { swapped++; return open + this.xmlEscape(site) + close; }
-                    return m;
-                });
-                if (swapped) console.log('FinalReport: header website set from admin (' + swapped + ')');
-            }
             const dims = this.getImageDims(buf, ext);
             const EMU = 914400;
             const cy = Math.round(0.85 * EMU);
             const cx = Math.max(1, Math.round(cy * dims.w / Math.max(1, dims.h)));
-            const mediaPath = 'word/media/tenantlogo.' + ext;
-            zip.file(mediaPath, buf);
-            let rels = relsFile.asText();
-            rels = rels.replace('</Relationships>', '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + ext + '"/></Relationships>');
-            zip.file('word/_rels/header1.xml.rels', rels);
-            const ctPath = '[Content_Types].xml';
-            let ct = zip.file(ctPath).asText();
-            if (ct.indexOf('Extension="' + ext + '"') === -1) {
-                const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
-                ct = ct.replace('</Types>', '<Default Extension="' + ext + '" ContentType="' + mime + '"/></Types>');
-                zip.file(ctPath, ct);
+            zip.file('word/media/tenantlogo.' + ext, buf);
+            this.ensureContentType(zip, ext);
+            const site = this.xmlEscape(((tenant.website || '') + '').trim());
+            const content = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr>' + this.inlineImageXml('rIdTenantLogo', cx, cy, 990001, 'TenantLogo') + '</w:p>'
+                + (site ? '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:color w:val="1F4E79"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">' + site + '</w:t></w:r></w:p>' : '');
+            const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + ext + '"/>';
+            let stamped = 0;
+            for (const name of Object.keys(zip.files)) {
+                const hm = name.match(/^word\/(header\d+)\.xml$/);
+                if (!hm) continue;
+                let header = zip.file(name).asText();
+                const rootM = header.match(/<w:hdr[^>]*>/);
+                const endI = header.lastIndexOf('</w:hdr>');
+                if (!rootM || endI === -1) continue;
+                header = header.slice(0, rootM.index + rootM[0].length) + content + header.slice(endI);
+                zip.file(name, header);
+                this.ensureImageRel(zip, 'word/_rels/' + hm[1] + '.xml.rels', rel, 'rIdTenantLogo');
+                stamped++;
             }
-            const drawing = '<w:p><w:pPr><w:pStyle w:val="Header"/><w:jc w:val="center"/></w:pPr>'
-                + '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
-                + '<wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
-                + '<wp:docPr id="990001" name="TenantLogo"/>'
-                + '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
-                + '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
-                + '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
-                + '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
-                + '<pic:nvPicPr><pic:cNvPr id="990001" name="TenantLogo"/><pic:cNvPicPr/></pic:nvPicPr>'
-                + '<pic:blipFill><a:blip r:embed="rIdTenantLogo"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
-                + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>'
-                + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
-                + '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
-            const rootMatch = header.match(/<w:hdr[^>]*>/);
-            if (!rootMatch) { console.log('FinalReport: header root not found'); return; }
-            const insertAt = header.indexOf(rootMatch[0]) + rootMatch[0].length;
-            header = header.slice(0, insertAt) + drawing + header.slice(insertAt);
-            zip.file('word/header1.xml', header);
-            console.log('FinalReport: tenant logo stamped (' + ext + ', ' + dims.w + 'x' + dims.h + ') for', companyIdentifier);
+            console.log('FinalReport: Report Header image stamped in ' + stamped + ' header(s) (' + ext + ', ' + dims.w + 'x' + dims.h + ') for', companyIdentifier);
         } catch (e) {
             console.error('FinalReport: tenant logo injection failed (report continues without it):', e.message);
         }
     }
 
-    // Per-tenant FOOTER from the Multi-Tenant admin (David, Jul 21 2026):
-    // footer text comes from tenant.footerText; the footer seal/logo obeys
-    // the admin's showFooterlogo toggle. Fields left unset in the admin keep
-    // the template's footer unchanged.
+    // Per-tenant FOOTER: every footer becomes the admin's 'Report Footer'
+    // image + footer text + website. If none are set in the admin, the
+    // template's own footer is left untouched. showFooterlogo=false hides
+    // the image but keeps the text lines.
     async injectTenantFooter(zip, companyIdentifier) {
         try {
             if (!companyIdentifier) return;
             const tenant = await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier);
             if (!tenant) return;
-            const footerFile = zip.file('word/footer1.xml');
-            if (!footerFile) { console.log('FinalReport: no footer1 in template'); return; }
-            let footer = footerFile.asText();
-            let changed = false;
-            if (tenant.showFooterlogo === false) {
-                const before = footer.length;
-                footer = footer.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, '');
-                if (footer.length !== before) { changed = true; console.log('FinalReport: footer logo removed (admin toggle off)'); }
+            const showLogo = tenant.showFooterlogo !== false;
+            const footImgUrl = (showLogo && tenant.icons && tenant.icons.footer) || '';
+            const ftext = this.xmlEscape(((tenant.footerText || '') + '').trim());
+            const site = this.xmlEscape(((tenant.website || '') + '').trim());
+            if (!footImgUrl && !ftext && !site) { console.log('FinalReport: no footer branding set in admin, footer left as-is'); return; }
+            let imgPara = '';
+            let frel = '';
+            if (footImgUrl) {
+                const resp = await axios.get(footImgUrl, { responseType: 'arraybuffer', timeout: 60000 });
+                const buf = Buffer.from(resp.data);
+                const extMatch = footImgUrl.split('?')[0].toLowerCase().match(/\.(png|jpe?g)$/);
+                const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'png';
+                const dims = this.getImageDims(buf, ext);
+                const EMU = 914400;
+                const cy = Math.round(0.5 * EMU);
+                const cx = Math.max(1, Math.round(cy * dims.w / Math.max(1, dims.h)));
+                zip.file('word/media/tenantfooter.' + ext, buf);
+                this.ensureContentType(zip, ext);
+                frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + ext + '"/>';
+                imgPara = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr>' + this.inlineImageXml('rIdTenantFooter', cx, cy, 990002, 'TenantFooter') + '</w:p>';
             }
-            // 'Report Footer' image from the admin is THE footer logo: swap the
-            // template's baked footer image bytes for the tenant's own.
-            try {
-                const footerImgUrl = tenant.icons && tenant.icons.footer;
-                if (footerImgUrl && tenant.showFooterlogo !== false) {
-                    const fRelsFile = zip.file('word/_rels/footer1.xml.rels');
-                    const fm = fRelsFile ? fRelsFile.asText().match(/Target="(media\/[^"]+)"/) : null;
-                    if (fm) {
-                        const fResp = await axios.get(footerImgUrl, { responseType: 'arraybuffer', timeout: 60000 });
-                        zip.file('word/' + fm[1], Buffer.from(fResp.data));
-                        console.log('FinalReport: footer image set from admin ->', fm[1]);
-                    }
-                }
-            } catch (fe) { console.log('FinalReport: footer image swap failed', fe.message); }
-
-            const ft = (tenant.footerText || '').toString().trim();
-            if (ft) {
-                let first = true;
-                footer = footer.replace(/(<w:t(?: [^>]*)?>)([\s\S]*?)(<\/w:t>)/g, (m, open, inner, close) => {
-                    if (first) {
-                        first = false;
-                        if (!/xml:space/.test(open)) open = open.replace('<w:t', '<w:t xml:space="preserve"');
-                        return open + this.xmlEscape(ft) + close;
-                    }
-                    return open + close;
-                });
-                changed = true;
-                console.log('FinalReport: footer text set from admin for', companyIdentifier);
+            const content = imgPara
+                + (ftext ? '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + ftext + '</w:t></w:r></w:p>' : '')
+                + (site ? '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="1F4E79"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + site + '</w:t></w:r></w:p>' : '');
+            let stamped = 0;
+            for (const name of Object.keys(zip.files)) {
+                const fm = name.match(/^word\/(footer\d+)\.xml$/);
+                if (!fm) continue;
+                let footer = zip.file(name).asText();
+                const rootM = footer.match(/<w:ftr[^>]*>/);
+                const endI = footer.lastIndexOf('</w:ftr>');
+                if (!rootM || endI === -1) continue;
+                footer = footer.slice(0, rootM.index + rootM[0].length) + content + footer.slice(endI);
+                zip.file(name, footer);
+                if (frel) this.ensureImageRel(zip, 'word/_rels/' + fm[1] + '.xml.rels', frel, 'rIdTenantFooter');
+                stamped++;
             }
-            if (changed) zip.file('word/footer1.xml', footer);
+            console.log('FinalReport: tenant footer stamped in ' + stamped + ' footer(s) for', companyIdentifier);
         } catch (e) {
             console.error('FinalReport: footer injection failed (report continues):', e.message);
         }
     }
 
-    async fillTemplate(templatePath, data, companyIdentifier) {
+    async fillTemplate(templatePath, data, companyIdentifier) {    async fillTemplate(templatePath, data, companyIdentifier) {
         const content = fs.readFileSync(templatePath);
         const zip = new PizZip(content);
         let doc = zip.file('word/document.xml').asText();
@@ -523,6 +522,8 @@ class FinalReportGenerator {
                 doc = doc.split('Deck Inspectors, Inc.').join('%%CNAME%%');
                 doc = doc.split('Deck Inspectors Inc').join('%%CNAME%%');
                 doc = doc.split('Deck Inspectors').join('%%CNAME%%');
+                if (/\.$/.test(cname)) { doc = doc.replace(/%%CNAME%%\s*\./g, '%%CNAME%%'); }
+                doc = doc.replace(/(<w:t(?: [^>]*)?>)\s*,?\s*Inc\s*\.?\s*(<\/w:t>)/g, '$1$2');
                 doc = doc.split('%%CNAME%%').join(cname);
                 console.log('FinalReport: company name substituted ->', tenantRec.name);
             }
@@ -534,6 +535,8 @@ class FinalReportGenerator {
 
         // 0.25\" clearance at the top and bottom of every page (David, Jul 21):
         // header and footer start 360 twips (0.25 inch) from the paper edge.
+        // Keep the report title at the top of its own page.
+        doc = this.addPageBreakToParagraph(doc, ['REPORT OF VISUAL EEE INSPECTION']);
         doc = doc.replace(/(<w:pgMar[^>]*?w:header=")\d+(")/g, '$1360$2');
         doc = doc.replace(/(<w:pgMar[^>]*?w:footer=")\d+(")/g, '$1360$2');
 
@@ -541,6 +544,43 @@ class FinalReportGenerator {
         await this.injectTenantLogo(zip, companyIdentifier);
         await this.injectTenantFooter(zip, companyIdentifier);
         return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+    }
+
+    // Insert a page break before the first paragraph whose text contains all needles.
+    addPageBreakToParagraph(xml, needles) {
+        const re = /<w:p\b[^>]*>[\s\S]*?<\/w:p>/g;
+        let m;
+        while ((m = re.exec(xml))) {
+            const p = m[0];
+            const texts = (p.match(/<w:t[^>]*>[^<]*<\/w:t>/g) || []).join('');
+            let all = true;
+            for (const n of needles) { if (texts.indexOf(n) === -1) { all = false; break; } }
+            if (!all) continue;
+            if (p.indexOf('<w:pageBreakBefore/>') !== -1) return xml;
+            let np;
+            if (p.indexOf('<w:pPr>') !== -1) {
+                const ps = p.match(/<w:pPr><w:pStyle[^>]*\/>/);
+                np = ps ? p.replace(ps[0], ps[0] + '<w:pageBreakBefore/>') : p.replace('<w:pPr>', '<w:pPr><w:pageBreakBefore/>');
+            } else {
+                np = p.replace(/(<w:p\b[^>]*>)/, '$1<w:pPr><w:pageBreakBefore/></w:pPr>');
+            }
+            console.log('FinalReport: page break pinned before paragraph [' + needles.join('+') + ']');
+            return xml.slice(0, m.index) + np + xml.slice(m.index + p.length);
+        }
+        console.log('FinalReport: paragraph not found for page break ->', needles.join('+'));
+        return xml;
+    }
+
+    // The appended Visual must start at the top of its own page (David-approved layout).
+    addVisualPageBreak(visualBuffer) {
+        try {
+            const zip = new PizZip(visualBuffer);
+            let x = zip.file('word/document.xml').asText();
+            const nx = this.addPageBreakToParagraph(x, ['Visual', 'Inspection Report']);
+            if (nx === x) return visualBuffer;
+            zip.file('word/document.xml', nx);
+            return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+        } catch (e) { console.error('FinalReport: visual page-break failed', e.message); return visualBuffer; }
     }
 
     // visualReportUrl: blob URL of the just-generated Visual report
@@ -559,9 +599,10 @@ class FinalReportGenerator {
 
         // Preferred: docxcompose merge (verified Word-clean). Fallback: Node merger + repairs.
         const sanitizedVisual = ReportGenerationUtil.sanitizeDocxBuffer(visualBuffer);
-        let mergedBuffer = this.combineWithDocxCompose(filledBuffer, sanitizedVisual, projectId);
+        const pagedVisual = this.addVisualPageBreak(sanitizedVisual);
+        let mergedBuffer = this.combineWithDocxCompose(filledBuffer, pagedVisual, projectId);
         if (!mergedBuffer) {
-            mergedBuffer = await this.combineAndRepair(filledBuffer, sanitizedVisual);
+            mergedBuffer = await this.combineAndRepair(filledBuffer, pagedVisual);
         }
         if (!mergedBuffer) {
             throw new Error('FinalReport: merge produced no output');
