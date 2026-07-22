@@ -462,7 +462,7 @@ class FinalReportGenerator {
         }
     }
 
-    async fillTemplate(templatePath, data, companyIdentifier) {    async fillTemplate(templatePath, data, companyIdentifier) {
+    async fillTemplate(templatePath, data, companyIdentifier) {
         const content = fs.readFileSync(templatePath);
         const zip = new PizZip(content);
         let doc = zip.file('word/document.xml').asText();
