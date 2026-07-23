@@ -602,19 +602,19 @@ input,select{font-family:inherit;font-size:16px}
         <div class="field"><label>Additional Considerations or Concerns</label><textarea v-model="secForm.additionalconsiderations" rows="3" style="width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:15px"></textarea></div>
         <div class="field"><label>Life Expectancy (EEE)</label>
           <div class="kindrow" style="margin:0 0 6px">
-            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: secForm.eee===o}" @click="secForm.eee=o">{{ o }}</button>
+            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: (secForm.eee||'').toLowerCase().trim()===o.toLowerCase()}" @click="secForm.eee=o">{{ o }}</button>
           </div>
           <input v-model.trim="secForm.eee">
         </div>
         <div class="field"><label>Life Expectancy (LBC)</label>
           <div class="kindrow" style="margin:0 0 6px">
-            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: secForm.lbc===o}" @click="secForm.lbc=o">{{ o }}</button>
+            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: (secForm.lbc||'').toLowerCase().trim()===o.toLowerCase()}" @click="secForm.lbc=o">{{ o }}</button>
           </div>
           <input v-model.trim="secForm.lbc">
         </div>
         <div class="field"><label>Life Expectancy (AWE)</label>
           <div class="kindrow" style="margin:0 0 6px">
-            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: secForm.awe===o}" @click="secForm.awe=o">{{ o }}</button>
+            <button class="kind" v-for="o in lifeOptions" :key="o" :class="{on: (secForm.awe||'').toLowerCase().trim()===o.toLowerCase()}" @click="secForm.awe=o">{{ o }}</button>
           </div>
           <input v-model.trim="secForm.awe">
         </div>
@@ -818,7 +818,7 @@ createApp({
       editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '', formId: null, inspDate: '', url: '' },
       secEditOpen: false, loadingSec: false, savingSec: false, secOriginal: null, secId: null,
       secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '' },
-      lifeOptions: ['1-4 Years', '4-7 Years', '7-10 Years', '10+ Years'],
+      lifeOptions: ['0-1 Years', '1-4 Years', '4-7 Years', '7-10 Years'],
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       structTab: 'buildings',
