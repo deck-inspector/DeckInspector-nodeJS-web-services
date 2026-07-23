@@ -409,7 +409,7 @@ class FinalReportGenerator {
         }
     }
 
-    // Stamp the tenant's 'Report Header' image (+ website line) into EVERY
+    // Stamp the tenant's 'Report Header' image into EVERY
     // header of the template. Templates ship with empty headers; each client's
     // branding comes from the Multi-Tenant admin at generation time. Any
     // template-baked header content is replaced so there is exactly one logo.
@@ -425,13 +425,16 @@ class FinalReportGenerator {
             const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'png';
             const dims = this.getImageDims(buf, ext);
             const EMU = 914400;
-            const cy = Math.round(0.85 * EMU);
+            // Logo only, 0.75in tall, zero paragraph spacing: 360 (header
+            // offset) + 1080 twips stays inside the template's 1572-twip top
+            // margin, so the body position - and the template's pagination -
+            // is identical to the uploaded master. No website line here: the
+            // site appears once on the page, from the admin Footer Text.
+            const cy = Math.round(0.75 * EMU);
             const cx = Math.max(1, Math.round(cy * dims.w / Math.max(1, dims.h)));
             zip.file('word/media/tenantlogo.' + ext, buf);
             this.ensureContentType(zip, ext);
-            const site = this.xmlEscape(((tenant.website || '') + '').trim());
-            const content = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr>' + this.inlineImageXml('rIdTenantLogo', cx, cy, 990001, 'TenantLogo') + '</w:p>'
-                + (site ? '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:color w:val="1F4E79"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">' + site + '</w:t></w:r></w:p>' : '');
+            const content = '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>' + this.inlineImageXml('rIdTenantLogo', cx, cy, 990001, 'TenantLogo') + '</w:p>';
             const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + ext + '"/>';
             let stamped = 0;
             for (const name of Object.keys(zip.files)) {
@@ -453,7 +456,7 @@ class FinalReportGenerator {
     }
 
     // Per-tenant FOOTER: every footer becomes the admin's 'Report Footer'
-    // image + footer text + website. If none are set in the admin, the
+    // image + footer text. If none are set in the admin, the
     // template's own footer is left untouched. showFooterlogo=false hides
     // the image but keeps the text lines.
     async injectTenantFooter(zip, companyIdentifier) {
@@ -464,8 +467,7 @@ class FinalReportGenerator {
             const showLogo = tenant.showFooterlogo !== false;
             const footImgUrl = (showLogo && tenant.icons && tenant.icons.footer) || '';
             const ftext = this.xmlEscape(((tenant.footerText || '') + '').trim());
-            const site = this.xmlEscape(((tenant.website || '') + '').trim());
-            if (!footImgUrl && !ftext && !site) { console.log('FinalReport: no footer branding set in admin, footer left as-is'); return; }
+            if (!footImgUrl && !ftext) { console.log('FinalReport: no footer branding set in admin, footer left as-is'); return; }
             let imgPara = '';
             let frel = '';
             if (footImgUrl) {
@@ -480,11 +482,13 @@ class FinalReportGenerator {
                 zip.file('word/media/tenantfooter.' + ext, buf);
                 this.ensureContentType(zip, ext);
                 frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + ext + '"/>';
-                imgPara = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr>' + this.inlineImageXml('rIdTenantFooter', cx, cy, 990002, 'TenantFooter') + '</w:p>';
+                imgPara = '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>' + this.inlineImageXml('rIdTenantFooter', cx, cy, 990002, 'TenantFooter') + '</w:p>';
             }
+            // Image + Footer Text only (the site lives in Footer Text if the
+            // client wants it shown). Compact spacing keeps 360 + 720 + one
+            // 8pt line inside the template's 1440-twip bottom margin.
             const content = imgPara
-                + (ftext ? '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + ftext + '</w:t></w:r></w:p>' : '')
-                + (site ? '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="1F4E79"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + site + '</w:t></w:r></w:p>' : '');
+                + (ftext ? '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + ftext + '</w:t></w:r></w:p>' : '');
             let stamped = 0;
             for (const name of Object.keys(zip.files)) {
                 const fm = name.match(/^word\/(footer\d+)\.xml$/);
