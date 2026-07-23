@@ -35,6 +35,35 @@ class FinalReportGenerator {
         return path.join(__dirname, '..', '..', 'Deck_FinalTemplate.docx');
     }
 
+    // Blob-first template resolution: the app folder is replaced on every
+    // deployment (zip deploy), which deletes any template uploaded through the
+    // admin panel. The blob copy written by /replacefinalreporttemplate is the
+    // durable source; local files are only a fast path until the next deploy.
+    async getTemplateBuffer(companyName) {
+        const rawClean = (companyName || '').replaceAll(/\s/g, "").replace('.ondeckinspectors.com', '');
+        const names = [...new Set([rawClean.toLowerCase(), rawClean])]
+            .filter(n => n.length > 0)
+            .map(n => `${n}_FinalTemplate.docx`);
+        for (const n of names) {
+            try {
+                const buf = await getBlobBuffer(n, 'projectreports');
+                if (buf && buf.length > 0) {
+                    console.log('FinalReport: using tenant template from blob storage:', n);
+                    return buf;
+                }
+            } catch (e) { /* blob missing - keep looking */ }
+        }
+        for (const n of names) {
+            const absolute = path.join(__dirname, '..', '..', n);
+            if (fs.existsSync(absolute)) {
+                console.log('FinalReport: using tenant template from app folder:', n);
+                return fs.readFileSync(absolute);
+            }
+        }
+        console.log('FinalReport: no tenant template found for', rawClean, '- using default Deck template');
+        return fs.readFileSync(path.join(__dirname, '..', '..', 'Deck_FinalTemplate.docx'));
+    }
+
     formatDate(value) {
         if (!value) return '';
         try {
@@ -463,7 +492,7 @@ class FinalReportGenerator {
     }
 
     async fillTemplate(templatePath, data, companyIdentifier) {
-        const content = fs.readFileSync(templatePath);
+        const content = Buffer.isBuffer(templatePath) ? templatePath : fs.readFileSync(templatePath);
         const zip = new PizZip(content);
         let doc = zip.file('word/document.xml').asText();
 
@@ -489,27 +518,9 @@ class FinalReportGenerator {
             }
         }
 
-        const labelValues = {
-            '# Units with EEE:': data.unitsWithEEE,
-            'Total # EEE Count:': data.totalEEE,
-            'Total # EEE Inspected': data.eeeInspected
-        };
-        for (const label of Object.keys(labelValues)) {
-            const value = labelValues[label];
-            if (value === undefined || value === null || value === '') continue;
-            const lIdx = doc.indexOf(this.xmlEscape(label));
-            if (lIdx === -1) { console.log('FinalReport: count label not found ->', label); continue; }
-            const tcClose = doc.indexOf('</w:tc>', lIdx);
-            if (tcClose === -1) continue;
-            let cellStart = doc.indexOf('<w:tc>', tcClose);
-            const cellStartAttr = doc.indexOf('<w:tc ', tcClose);
-            if (cellStart === -1 || (cellStartAttr !== -1 && cellStartAttr < cellStart)) cellStart = cellStartAttr;
-            if (cellStart === -1) continue;
-            const cellEnd = doc.indexOf('</w:tc>', cellStart);
-            if (cellEnd === -1) continue;
-            const cell = doc.slice(cellStart, cellEnd);
-            doc = doc.slice(0, cellStart) + this.swapFirstTextRun(cell, value) + doc.slice(cellEnd);
-        }
+        // Count cells (# Units with EEE / Total # EEE Count / Total # EEE
+        // Inspected) are intentionally NOT auto-filled: per the corrected
+        // master template, red 0 / NA cells are edited by the end user.
 
         // Wherever the template says "Deck Inspectors" (any variant), print the
         // CLIENT company name from the Admin panel; same for the phone number.
@@ -585,13 +596,12 @@ class FinalReportGenerator {
 
     // visualReportUrl: blob URL of the just-generated Visual report
     async generate(projectId, companyName, projectName, uploader, visualReportUrl) {
-        const templatePath = this.resolveTemplatePath(companyName);
-        console.log('FinalReport: using template', templatePath);
+        const templateBuffer = await this.getTemplateBuffer(companyName);
 
         const data = await this.collectProjectData(projectId);
         console.log('FinalReport: data', JSON.stringify(data));
 
-        const filledBuffer = await this.fillTemplate(templatePath, data, companyName);
+        const filledBuffer = await this.fillTemplate(templateBuffer, data, companyName);
 
         // fetch the visual report we just uploaded
         const urlArray = visualReportUrl.toString().split('/');
