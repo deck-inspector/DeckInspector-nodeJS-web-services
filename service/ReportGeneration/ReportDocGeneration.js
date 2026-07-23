@@ -41,7 +41,10 @@ class ReportDocGeneration {
                     const buffer = resp.arrayBuffer
                         ? await resp.arrayBuffer()
                         : await resp.buffer();
-                    return { height: 15,width: 19.8,  data: buffer, extension: '.png' };
+                    // 16.5cm x 12.5cm = 6.5in x 4.92in: fits the 6.5in text
+                    // column (19.8cm overflowed the margins and forced the image
+                    // onto its own page, leaving a large gap on the title page).
+                    return { height: 12.5, width: 16.5, data: buffer, extension: '.png' };
                 },
             };
             const buffer = await ReportGenerationUtil.createDocReportWithParams(template,data,additionalJsContext)
