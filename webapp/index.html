@@ -343,6 +343,8 @@ input,select{font-family:inherit;font-size:16px}
             <button class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create {{ kindLabel }} (Word)</button>
             <button class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="generating" @click="generateReport('pdf')">&#128462; Create {{ kindLabel }} (PDF)</button>
             <button class="btn btn-big btn-final" :disabled="downloadingFinal" @click="downloadFinal">&#11015; Download Latest Final Report</button>
+            <button class="btn btn-big" style="background:#1F7A33" :disabled="uploadingReport" @click="$refs.repUp.click()">&#11014; {{ uploadingReport ? 'Uploading&hellip;' : 'Upload Completed Report' }}</button>
+            <input type="file" ref="repUp" accept=".docx,.doc,.pdf" style="display:none" @change="uploadCompletedReport">
             <button class="btn btn-big" style="background:var(--bg);color:var(--ink);border:1.5px solid var(--line)" :disabled="downloadingExcel" @click="downloadExcel">&#128202; Project Data (Excel)</button>
           </div>
           <div class="progress" v-if="generating">
@@ -808,7 +810,7 @@ createApp({
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
-      downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false,
+      downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' },
       forms: [], photoBusy: false,
@@ -1010,6 +1012,33 @@ createApp({
     },
     stopPolling() { if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; } },
 
+    async uploadCompletedReport(e) {
+      const f = (e.target.files && e.target.files[0]) || null;
+      e.target.value = '';
+      if (!f || !this.current) return;
+      this.uploadingReport = true;
+      try {
+        const fd = new FormData();
+        fd.append('picture', f, f.name);
+        fd.append('containerName', String(this.current.name || 'project').replace(/\s+/g, '').toLowerCase());
+        fd.append('uploader', 'deck');
+        fd.append('entityName', this.current.name || 'project');
+        const up = await this.api('/image/upload', { method: 'POST', body: fd });
+        if (!up.ok) throw new Error('upload');
+        const ud = await up.json();
+        const url = ud.url || (ud.data && ud.data.url) || '';
+        if (!url) throw new Error('upload');
+        const baseName = f.name.replace(/\.(docx|doc|pdf)$/i, '');
+        const res = await this.api('/projectreports/add', {
+          method: 'POST', json: { project_id: this.projectId(this.current), name: baseName + ' (Completed)', url: url, uploader: this.user.username },
+        });
+        if (!res.ok) throw new Error('bad');
+        this.toast('Completed report uploaded \u2014 it\u2019s now in the Report Files list.');
+        this.loadReports();
+      } catch (err) {
+        if (err.message !== 'auth') this.toast('Could not upload the report.', 'err');
+      } finally { this.uploadingReport = false; }
+    },
     async downloadFinal() {
       this.downloadingFinal = true;
       try {
