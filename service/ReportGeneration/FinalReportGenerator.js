@@ -109,14 +109,26 @@ class FinalReportGenerator {
 
         let unitsWithEEE = 0;
         let totalEEE = 0;
+        let anyFail = false;
         for (const locId of locationIds) {
             if (!locId) continue;
             try {
                 const sectionData = await sections.getSectionMetaDataForLocationId(locId);
-                const count = (sectionData.data && sectionData.data.item) ? sectionData.data.item.length : 0;
-                if (count > 0) {
+                const items = (sectionData.data && sectionData.data.item) ? sectionData.data.item : [];
+                if (items.length > 0) {
                     unitsWithEEE += 1;
-                    totalEEE += count;
+                    totalEEE += items.length;
+                }
+                // PASS/FAIL rule (David, Jul 23): all green -> PASS; any
+                // 0-1 year life expectancy (EEE/LBC/AWE), failed condition
+                // assessment, or bad visual review -> FAIL.
+                for (const sec of items) {
+                    const life = [sec.eee, sec.lbc, sec.awe].map(v => String(v == null ? '' : v)).join(' ');
+                    const assess = String(sec.conditionalassessment || '').toLowerCase();
+                    const review = String(sec.visualreview || '').toLowerCase();
+                    if (assess.indexOf('fail') !== -1 || review === 'bad' || /0\s*[-\u2013]\s*1/.test(life)) {
+                        anyFail = true;
+                    }
                 }
             } catch (e) { console.log('FinalReport: section count failed for', locId, e.message); }
         }
@@ -167,7 +179,8 @@ class FinalReportGenerator {
             inspectionDate: this.formatDate(project.createdat || project.createdAt),
             unitsWithEEE: String(unitsWithEEE),
             totalEEE: String(totalEEE),
-            eeeInspected: String(totalEEE)
+            eeeInspected: String(totalEEE),
+            passFail: anyFail ? 'FAIL' : 'PASS'
         };
     }
 
@@ -521,6 +534,28 @@ class FinalReportGenerator {
         // Count cells (# Units with EEE / Total # EEE Count / Total # EEE
         // Inspected) are intentionally NOT auto-filled: per the corrected
         // master template, red 0 / NA cells are edited by the end user.
+
+        // PASS/FAIL auto-set from inspection results (David, Jul 23):
+        // PASS in green when everything is green; FAIL in red when any element
+        // shows a 0-1 year life expectancy or a failed assessment. The dropdown
+        // remains in place so the user can override the value in Word.
+        try {
+            if (data.passFail) {
+                const pfColor = data.passFail === 'PASS' ? '00B050' : 'EE0000';
+                const comboIdx = doc.indexOf('w:displayText="PASS"');
+                if (comboIdx !== -1) {
+                    const sdtStart = doc.lastIndexOf('<w:sdt>', comboIdx);
+                    const sdtEnd = doc.indexOf('</w:sdt>', comboIdx);
+                    if (sdtStart !== -1 && sdtEnd !== -1) {
+                        let pfSdt = doc.slice(sdtStart, sdtEnd);
+                        pfSdt = pfSdt.replace(/(<w:sdtContent>[\s\S]*?<w:t[^>]*>)[^<]*(<\/w:t>)/, '$1' + data.passFail + '$2');
+                        pfSdt = pfSdt.replace(/(w:color w:val=")[0-9A-Fa-f]{6}(")/g, '$1' + pfColor + '$2');
+                        doc = doc.slice(0, sdtStart) + pfSdt + doc.slice(sdtEnd);
+                        console.log('FinalReport: PASS/FAIL auto-set to', data.passFail);
+                    }
+                }
+            }
+        } catch (e) { console.log('FinalReport: PASS/FAIL auto-set failed:', e.message); }
 
         // Wherever the template says "Deck Inspectors" (any variant), print the
         // CLIENT company name from the Admin panel; same for the phone number.
