@@ -521,7 +521,7 @@ router.route('/replacefinalreporttemplate')
         if (!companyName) {
           return res.status(400).json({ message: 'Company name is missing.' });
         }
-        const cleanName = companyName.replaceAll(/\s/g, "").replace('.ondeckinspectors.com','');
+        const cleanName = companyName.replaceAll(/\s/g, "").replace('.ondeckinspectors.com','').toLowerCase();
         const existingFileName = `${cleanName}_FinalTemplate.docx`;
         const filePath = path.join(__dirname, '..', existingFileName);
 
@@ -533,6 +533,17 @@ router.route('/replacefinalreporttemplate')
 
         //Rename the uploaded file
         fs.renameSync(uploadedFile.path, filePath);
+
+        // Persist to blob storage: the app folder is replaced on every code
+        // deployment, so the blob copy is the durable source of the template.
+        try {
+          const blobResult = await uploadBlob.uploadFile('projectreports', existingFileName, filePath, {
+            metadata: { kind: 'finalreporttemplate', company: cleanName }
+          });
+          console.log('Final template persisted to blob:', blobResult);
+        } catch (blobErr) {
+          console.error('Final template blob persist failed:', blobErr && blobErr.message);
+        }
         res.status(200).json({ message: 'File replaced successfully.' });
       } catch(err){
         console.error('Error replacing final report template: ', err);
