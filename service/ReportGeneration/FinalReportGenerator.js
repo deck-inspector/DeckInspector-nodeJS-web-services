@@ -546,8 +546,9 @@ class FinalReportGenerator {
 
         // 0.25\" clearance at the top and bottom of every page (David, Jul 21):
         // header and footer start 360 twips (0.25 inch) from the paper edge.
-        // Keep the report title at the top of its own page.
-        doc = this.addPageBreakToParagraph(doc, ['REPORT OF VISUAL EEE INSPECTION']);
+        // NOTE: no forced page break on the report title - the corrected
+        // master template handles its own pagination (a forced break here
+        // produced a blank page 2).
         doc = doc.replace(/(<w:pgMar[^>]*?w:header=")\d+(")/g, '$1360$2');
         doc = doc.replace(/(<w:pgMar[^>]*?w:footer=")\d+(")/g, '$1360$2');
 
