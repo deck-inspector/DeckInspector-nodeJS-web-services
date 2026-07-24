@@ -1537,17 +1537,20 @@ createApp({
         // key is configured. zoom 20 ≈ the subject property only; scale=2
         // doubles the pixel density (1280x800 delivered).
         if (GMAPS_KEY && GMAPS_KEY.indexOf('PLACEHOLDER') === -1) {
-          try {
-            const gr = await fetch('https://maps.googleapis.com/maps/api/staticmap?center=' + c.location.y + ',' + c.location.x + '&zoom=20&size=640x400&scale=2&maptype=satellite&key=' + GMAPS_KEY);
-            if (gr.ok) {
+          // zoom 21 = just the parcel; fall back to 20 where Google has no
+          // ultra-close imagery (blank tiles come back as tiny files).
+          for (const z of [21, 20]) {
+            try {
+              const gr = await fetch('https://maps.googleapis.com/maps/api/staticmap?center=' + c.location.y + ',' + c.location.x + '&zoom=' + z + '&size=640x400&scale=2&maptype=satellite&key=' + GMAPS_KEY);
+              if (!gr.ok) continue;
               const gb = await gr.blob();
-              if (gb.type && gb.type.indexOf('image') === 0 && gb.size > 5000) {
+              if (gb.type && gb.type.indexOf('image') === 0 && gb.size > 60000) {
                 form.url = await this.uploadPhotoBlob(gb, form.name || 'project');
                 this.toast('Satellite photo added.');
                 return;
               }
-            }
-          } catch (eg) { /* fall through to Esri */ }
+            } catch (eg) { /* try the next zoom, then Esri */ }
+          }
         }
         // Fallback: Esri World Imagery.
         // Tightest view of the SUBJECT property the imagery service can serve.
