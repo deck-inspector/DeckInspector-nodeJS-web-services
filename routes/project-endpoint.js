@@ -18,6 +18,8 @@ var uploadBlob = require('../database/uploadimage');
 const projectReports = require("../model/projectReports");
 const {generateLocationReportDoc} = require("../service/projectreportgeneration");
 const FinalReportGenerator = require("../service/ReportGeneration/FinalReportGenerator.js");
+const ProposalGenerator = require("../service/ReportGeneration/ProposalGenerator.js");
+const proposals = require("../model/proposals");
 
 router.route('/add')
     .post(async function (req, res) {
@@ -548,6 +550,133 @@ router.route('/replacefinalreporttemplate')
       } catch(err){
         console.error('Error replacing final report template: ', err);
         return res.status(500).send('Error replacing final report template');
+      }
+    })
+
+/* ==================== PROPOSAL (admin-managed template) ==================== */
+
+// Admin site: upload/replace the tenant's Proposal template (.docx).
+// Mirrors /replacefinalreporttemplate - blob copy is the durable source.
+router.route('/replaceproposaltemplate')
+    .post(upload.single('file'), async function (req, res){
+      try{
+        const uploadedFile = req.file;
+        if (!uploadedFile) {
+          return res.status(400).json({ message: 'No file uploaded.' });
+        }
+        const {companyName} = req.body;
+        if (!companyName) {
+          return res.status(400).json({ message: 'Company name is missing.' });
+        }
+        const cleanName = companyName.replaceAll(/\s/g, "").replace('.ondeckinspectors.com','').toLowerCase();
+        const existingFileName = `${cleanName}_ProposalTemplate.docx`;
+        const filePath = path.join(__dirname, '..', existingFileName);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+        fs.renameSync(uploadedFile.path, filePath);
+        try {
+          const blobResult = await uploadBlob.uploadFile('projectreports', existingFileName, filePath, {
+            metadata: { kind: 'proposaltemplate', company: cleanName }
+          });
+          console.log('Proposal template persisted to blob:', blobResult);
+        } catch (blobErr) {
+          console.error('Proposal template blob persist failed:', blobErr && blobErr.message);
+        }
+        res.status(200).json({ message: 'File replaced successfully.' });
+      } catch(err){
+        console.error('Error replacing proposal template: ', err);
+        return res.status(500).send('Error replacing proposal template');
+      }
+    })
+
+// Field definitions (dropdowns + current defaults) parsed from the tenant's
+// CURRENT proposal template, so the web form always matches the document.
+router.route('/proposalform')
+    .get(async function (req, res){
+      try{
+        const companyIdentifier = req.user && req.user.company;
+        const buf = await ProposalGenerator.getTemplateBuffer(companyIdentifier);
+        const fields = ProposalGenerator.parseFields(buf);
+        res.status(200).json({ fields });
+      } catch(err){
+        console.error('Error parsing proposal form:', err);
+        return res.status(500).json({ message: 'Could not read the proposal template.' });
+      }
+    })
+
+// Tenant branding (logo/footer/company name) for the on-line print rendering.
+router.route('/proposalbranding')
+    .get(async function (req, res){
+      try{
+        const companyIdentifier = req.user && req.user.company;
+        const branding = await ProposalGenerator.getBranding(companyIdentifier);
+        res.status(200).json(branding);
+      } catch(err){
+        console.error('Error reading proposal branding:', err);
+        return res.status(500).json({ message: 'Could not read branding.' });
+      }
+    })
+
+// Fill the template with the submitted form values and stream the .docx.
+router.route('/generateproposal')
+    .post(async function (req, res){
+      try{
+        const companyIdentifier = req.user && req.user.company;
+        const form = req.body && req.body.form ? req.body.form : req.body;
+        const buffer = await ProposalGenerator.generateBuffer(companyIdentifier, form);
+        const propName = ((form && form.property) || 'Proposal').replace(/[^\w .,'()-]/g, '').trim() || 'Proposal';
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename="${propName} - Proposal.docx"`);
+        return res.send(buffer);
+      } catch(err){
+        console.error('Error generating proposal:', err);
+        return res.status(500).send('Error generating proposal');
+      }
+    })
+
+// Saved proposals (drafts + accepted) for the logged-in tenant.
+router.route('/proposals')
+    .get(async function (req, res){
+      try{
+        const companyIdentifier = req.user && req.user.company;
+        const rows = await proposals.getProposalsByCompany(companyIdentifier);
+        res.status(200).json(rows);
+      } catch(err){
+        console.error('Error listing proposals:', err);
+        return res.status(500).json({ message: 'Could not list proposals.' });
+      }
+    })
+
+router.route('/proposals/save')
+    .post(async function (req, res){
+      try{
+        const companyIdentifier = req.user && req.user.company;
+        const { id, name, status, form, linkedProjectId } = req.body;
+        const result = await proposals.upsertProposal({
+          id: id || undefined,
+          companyIdentifier,
+          name: name || (form && form.property) || 'Untitled proposal',
+          status: status || 'draft',
+          form: form || {},
+          linkedProjectId: linkedProjectId || null,
+          createdBy: (req.user && req.user.username) || ''
+        });
+        res.status(200).json(result);
+      } catch(err){
+        console.error('Error saving proposal:', err);
+        return res.status(500).json({ message: 'Could not save the proposal.' });
+      }
+    })
+
+router.route('/proposals/delete')
+    .post(async function (req, res){
+      try{
+        const result = await proposals.removeProposal(req.body.id);
+        res.status(200).json(result);
+      } catch(err){
+        console.error('Error deleting proposal:', err);
+        return res.status(500).json({ message: 'Could not delete the proposal.' });
       }
     })
 
