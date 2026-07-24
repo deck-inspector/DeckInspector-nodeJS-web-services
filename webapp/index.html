@@ -975,6 +975,9 @@ input,select{font-family:inherit;font-size:16px}
 
 <script>
 const API = location.origin + '/api';
+// Google Maps Static API key (referrer-restricted to e3-web.com in the Google
+// Cloud console). While it reads PLACEHOLDER, satellite photos use Esri.
+const GMAPS_KEY = 'AIzaSyCVpc-sHM9sgiBdtCxxoifPyp-kwv6x7kU';
 const LOGO = 'https://deckinspectors.com/wp-content/uploads/2025/07/cropped-1-DI-Logo-Stacked.jpg';
 const LOGO_E3 = 'https://deckinspectorsappdata.blob.core.windows.net/deckinspectorsincondeckinspectorscom/E3%20Logo%20for%20Inspection%20Reporting%20Solutions.jpg';
 const { createApp } = Vue;
@@ -1526,6 +1529,23 @@ createApp({
         const g = await (await fetch('https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&outFields=none&maxLocations=1&singleLine=' + encodeURIComponent(form.address))).json();
         const c = g.candidates && g.candidates[0];
         if (!c) throw new Error('address');
+        // FIRST CHOICE: Google satellite imagery (sharp + current) when an API
+        // key is configured. zoom 20 ≈ the subject property only; scale=2
+        // doubles the pixel density (1280x800 delivered).
+        if (GMAPS_KEY && GMAPS_KEY.indexOf('PLACEHOLDER') === -1) {
+          try {
+            const gr = await fetch('https://maps.googleapis.com/maps/api/staticmap?center=' + c.location.y + ',' + c.location.x + '&zoom=20&size=640x400&scale=2&maptype=satellite&key=' + GMAPS_KEY);
+            if (gr.ok) {
+              const gb = await gr.blob();
+              if (gb.type && gb.type.indexOf('image') === 0 && gb.size > 5000) {
+                form.url = await this.uploadPhotoBlob(gb, form.name || 'project');
+                this.toast('Satellite photo added.');
+                return;
+              }
+            }
+          } catch (eg) { /* fall through to Esri */ }
+        }
+        // Fallback: Esri World Imagery.
         // Tightest view of the SUBJECT property the imagery service can serve.
         // The export API 500s when asked for more pixels than the source
         // imagery resolution supports, so step down: closest first (~45m wide,
