@@ -177,23 +177,51 @@ class ProposalGenerator {
         return doc;
     }
 
-    // Write `value` into the empty cell that follows a label cell such as
-    // "Property:" / "Address:" / "Owner / MGR:" / "Contact:".
-    fillLabeledCell(doc, label, value) {
-        if (!value) return doc;
-        // Word may split a label like "Contact:" across several runs, so match
-        // the label characters allowing any tags between them.
+    // Write values into the cells that follow a label cell such as
+    // "Property:" / "Address:" / "Owner / MGR:" / "Contact:". `values` is an
+    // array filled into consecutive cells (street | city | state+zip, or
+    // phone | email). Word may split a label like "Contact:" across several
+    // runs, so match the label characters allowing any tags between them.
+    fillRowCells(doc, label, values) {
+        const vals = (Array.isArray(values) ? values : [values]).map(v => (v == null ? '' : String(v)));
+        if (!vals.some(v => v !== '')) return doc;
         const pattern = label.split('').map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('(?:<[^>]+>)*');
         const m = doc.match(new RegExp(pattern));
         if (!m) { console.log('Proposal: label cell not found ->', label); return doc; }
-        const labelIdx = doc.indexOf(m[0]);
-        const cellClose = doc.indexOf('</w:tc>', labelIdx);
-        const nextCell = doc.indexOf('<w:tc>', cellClose);
-        if (cellClose === -1 || nextCell === -1) return doc;
-        const pEnd = doc.indexOf('</w:p>', nextCell);
-        if (pEnd === -1) return doc;
-        const run = '<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">' + this.xmlEscape(value) + '</w:t></w:r>';
-        return doc.slice(0, pEnd) + run + doc.slice(pEnd);
+        const rowEnd = doc.indexOf('</w:tr>', doc.indexOf(m[0]));
+        let cursor = doc.indexOf('</w:tc>', doc.indexOf(m[0]));
+        for (const v of vals) {
+            const nextCell = doc.indexOf('<w:tc>', cursor);
+            if (nextCell === -1 || (rowEnd !== -1 && nextCell > rowEnd + 20000)) break;
+            const pEnd = doc.indexOf('</w:p>', nextCell);
+            if (pEnd === -1) break;
+            if (v !== '') {
+                const run = '<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">' + this.xmlEscape(v) + '</w:t></w:r>';
+                doc = doc.slice(0, pEnd) + run + doc.slice(pEnd);
+                cursor = pEnd + run.length;
+            } else {
+                cursor = pEnd;
+            }
+        }
+        return doc;
+    }
+
+    fillLabeledCell(doc, label, value) {
+        return this.fillRowCells(doc, label, [value]);
+    }
+
+    // "street, city, ST 12345" -> [street, city, "ST 12345"] (same rules as
+    // the Final Report address parser; falls back to the raw string).
+    splitAddress(raw) {
+        const flat = String(raw || '').replace(/\s+/g, ' ').trim();
+        if (!flat) return ['', '', ''];
+        const cIdx = flat.indexOf(',');
+        if (cIdx === -1) return [flat, '', ''];
+        const street = flat.slice(0, cIdx).trim();
+        const rest = flat.slice(cIdx + 1).trim();
+        const m = rest.match(/^(.*?),?\s*([A-Z]{2})\.?\s*(\d{5})(?:-\d{4})?\s*$/);
+        if (m) return [street, m[1].replace(/,\s*$/, '').trim(), m[2] + ' ' + m[3]];
+        return [street, rest, ''];
     }
 
     getImageDims(buf, ext) {
@@ -352,16 +380,26 @@ class ProposalGenerator {
         }
 
         doc = this.fillLabeledCell(doc, 'Property:', form && form.property);
-        doc = this.fillLabeledCell(doc, 'Address:', form && form.address);
+        // Address spans three cells: street | city | state + zip
+        const addrParts = (form && (form.addressStreet || form.addressCity || form.addressStateZip))
+            ? [form.addressStreet || '', form.addressCity || '', form.addressStateZip || '']
+            : this.splitAddress(form && form.address);
+        doc = this.fillRowCells(doc, 'Address:', addrParts);
         doc = this.fillLabeledCell(doc, 'Owner / MGR:', form && form.ownerMgr);
-        doc = this.fillLabeledCell(doc, 'Contact:', form && form.contact);
+        // Contact splits into two cells: phone | email
+        const cPhone = (form && (form.contactPhone || form.contact)) || '';
+        const cEmail = (form && form.contactEmail) || '';
+        doc = this.fillRowCells(doc, 'tact:', [cPhone, cEmail]);
 
         // CLIENT company name + phone from the Admin panel wherever the master
         // says "Deck Inspectors" (identical rules to the Final Report).
         try {
             const tenantRec = companyIdentifier ? await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier) : null;
             if (tenantRec && tenantRec.name) {
-                const cname = this.xmlEscape(tenantRec.name);
+                // Strip trailing period(s) from the tenant name: the template
+                // supplies its own sentence punctuation ("Deck Inspectors Inc.."
+                // fix, seen on the first live generation).
+                const cname = this.xmlEscape(String(tenantRec.name).trim().replace(/\.+$/, ''));
                 doc = doc.split('Deck Inspectors, Inc.').join('%%CNAME%%');
                 doc = doc.split('Deck Inspectors Inc').join('%%CNAME%%');
                 doc = doc.split('Deck Inspectors').join('%%CNAME%%');
