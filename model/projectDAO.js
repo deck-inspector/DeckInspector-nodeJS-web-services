@@ -195,9 +195,15 @@ module.exports = {
 
   updateProjectStatus: async (id, isComplete) => {
     try {
-      const collection = await getProjectsCollection();
-      const doc = await collection.get(id);
-      await collection.upsert(id, { ...doc.content, iscomplete: isComplete, channels: doc.content.channels || ["Project"] });
+      // N1QL UPDATE instead of KV get+upsert: the KV data service times out
+      // intermittently while the query service stays responsive (the original
+      // cause of failing complete/reopen toggles). Touches only iscomplete and
+      // keeps the channels default the old code maintained for mobile sync.
+      const query = `UPDATE \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` AS p USE KEYS $1 SET p.iscomplete = $2, p.channels = IFMISSINGORNULL(p.channels, ["Project"]) RETURNING META(p).id`;
+      const rows = await executeQuery(query, [id, isComplete]);
+      if (!rows || rows.length === 0) {
+        throw new Error("No project found with id " + id);
+      }
       return { ok: 1 };
     } catch (error) {
       console.error("Error updating project status:", error);
