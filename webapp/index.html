@@ -203,6 +203,38 @@ input,select{font-family:inherit;font-size:16px}
 .assignrow select{padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;color:var(--ink-soft);max-width:180px;background:#fff}
 .assignrow .tag a{cursor:pointer;color:var(--danger);font-weight:800;margin-left:3px}
 .btn-ghost.navon{color:var(--brand);font-weight:800;box-shadow:inset 0 -3px 0 var(--accent)}
+/* ---------- proposals ---------- */
+.prop-wrap{display:grid;grid-template-columns:minmax(320px,400px) 1fr;gap:22px;align-items:start}
+.prop-form{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;position:sticky;top:80px;max-height:calc(100vh - 100px);overflow-y:auto}
+.prop-form h4{margin:14px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft)}
+.prop-form h4:first-child{margin-top:0}
+.prop-form label{display:block;font-size:12.5px;font-weight:600;margin:8px 0 3px}
+.prop-form input,.prop-form select{width:100%;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:13.5px;font-family:inherit;background:#fff}
+.prop-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.ppdoc{background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:56px 64px;max-width:900px;font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:10.8pt;line-height:1.35;color:#000}
+.ppdoc p{margin:0 0 10px}
+.ppdoc .pp-c{text-align:center}
+.ppdoc .pp-title{font-weight:700;font-size:13pt;text-transform:uppercase;text-align:center;margin-bottom:6px}
+.ppdoc .pp-sub{text-align:center;margin-bottom:4px}
+.ppdoc .pp-head{text-align:center;margin-bottom:14px}
+.ppdoc .pp-head img{max-height:72px}
+.ppdoc .pp-sec{font-weight:700;color:#C00000;margin:14px 0 6px}
+.ppdoc table{width:100%;border-collapse:collapse;margin:10px 0 14px}
+.ppdoc td{border:1px solid #444;padding:4px 7px;vertical-align:bottom}
+.ppdoc .pp-info td:first-child{font-weight:700;width:120px;text-transform:uppercase}
+.ppdoc .pp-price td.lbl{font-weight:700}
+.ppdoc .pp-price td.amt{width:120px;text-align:right;font-weight:700;color:#C00000}
+.ppdoc .pp-caps{font-weight:600}
+.ppdoc .pp-sign{margin-top:18px}
+.ppdoc .pp-foot{text-align:center;margin-top:26px;font-size:9pt;font-weight:700}
+.ppdoc .pp-foot img{max-height:44px;display:block;margin:0 auto 3px}
+@media (max-width:1024px){ .prop-wrap{grid-template-columns:1fr} .prop-form{position:static;max-height:none} .ppdoc{padding:24px} }
+@media print{
+  .topbar,.prop-form,.page-head,.back,.toasts,.kindrow,.prop-actions,.prop-listonly,.overlay{display:none !important}
+  body,.main{background:#fff !important;padding:0 !important;margin:0 !important}
+  .prop-wrap{display:block}
+  .ppdoc{border:none;box-shadow:none;border-radius:0;max-width:none;padding:0}
+}
 </style>
 </head>
 <body>
@@ -261,6 +293,7 @@ input,select{font-family:inherit;font-size:16px}
             <input v-model.trim="query" placeholder="Search by name or address…">
           </div>
           <button class="btn btn-reports" style="width:auto;padding:12px 20px" @click="openAdd">&#65291; Add Project</button>
+          <button class="btn btn-dl" style="width:auto;padding:12px 20px" title="Proposals — create before the project exists; accepted proposals convert into projects" @click="openProposals">&#128196; Proposals</button>
         </div>
         <div class="kindrow" v-if="!loadingProjects">
           <button class="kind" :class="{on: filterMode==='active'}" @click="filterMode='active'">Active ({{ projectCounts.active }})</button>
@@ -295,6 +328,133 @@ input,select{font-family:inherit;font-size:16px}
                 <button class="btn btn-dl" style="flex:0 0 auto;padding:12px 12px" :title="p.iscomplete ? 'Reopen project' : 'Mark complete'" @click="toggleComplete(p)">{{ p.iscomplete ? '&#8634;' : '&#10003;' }}</button>
                 <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete project" @click="deletingProject = p">&#128465;</button>
               </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ============ PROPOSALS (pre-project) ============ -->
+      <template v-else-if="view==='proposals'">
+        <button class="back" @click="prop ? closeProposal() : goHome()">&#8592; {{ prop ? 'All proposals' : 'All projects' }}</button>
+        <div class="page-head">
+          <h2>Proposals <span class="count" v-if="!loadingProposals && !prop">({{ proposals.length }})</span><span v-if="prop" style="font-weight:400;font-size:16px;color:var(--ink-soft)"> — {{ prop.form.property || 'New proposal' }}</span></h2>
+          <button v-if="!prop" class="btn btn-reports" style="width:auto;padding:12px 20px" :disabled="propBusy" @click="newProposal">&#65291; New Proposal</button>
+        </div>
+
+        <div class="empty" v-if="loadingProposals">Loading proposals&hellip;</div>
+
+        <!-- list -->
+        <div v-else-if="!prop" class="prop-listonly">
+          <div class="empty" v-if="proposals.length===0">No proposals yet. Create one here before the project exists &mdash; once the client accepts, it converts into a project and the signed copy goes into that project&rsquo;s Documents.</div>
+          <div class="grid" v-else>
+            <div class="pcard" v-for="pr in proposals" :key="pr.id">
+              <div class="body">
+                <h3>{{ pr.name }}</h3>
+                <div class="addr">{{ (pr.form && pr.form.address) || 'No address' }}</div>
+                <div class="meta">
+                  <span class="chip" :class="pr.status==='accepted' ? 'done' : 'open'">{{ pr.status==='accepted' ? 'Accepted' : 'Draft' }}</span>
+                  <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ niceDate(pr.updatedAt) }}</span>
+                </div>
+                <div class="actions card-btns">
+                  <button class="btn btn-inspect" @click="editProposal(pr)">Open</button>
+                  <button class="btn btn-reports" v-if="pr.status!=='accepted'" :disabled="propConverting" @click="acceptProposal(pr)">Accept &rarr; Project</button>
+                  <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete proposal" @click="propDeleting = pr">&#128465;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- editor + live document -->
+        <div v-else class="prop-wrap">
+          <div class="prop-form">
+            <h4>Prepared for</h4>
+            <label>Property</label><input v-model.trim="prop.form.property" placeholder="e.g. 325 W. 45th St. Apartments">
+            <label>Address</label><input v-model.trim="prop.form.address" placeholder="Street, City, ST 12345">
+            <label>Owner / MGR</label><input v-model.trim="prop.form.ownerMgr" placeholder="Owner or property manager">
+            <label>Contact</label><input v-model.trim="prop.form.contact" placeholder="Name, phone, email">
+            <h4>Document selections</h4>
+            <template v-for="f in propFields" :key="f.idx">
+              <label>{{ f.label }}</label>
+              <input v-if="f.kind==='date'" v-model.trim="prop.form.values[f.idx]" placeholder="M/D/YYYY">
+              <select v-else v-model="prop.form.values[f.idx]">
+                <option v-for="o in f.options" :key="o" :value="o.trim()">{{ o }}</option>
+              </select>
+            </template>
+            <div class="prop-actions">
+              <button class="btn btn-inspect" style="flex:1" :disabled="propBusy || !prop.form.property" @click="saveProposal(false)">{{ propBusy ? 'Saving…' : '💾 Save' }}</button>
+              <button class="btn btn-dl" style="flex:1" :disabled="propBusy || !prop.form.property" @click="downloadPropWord">&#11015; Word</button>
+              <button class="btn btn-dl" style="flex:1" @click="printProposal">&#128424; Print / PDF</button>
+              <button class="btn btn-reports" style="flex:1 1 100%" v-if="prop.status!=='accepted'" :disabled="propConverting || !prop.form.property" @click="acceptProposal(null)">{{ propConverting ? 'Converting…' : '✓ Accepted → Convert to Project' }}</button>
+            </div>
+          </div>
+
+          <!-- on-line document (also the print/PDF layout) -->
+          <div class="ppdoc" id="propPrint">
+            <div class="pp-head">
+              <img v-if="propBranding && propBranding.headerLogo" :src="propBranding.headerLogo" alt="">
+            </div>
+            <div class="pp-title">Exterior Elevated Elements (EEE)</div>
+            <div class="pp-sub" style="font-weight:700">{{ pv(0) }}</div>
+            <div class="pp-sub">{{ pv(1) }}</div>
+            <table class="pp-info">
+              <tr><td>Property:</td><td>{{ prop.form.property }}</td><td style="border:none;font-weight:700;text-align:right;width:110px">{{ pv(2) }}</td></tr>
+              <tr><td>Address:</td><td colspan="2">{{ prop.form.address }}</td></tr>
+              <tr><td>Owner / MGR:</td><td colspan="2">{{ prop.form.ownerMgr }}</td></tr>
+              <tr><td>Contact:</td><td colspan="2">{{ prop.form.contact }}</td></tr>
+              <tr><td style="text-transform:none">{{ pv(3) }}</td><td colspan="2">{{ pv(4) }}</td></tr>
+            </table>
+            <div class="pp-sec">INSPECTIONS PARAMETERS:</div>
+            <p><b>{{ coName }},</b> a Certified E3 Inspector, will conduct an onsite inspection located at the address above. The complete inspection is conducted in multiple sections by State Licensed Architects, Engineers, ICC Inspectors or Contractors as required by City or State Civil Code, starting with a Visual Inspection of the Exterior Elevated Elements (EEE). The visual inspection looks at all decks, stairs, railing, and wooden structures (including metal structures and attachments where 604 Affidavits are required) supporting or attached to any structure which extends beyond the exterior walls where people may walk, stand, or sit (load or static). This inspection follows the guidelines as defined by the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551/ 2026 Updated Inspection Reporting Requirements (SB326) or Section 604 of The San Francisco Housing Code.</p>
+            <p>This proposal and pricing have been developed using a 100% EEE review process versus a statistical sampling of the project outlined in California Civil Code &sect;5551 or California Health and 15% sampling for Safety Code &sect;17973 (SB721) and 100% for Section 604 of The San Francisco Housing Code. The reason {{ coName }} use the 100% inspection method for HOA / Condo is to verify all surfaces and structures are safe. The Statistical Sampling method does not provide 100% accuracy and leaves the possibility of an unsafe condition.</p>
+            <div class="pp-sec">SECTION (1) VISUAL INSPECTIONS:</div>
+            <p>This scope and price cover only a single, non-intrusive visual review of each Exterior Elevated Elements (EEE). Digital scanners, borescopes, or other intrusive inspection or review are not included in this visual component of the survey and inspection. Any signs of surface deterioration, cracks, or damage which can or has led to water or moisture intrusion and or the deterioration of any surface materials will be further investigated under Section Two (2) below: Damage Surface Inspection / Invasive Inspect.</p>
+            <p><b>NOTE***All units to be inspected in one scheduled inspection. Scheduling multiple inspections will increase price.</b></p>
+            <div class="pp-c" style="font-weight:700">PRICING</div>
+            <table class="pp-price">
+              <tr><td class="lbl" colspan="2">{{ pv(7) }}</td><td class="amt">{{ pv(8) }}</td></tr>
+              <tr><td class="lbl">Visual Inspection</td><td>{{ pv(9) }}</td><td class="amt">{{ pv(10) }}</td></tr>
+              <tr><td></td><td>{{ pv(11) }}</td><td class="amt">{{ pv(12) }}</td></tr>
+              <tr><td class="lbl">{{ pv(13) }}</td><td>{{ pv(14) }}</td><td class="amt">{{ pv(15) }}</td></tr>
+              <tr><td class="lbl">{{ pv(16) }}</td><td>{{ pv(17) }}</td><td class="amt">{{ pv(18) }}</td></tr>
+              <tr><td></td><td></td><td class="amt">{{ pv(19) }}</td></tr>
+              <tr><td class="lbl" colspan="2">{{ pv(20) }}</td><td class="amt">{{ pv(21) }}</td></tr>
+              <tr><td class="lbl" colspan="2">Scheduling /One day.  All units must be accessible from the exterior.</td><td class="amt">{{ pv(22) }}</td></tr>
+              <tr><td class="lbl" colspan="2">{{ pv(23) }}</td><td class="amt">{{ pv(24) }}</td></tr>
+              <tr><td class="lbl" colspan="2">{{ pv(25) }}</td><td class="amt">{{ pv(26) }}</td></tr>
+              <tr><td class="lbl" colspan="2">{{ pv(27) }}</td><td class="amt">{{ pv(28) }}</td></tr>
+              <tr><td class="lbl" colspan="2">{{ pv(29) }}</td><td class="amt">{{ pv(30) }}</td></tr>
+              <tr><td class="lbl" colspan="3">{{ pv(31) }}</td></tr>
+            </table>
+            <p><b>Exclusions:</b><br>This proposal specifically excludes inspection of the surfaces and structure where the following obstructs the view of the inspectors:<br>1. Surfaces covered with carpet, tile, concrete, or other materials which would inhibit a complete visual review.<br>2. Roof Decks which are not accessible</p>
+            <div class="pp-sec">SECTION (2) DAMAGED SURFACE INSPECTION:</div>
+            <p><b>(AKA: Invasive Inspection if needed).</b></p>
+            <p>After the visual survey Section 1 above has been completed, any surfaces deemed by the inspector to be &ldquo;suspect&rdquo; where moisture or water has penetrated the surface of the wood, waterproofing or any signs of cracks, dry-rot, bubbles, deterioration, delamination, rusted flashing, water stains on soffit below, signs of structural damage or failures, etc. shall be further inspected through invasive means such as removal of coverings, digital and thermal cameras, borescope or other invasive electronic inspection methods of investigation.</p>
+            <p>The cost for this Section 2 inspection, if provided, is identified in the proposed price above. The inspection fee does not cover the deconstruction and reconstruction processes (open and close of surfaces), which are to be defined by the inspector. {{ coName }} can provide a proposal for the deconstruction and reconstruction of the surfaces at a price to be determined and paid for by the owner.</p>
+            <p>If the Invasive investigation noted above reveals concerns of subsurface damage, the surface shall be reviewed further by removal of the coatings, concrete, or plywood layers, stucco, or other surfaces to expose the structural elements for a complete and thorough investigation, which shall be paid for by the owner.</p>
+            <div class="pp-sec">SECTION (3) REPAIRS (If needed).</div>
+            <p>If repairs to any surface are required, licensed contractors, architect or engineer must provide the plans, details, and or type of repairs to be performed. All plans and drawings must be approved by the local Building and Safety department as well as all necessary permits and fees paid by the owner. The owner may select and use his own contractor, architect, or engineer to develop said plans, however {{ coName }} or other Certified E3 Inspectors must inspect all repair work, including finished work, prior to closing the surfaces at the above listed rates for visual inspections. Failure to conform to this requirement will delay or inhibit the issuance of the final report by {{ coName }} or E3 Certified Inspectors.</p>
+            <div class="pp-sec">SECTION (4) REPORTS:</div>
+            <p>A report of the project (Visual, Invasive or Final) will be prepared in accordance with the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551 (SB326) and San Francisco Section 604 compliance and guidelines and submitted to the Owner / Agent or City for their records and incorporation into the Reserve Study Analysis or public record at the cost identified in the price proposal above.</p>
+            <p>If any conditions are found to exist where damage is excessive, causing a concern for the safety of the residents or others, {{ coName }} is required by law to inform both the owner and the local or state Building and Safety Department as required by California Health and Safety Code &sect;17973 (SB721), California Civil Code &sect;5551 (SB326) or the City of San Francisco Section 604, and ask the Owner / Agent to close the area(s) to all persons. The Notice of Unsafe Conditions is a separate fee, if required and identified in the price proposal above.</p>
+            <div class="pp-sec">PAYMENTS FOR PROFESSIONAL SERVICES:</div>
+            <p>All fees are fully earned by {{ coName }} upon the dispatch of inspectors.</p>
+            <p>Total due amounts will be billed and due payable upon completion of dispatch of the inspectors or the completion of a Request for Bid (RFP). Reports will be released to the client / undersigned when all payments have been received by {{ coName }}.</p>
+            <p>A late fee of 15% of the amount of the invoice shall be assessed on any invoice which is not paid within five (15) calendar days of its due date. In addition to the late fee, any invoice which is not paid within thirty (30) calendar days of its due date shall also bear interest at the rate of 18% per annum from the original due date of the invoice.</p>
+            <div class="pp-sec">LIMITATIONS AND ARBITRATION OF DISPUTES:</div>
+            <p>Any action of any character arising from or related to this Agreement, or the performance thereof, including, but not limited to, breach of contract, including, but not limited to allegations of improperly performed inspections, Requests for Proposals (RFP), negligence, any intentional tort, or any claim based upon alleged noncompliance with statute shall be commenced by Owner/Undersigned against the {{ coName }}, no later than three (3) months after the accrual of the cause of action, OR three (3) months after {{ coName }} work has been substantially completed, OR no later than three (3) months after {{ coName }} last performed inspections or has developed RFP&rsquo;s under this Agreement if not substantially completed, whichever period is SHORTER.</p>
+            <p>Owner/Undersigned and its representatives acknowledge that their failure to commence an action within the periods of time set forth in this paragraph shall constitute an absolute bar and complete defense to any action brought thereafter.</p>
+            <p>Furthermore, in no event shall {{ coName }} be liable under this Agreement for, and Owner/Undersigned hereby expressly releases the {{ coName }} from and against, any indirect, special, incidental, punitive, exemplary or consequential damages, including, but not limited to, damages for loss of revenue and profits, loss of business or business interruptions, loss of use of assets or facilities, and rental expenses and, in all cases, the total liability of {{ coName }} on any and all claims brought by Owner/Undersigned against {{ coName }}, under any theory at law or in equity, shall not exceed the actual price paid to {{ coName }} by Owner/Undersigned pursuant to this Agreement.</p>
+            <p class="pp-caps">ANY CONTROVERSY OR CLAIM ARISING OUT OF OR RELATING TO THIS AGREEMENT OR THE BREACH THEREOF SHALL BE SETTLED BY ARBITRATION IN LOS ANGELES, CALIFORNIA IN AN ARBITRATION ADMINISTERED BY, AND GOVERNED IN ACCORDANCE WITH, THE CONSTRUCTION ARBITRATION RULES OF THE AMERICAN ARBITRATION ASSOCIATION THEN IN EFFECT, AND JUDGMENT UPON THE AWARD MAY BE RENDERED BY ANY COURT OF COMPETENT JURISDICTION AND SHALL BE FINAL AND BINDING UPON THE PARTIES HERETO. NOTICE: BY INITIALING IN THE SPACE BELOW YOU ARE AGREEING TO HAVE ANY DISPUTE ARISING OUT OF THE MATTERS INCLUDED IN THE ARBITRATION OF DISPUTES PROVISION DECIDED BY NEUTRAL ARBITRATION AS PROVIDED BY CALIFORNIA LAW AND YOU ARE GIVING UP ANY RIGHTS YOU MIGHT POSSESS TO HAVE THE DISPUTE LITIGATED IN A COURT OR JURY TRIAL. BY INITIALING IN THE SPACE BELOW YOU ARE GIVING UP YOUR JUDICIAL RIGHTS TO DISCOVERY AND APPEAL, UNLESS THOSE RIGHTS ARE SPECIFICALLY INCLUDED IN THE ARBITRATION OF DISPUTES PROVISION. IF YOU REFUSE TO SUBMIT TO ARBITRATION AFTER AGREEING TO THIS PROVISION, YOU MAY BE COMPELLED TO ARBITRATE UNDER THE AUTHORITY OF THE BUSINESS AND PROFESSIONS CODE OR OTHER APPLICABLE LAWS. YOUR AGREEMENT TO THIS ARBITRATION PROVISION IS VOLUNTARY. WE HAVE READ AND UNDERSTAND THE FOREGOING AND BY AFFIXING OUR INITIALS HERETO ACKNOWLEDGE THAT THE PARTIES AGREE TO SUBMIT DISPUTES ARISING OUT OF THIS AGREEMENT TO NEUTRAL ARBITRATION. Initial below:</p>
+            <div class="pp-sign">
+              <p>Owner/Undersigned&rsquo;s Initials: ________ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {{ coName }} Initials: __________</p>
+              <p>Owner/ Agent: ______________________________________<br><span style="margin-left:110px">(Print Full Name)</span></p>
+              <p>Title: _____________________</p>
+              <p>Signature: ________________________ Date: __________</p>
+            </div>
+            <div class="pp-foot">
+              <img v-if="propBranding && propBranding.footerLogo" :src="propBranding.footerLogo" alt="">
+              <div v-if="propBranding && propBranding.footerText">{{ propBranding.footerText }}</div>
             </div>
           </div>
         </div>
@@ -712,6 +872,18 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ DELETE PROPOSAL CONFIRM ============ -->
+  <div class="overlay" v-if="propDeleting" @click.self="propDeleting=null">
+    <div class="modal">
+      <h3>Delete this proposal?</h3>
+      <p><b>{{ propDeleting.name }}</b><br><br>This removes the saved proposal. Any project already created from it is not affected.</p>
+      <div class="mrow">
+        <button class="btn-cancel" @click="propDeleting=null">Cancel</button>
+        <button class="btn-danger" @click="doDeleteProposal">Delete Proposal</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ ADD USER ============ -->
   <div class="overlay" v-if="userAddOpen">
     <div class="modal">
@@ -828,6 +1000,8 @@ createApp({
       unit: null, sections: [], loadingSections: false, lightbox: null,
       structTab: 'buildings',
       docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFile: null, uploadingDoc: false, docDeleting: null,
+      proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
+      propBusy: false, propConverting: false, propDeleting: null,
       toasts: [], toastSeq: 0,
     };
   },
@@ -859,6 +1033,9 @@ createApp({
       const a = this.current && this.current.assignedto;
       if (Array.isArray(a)) return a.filter(Boolean);
       return a ? [a] : [];
+    },
+    coName() {
+      return (this.propBranding && this.propBranding.name) || 'Deck Inspectors';
     },
   },
   created() {
@@ -1595,6 +1772,147 @@ createApp({
       }
     },
 
+    /* ---------- proposals (pre-project) ---------- */
+    pv(i) {
+      return (this.prop && this.prop.form && this.prop.form.values && this.prop.form.values[i]) || '';
+    },
+    openProposals() {
+      history.pushState({ v: 'proposals' }, '');
+      this.view = 'proposals'; this.prop = null;
+      this.loadProposals(); this.ensurePropMeta();
+    },
+    closeProposal() { this.prop = null; this.loadProposals(); },
+    async loadProposals() {
+      this.loadingProposals = this.proposals.length === 0;
+      try {
+        const res = await this.api('/project/proposals');
+        if (res.ok) { const j = await res.json(); this.proposals = Array.isArray(j) ? j : []; }
+      } catch (e) { /* keep whatever we had */ }
+      finally { this.loadingProposals = false; }
+    },
+    async ensurePropMeta() {
+      try {
+        if (!this.propFields.length) {
+          const res = await this.api('/project/proposalform');
+          if (res.ok) { const j = await res.json(); this.propFields = j.fields || []; }
+        }
+        if (!this.propBranding) {
+          const res = await this.api('/project/proposalbranding');
+          if (res.ok) this.propBranding = await res.json();
+        }
+      } catch (e) { /* the form still works with defaults */ }
+    },
+    async newProposal() {
+      this.propBusy = true;
+      await this.ensurePropMeta();
+      this.propBusy = false;
+      const values = {};
+      const now = new Date();
+      for (const f of this.propFields) {
+        values[f.idx] = f.kind === 'date'
+          ? (now.getMonth() + 1) + '/' + now.getDate() + '/' + now.getFullYear()
+          : (f.value || '').trim();
+      }
+      this.prop = { id: null, status: 'draft', form: { property: '', address: '', ownerMgr: '', contact: '', values } };
+    },
+    async editProposal(pr) {
+      await this.ensurePropMeta();
+      const copy = JSON.parse(JSON.stringify(pr));
+      copy.form = copy.form || {};
+      copy.form.values = copy.form.values || {};
+      for (const f of this.propFields) {
+        if (copy.form.values[f.idx] == null) copy.form.values[f.idx] = (f.value || '').trim();
+      }
+      this.prop = copy;
+    },
+    async saveProposal(silent) {
+      if (!this.prop) return null;
+      this.propBusy = true;
+      try {
+        const res = await this.api('/project/proposals/save', {
+          method: 'POST',
+          json: { id: this.prop.id || undefined, name: this.prop.form.property || 'Untitled proposal', status: this.prop.status || 'draft', form: this.prop.form, linkedProjectId: this.prop.linkedProjectId || null },
+        });
+        if (!res.ok) throw new Error('bad');
+        const j = await res.json();
+        if (j && j.id) this.prop.id = j.id;
+        if (!silent) this.toast('Proposal saved.');
+        this.loadProposals();
+        return j;
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save the proposal.', 'err');
+        return null;
+      } finally { this.propBusy = false; }
+    },
+    async downloadPropWord() {
+      await this.saveProposal(true);
+      this.propBusy = true;
+      try {
+        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.prop.form } });
+        if (!res.ok) throw new Error('bad');
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = (this.prop.form.property || 'Proposal') + ' - Proposal.docx';
+        document.body.appendChild(a); a.click(); a.remove();
+        this.toast('Proposal Word document downloaded.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not generate the proposal document.', 'err');
+      } finally { this.propBusy = false; }
+    },
+    async printProposal() {
+      await this.ensurePropMeta();
+      this.$nextTick(() => window.print());
+    },
+    // Accepted proposal -> becomes a project; the signed copy is then uploaded
+    // to that project's Documents (the Documents modal opens ready for it).
+    async acceptProposal(pr) {
+      if (pr) { await this.editProposal(pr); }
+      if (!this.prop || !this.prop.form.property) { this.toast('Give the proposal a Property name first.', 'err'); return; }
+      this.propConverting = true;
+      try {
+        await this.saveProposal(true);
+        const res = await this.api('/project/add', {
+          method: 'POST',
+          json: {
+            name: this.prop.form.property,
+            description: 'Created from accepted proposal',
+            address: this.prop.form.address || '',
+            createdby: this.user.username, url: '', assignedto: [],
+            projecttype: 'multilevel',
+            editedat: new Date().toISOString(),
+            formId: null,
+          },
+        });
+        if (!res.ok) throw new Error('bad');
+        await this.loadProjects();
+        const created = [...this.projects]
+          .filter(p => p.name === this.prop.form.property)
+          .sort((x, y) => new Date(y.createdat || 0) - new Date(x.createdat || 0))[0];
+        this.prop.status = 'accepted';
+        this.prop.linkedProjectId = created ? this.projectId(created) : null;
+        await this.saveProposal(true);
+        this.toast('Proposal accepted — project created. Now upload the signed proposal to its Documents.');
+        this.prop = null;
+        this.goHome();
+        if (created) this.openDocs(created);
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not convert the proposal into a project.', 'err');
+      } finally { this.propConverting = false; }
+    },
+    async doDeleteProposal() {
+      const pr = this.propDeleting; this.propDeleting = null;
+      try {
+        const res = await this.api('/project/proposals/delete', { method: 'POST', json: { id: pr.id } });
+        if (!res.ok) throw new Error('bad');
+        this.proposals = this.proposals.filter(x => x.id !== pr.id);
+        if (this.prop && this.prop.id === pr.id) this.prop = null;
+        this.toast('Proposal deleted.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not delete that proposal.', 'err');
+      }
+    },
+
     /* ---------- browser history (back button) ---------- */
     goHome() {
       history.pushState({ v: 'projects' }, '');
@@ -1618,6 +1936,7 @@ createApp({
       const st = (e && e.state) || { v: 'projects' };
       if (!this.user) return;
       if (st.v === 'users') { this.view = 'users'; if (!this.users.length) this.loadUsers(); return; }
+      if (st.v === 'proposals') { this.view = 'proposals'; this.prop = null; this.loadProposals(); return; }
       if (st.v === 'reports' || st.v === 'inspect' || st.v === 'unit') {
         const p = this.projects.find(x => this.projectId(x) === st.pid);
         if (!p) { this.view = 'projects'; return; }
