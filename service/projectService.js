@@ -280,15 +280,18 @@ var getProjectsByNameCreatedOnIsCompletedAndDeleted = async function ({
 var toggleProjectstatus = async function (projectId,iscomplete) {
     try {
         const result = await ProjectDAO.updateProjectStatus(projectId,iscomplete);
-        if (result.ok === 1) {
+        // The DAO returns { data } on success / { error } on failure. The old
+        // check (result.ok === 1, a MongoDB convention) never matched, so every
+        // toggle answered 401 and the web app treated it as an expired session.
+        if (result && result.data) {
             return {
                 success: true,
             };
         }
         return {
-            code:401,
+            code: (result && result.error && result.error.code === 405) ? 404 : 500,
             success: false,
-            reason: 'No project found with the given ID'
+            reason: (result && result.error && result.error.message) || 'Could not update the project status.'
         };
     } catch (error) {
         return handleError(error);
