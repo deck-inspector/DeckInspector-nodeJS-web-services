@@ -1552,6 +1552,13 @@ createApp({
     async photoFile(e, form) {
       const f = (e.target.files && e.target.files[0]) || null;
       if (!f) return;
+      // The Location Photo must be an image. Documents (PDF, Word, ...) go in
+      // the project's 📎 Documents, in their own folder — not as the cover photo.
+      if (!f.type || f.type.indexOf('image/') !== 0) {
+        this.toast('That file is a document, not a photo. Use the 📎 Documents button on the project card to upload documents.', 'err');
+        e.target.value = '';
+        return;
+      }
       this.photoBusy = true;
       try {
         form.url = await this.uploadPhotoBlob(f, form.name || 'project');
@@ -1725,7 +1732,9 @@ createApp({
       try {
         const fd = new FormData();
         fd.append('picture', this.docFile, this.docFile.name);
-        fd.append('containerName', String(this.docsProject.name || 'project').replace(/\s+/g, '').toLowerCase());
+        // Documents live in their own storage folder, separate from the
+        // project's photos: "<projectname>documents" vs "<projectname>".
+        fd.append('containerName', String(this.docsProject.name || 'project').replace(/\s+/g, '').toLowerCase() + 'documents');
         fd.append('uploader', 'deck');
         fd.append('entityName', this.docsProject.name || 'project');
         const up = await this.api('/image/upload', { method: 'POST', body: fd });
