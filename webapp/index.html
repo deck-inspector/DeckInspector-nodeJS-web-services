@@ -1521,7 +1521,11 @@ createApp({
       const res = await this.api('/image/upload', { method: 'POST', body: fd });
       if (!res.ok) throw new Error('upload');
       const data = await res.json();
-      return data.url || (data.data && data.data.url) || '';
+      let u = data.url || (data.data && data.data.url) || '';
+      // Cache-buster: the blob overwrites the same name on every retake, so
+      // browsers keep showing the cached old photo unless the URL changes.
+      if (u) u += (u.indexOf('?') === -1 ? '?v=' : '&v=') + Date.now();
+      return u;
     },
     async satPhoto(form) {
       this.photoBusy = true;
