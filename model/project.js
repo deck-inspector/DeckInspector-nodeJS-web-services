@@ -454,26 +454,27 @@ var updateProjectOfflineAvailabilityStatus = async function (id, isavailableoffl
 var updateProjectStatus = async function (id, iscomplete) {
     var response = {};
     try {
-        const collection = await getProjectsCollection();
-        const doc = await collection.get(id);
-        
-        if (!doc) {
+        // N1QL UPDATE instead of KV get+upsert: the KV data service times out
+        // intermittently while the query service stays responsive (same reason
+        // getProjectById reads via N1QL). Touches ONLY the iscomplete flag.
+        const query = "UPDATE `" + process.env.DB_BUCKET_NAME + "`.`" + (process.env.DB_SCOPE_NAME || "inventory") + "`.Project p USE KEYS $1 SET p.iscomplete = $2 RETURNING META(p).id";
+        const rows = await executeQuery(query, [id, iscomplete]);
+
+        if (!rows || rows.length === 0) {
             response = {
                 "error": {
                     "code": 405,
-                    "message": "No project found, invalid id."                    
+                    "message": "No project found, invalid id."
                 }
             };
             return response;
         }
-        
-        await collection.upsert(id, { ...doc.content, iscomplete: iscomplete });
         var message = `Project state updated successfully, is project complete: ${iscomplete}.`;
         response = {
-            "data": {                
+            "data": {
                 "message": message,
                 "code": 201
-            }   
+            }
         };
         return response;
     } catch (err) {
@@ -485,7 +486,7 @@ var updateProjectStatus = async function (id, iscomplete) {
             }
         };
         return response;
-    }   
+    }
 };
 
 var deleteProjectPermanently = async function (id) {
