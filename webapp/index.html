@@ -234,7 +234,9 @@ input,select{font-family:inherit;font-size:16px}
   body,.main{background:#fff !important;padding:0 !important;margin:0 !important}
   .prop-wrap{display:block}
   .ppdoc{border:none;box-shadow:none;border-radius:0;max-width:none;padding:0}
+  .ppdoc .pp-break{page-break-before:always;margin-top:0}
 }
+.ppdoc .pp-break{border-top:1px dashed #bbb;padding-top:14px;margin-top:22px}
 </style>
 </head>
 <body>
@@ -350,7 +352,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="pcard" v-for="pr in proposals" :key="pr.id">
               <div class="body">
                 <h3>{{ pr.name }}</h3>
-                <div class="addr">{{ (pr.form && pr.form.address) || 'No address' }}</div>
+                <div class="addr">{{ (pr.form && ([pr.form.addressStreet, pr.form.addressCity, pr.form.addressStateZip].filter(Boolean).join(', ') || pr.form.address)) || 'No address' }}</div>
                 <div class="meta">
                   <span class="chip" :class="pr.status==='accepted' ? 'done' : 'open'">{{ pr.status==='accepted' ? 'Accepted' : 'Draft' }}</span>
                   <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ niceDate(pr.updatedAt) }}</span>
@@ -370,16 +372,19 @@ input,select{font-family:inherit;font-size:16px}
           <div class="prop-form">
             <h4>Prepared for</h4>
             <label>Property</label><input v-model.trim="prop.form.property" placeholder="e.g. 325 W. 45th St. Apartments">
-            <label>Address</label><input v-model.trim="prop.form.address" placeholder="Street, City, ST 12345">
+            <label>Street Address</label><input v-model.trim="prop.form.addressStreet" placeholder="e.g. 1219 Journeys End Dr.">
+            <div style="display:flex;gap:8px"><div style="flex:1.4"><label>City</label><input v-model.trim="prop.form.addressCity" placeholder="City"></div><div style="flex:1"><label>State &amp; Zip</label><input v-model.trim="prop.form.addressStateZip" placeholder="CA 91011"></div></div>
             <label>Owner / MGR</label><input v-model.trim="prop.form.ownerMgr" placeholder="Owner or property manager">
-            <label>Contact</label><input v-model.trim="prop.form.contact" placeholder="Name, phone, email">
+            <div style="display:flex;gap:8px"><div style="flex:1"><label>Contact Phone</label><input v-model.trim="prop.form.contactPhone" placeholder="760-555-0000"></div><div style="flex:1.4"><label>Contact Email</label><input v-model.trim="prop.form.contactEmail" placeholder="name@email.com"></div></div>
             <h4>Document selections</h4>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Pick from the list or type your own value.</div>
             <template v-for="f in propFields" :key="f.idx">
               <label>{{ f.label }}</label>
               <input v-if="f.kind==='date'" v-model.trim="prop.form.values[f.idx]" placeholder="M/D/YYYY">
-              <select v-else v-model="prop.form.values[f.idx]">
-                <option v-for="o in f.options" :key="o" :value="o.trim()">{{ o }}</option>
-              </select>
+              <template v-else>
+                <input v-model.trim="prop.form.values[f.idx]" :list="'pdl'+f.idx" :placeholder="f.options[0]">
+                <datalist :id="'pdl'+f.idx"><option v-for="o in f.options" :key="o" :value="o.trim()"></option></datalist>
+              </template>
             </template>
             <div class="prop-actions">
               <button class="btn btn-inspect" style="flex:1" :disabled="propBusy || !prop.form.property" @click="saveProposal(false)">{{ propBusy ? 'Saving…' : '💾 Save' }}</button>
@@ -396,18 +401,18 @@ input,select{font-family:inherit;font-size:16px}
             </div>
             <div class="pp-title">Exterior Elevated Elements (EEE)</div>
             <div class="pp-sub" style="font-weight:700">{{ pv(0) }}</div>
-            <div class="pp-sub">{{ pv(1) }}</div>
+            <div class="pp-sub" style="position:relative">{{ pv(1) }}<span style="position:absolute;right:0;top:-4px;border:1px solid #444;background:#f0f0f0;font-weight:700;padding:2px 12px">{{ pv(2) }}</span></div>
             <table class="pp-info">
-              <tr><td>Property:</td><td>{{ prop.form.property }}</td><td style="border:none;font-weight:700;text-align:right;width:110px">{{ pv(2) }}</td></tr>
-              <tr><td>Address:</td><td colspan="2">{{ prop.form.address }}</td></tr>
-              <tr><td>Owner / MGR:</td><td colspan="2">{{ prop.form.ownerMgr }}</td></tr>
-              <tr><td>Contact:</td><td colspan="2">{{ prop.form.contact }}</td></tr>
-              <tr><td style="text-transform:none">{{ pv(3) }}</td><td colspan="2">{{ pv(4) }}</td></tr>
+              <tr><td>Property:</td><td colspan="3">{{ prop.form.property }}</td></tr>
+              <tr><td>Address:</td><td>{{ prop.form.addressStreet || prop.form.address }}</td><td>{{ prop.form.addressCity }}</td><td>{{ prop.form.addressStateZip }}</td></tr>
+              <tr><td>Owner / MGR:</td><td colspan="3">{{ prop.form.ownerMgr }}</td></tr>
+              <tr><td>Contact:</td><td>{{ prop.form.contactPhone || prop.form.contact }}</td><td colspan="2">{{ prop.form.contactEmail }}</td></tr>
+              <tr><td style="text-transform:none">{{ pv(3) }}</td><td colspan="3">{{ pv(4) }}</td></tr>
             </table>
             <div class="pp-sec">INSPECTIONS PARAMETERS:</div>
             <p><b>{{ coName }},</b> a Certified E3 Inspector, will conduct an onsite inspection located at the address above. The complete inspection is conducted in multiple sections by State Licensed Architects, Engineers, ICC Inspectors or Contractors as required by City or State Civil Code, starting with a Visual Inspection of the Exterior Elevated Elements (EEE). The visual inspection looks at all decks, stairs, railing, and wooden structures (including metal structures and attachments where 604 Affidavits are required) supporting or attached to any structure which extends beyond the exterior walls where people may walk, stand, or sit (load or static). This inspection follows the guidelines as defined by the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551/ 2026 Updated Inspection Reporting Requirements (SB326) or Section 604 of The San Francisco Housing Code.</p>
             <p>This proposal and pricing have been developed using a 100% EEE review process versus a statistical sampling of the project outlined in California Civil Code &sect;5551 or California Health and 15% sampling for Safety Code &sect;17973 (SB721) and 100% for Section 604 of The San Francisco Housing Code. The reason {{ coName }} use the 100% inspection method for HOA / Condo is to verify all surfaces and structures are safe. The Statistical Sampling method does not provide 100% accuracy and leaves the possibility of an unsafe condition.</p>
-            <div class="pp-sec">SECTION (1) VISUAL INSPECTIONS:</div>
+            <div class="pp-sec pp-break">SECTION (1) VISUAL INSPECTIONS:</div>
             <p>This scope and price cover only a single, non-intrusive visual review of each Exterior Elevated Elements (EEE). Digital scanners, borescopes, or other intrusive inspection or review are not included in this visual component of the survey and inspection. Any signs of surface deterioration, cracks, or damage which can or has led to water or moisture intrusion and or the deterioration of any surface materials will be further investigated under Section Two (2) below: Damage Surface Inspection / Invasive Inspect.</p>
             <p><b>NOTE***All units to be inspected in one scheduled inspection. Scheduling multiple inspections will increase price.</b></p>
             <div class="pp-c" style="font-weight:700">PRICING</div>
@@ -427,7 +432,7 @@ input,select{font-family:inherit;font-size:16px}
               <tr><td class="lbl" colspan="3">{{ pv(31) }}</td></tr>
             </table>
             <p><b>Exclusions:</b><br>This proposal specifically excludes inspection of the surfaces and structure where the following obstructs the view of the inspectors:<br>1. Surfaces covered with carpet, tile, concrete, or other materials which would inhibit a complete visual review.<br>2. Roof Decks which are not accessible</p>
-            <div class="pp-sec">SECTION (2) DAMAGED SURFACE INSPECTION:</div>
+            <div class="pp-sec pp-break">SECTION (2) DAMAGED SURFACE INSPECTION:</div>
             <p><b>(AKA: Invasive Inspection if needed).</b></p>
             <p>After the visual survey Section 1 above has been completed, any surfaces deemed by the inspector to be &ldquo;suspect&rdquo; where moisture or water has penetrated the surface of the wood, waterproofing or any signs of cracks, dry-rot, bubbles, deterioration, delamination, rusted flashing, water stains on soffit below, signs of structural damage or failures, etc. shall be further inspected through invasive means such as removal of coverings, digital and thermal cameras, borescope or other invasive electronic inspection methods of investigation.</p>
             <p>The cost for this Section 2 inspection, if provided, is identified in the proposed price above. The inspection fee does not cover the deconstruction and reconstruction processes (open and close of surfaces), which are to be defined by the inspector. {{ coName }} can provide a proposal for the deconstruction and reconstruction of the surfaces at a price to be determined and paid for by the owner.</p>
@@ -437,7 +442,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="pp-sec">SECTION (4) REPORTS:</div>
             <p>A report of the project (Visual, Invasive or Final) will be prepared in accordance with the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551 (SB326) and San Francisco Section 604 compliance and guidelines and submitted to the Owner / Agent or City for their records and incorporation into the Reserve Study Analysis or public record at the cost identified in the price proposal above.</p>
             <p>If any conditions are found to exist where damage is excessive, causing a concern for the safety of the residents or others, {{ coName }} is required by law to inform both the owner and the local or state Building and Safety Department as required by California Health and Safety Code &sect;17973 (SB721), California Civil Code &sect;5551 (SB326) or the City of San Francisco Section 604, and ask the Owner / Agent to close the area(s) to all persons. The Notice of Unsafe Conditions is a separate fee, if required and identified in the price proposal above.</p>
-            <div class="pp-sec">PAYMENTS FOR PROFESSIONAL SERVICES:</div>
+            <div class="pp-sec pp-break">PAYMENTS FOR PROFESSIONAL SERVICES:</div>
             <p>All fees are fully earned by {{ coName }} upon the dispatch of inspectors.</p>
             <p>Total due amounts will be billed and due payable upon completion of dispatch of the inspectors or the completion of a Request for Bid (RFP). Reports will be released to the client / undersigned when all payments have been received by {{ coName }}.</p>
             <p>A late fee of 15% of the amount of the invoice shall be assessed on any invoice which is not paid within five (15) calendar days of its due date. In addition to the late fee, any invoice which is not paid within thirty (30) calendar days of its due date shall also bear interest at the rate of 18% per annum from the original due date of the invoice.</p>
@@ -1035,7 +1040,7 @@ createApp({
       return a ? [a] : [];
     },
     coName() {
-      return (this.propBranding && this.propBranding.name) || 'Deck Inspectors';
+      return (((this.propBranding && this.propBranding.name) || 'Deck Inspectors') + '').trim().replace(/\.+$/, '');
     },
   },
   created() {
@@ -1521,7 +1526,7 @@ createApp({
         const g = await (await fetch('https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&outFields=none&maxLocations=1&singleLine=' + encodeURIComponent(form.address))).json();
         const c = g.candidates && g.candidates[0];
         if (!c) throw new Error('address');
-        const d = 0.0012;
+        const d = 0.0004; // tight view: the subject property, not the neighbors
         const bbox = [c.location.x - d, c.location.y - d * 0.625, c.location.x + d, c.location.y + d * 0.625].join(',');
         const img = await (await fetch('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=' + bbox + '&bboxSR=4326&imageSR=3857&size=800,500&format=jpg&f=image')).blob();
         form.url = await this.uploadPhotoBlob(img, form.name || 'project');
@@ -1813,7 +1818,7 @@ createApp({
           ? (now.getMonth() + 1) + '/' + now.getDate() + '/' + now.getFullYear()
           : (f.value || '').trim();
       }
-      this.prop = { id: null, status: 'draft', form: { property: '', address: '', ownerMgr: '', contact: '', values } };
+      this.prop = { id: null, status: 'draft', form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', values } };
     },
     async editProposal(pr) {
       await this.ensurePropMeta();
@@ -1822,6 +1827,17 @@ createApp({
       copy.form.values = copy.form.values || {};
       for (const f of this.propFields) {
         if (copy.form.values[f.idx] == null) copy.form.values[f.idx] = (f.value || '').trim();
+      }
+      // migrate older drafts saved before the split address / phone+email fields
+      if (!copy.form.addressStreet && copy.form.address) {
+        const parts = copy.form.address.split(',').map(s => s.trim());
+        copy.form.addressStreet = parts[0] || '';
+        copy.form.addressCity = parts[1] || '';
+        copy.form.addressStateZip = parts.slice(2).join(' ') || '';
+      }
+      if (!copy.form.contactPhone && copy.form.contact) copy.form.contactPhone = copy.form.contact;
+      for (const k of ['addressStreet','addressCity','addressStateZip','contactPhone','contactEmail']) {
+        if (copy.form[k] == null) copy.form[k] = '';
       }
       this.prop = copy;
     },
@@ -1877,7 +1893,7 @@ createApp({
           json: {
             name: this.prop.form.property,
             description: 'Created from accepted proposal',
-            address: this.prop.form.address || '',
+            address: [this.prop.form.addressStreet, this.prop.form.addressCity, this.prop.form.addressStateZip].filter(Boolean).join(', ') || this.prop.form.address || '',
             createdby: this.user.username, url: '', assignedto: [],
             projecttype: 'multilevel',
             editedat: new Date().toISOString(),
