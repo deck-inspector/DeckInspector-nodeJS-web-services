@@ -78,47 +78,56 @@ router.get("/status", async function (req, res) {
   }
 });
 
-async function copyCollection(src, dst, name, pageSize) {
+// Copies a bounded window [offset, offset+limit) of one collection so a single
+// HTTP request stays well under Azure's ~230s front-end timeout. Returns
+// progress so the caller can loop until done.
+async function copyWindow(src, dst, name, offset, limit) {
   const srcColl = src.bucket(BUCKET).scope(SCOPE).collection(name);
   const dstColl = dst.bucket(BUCKET).scope(SCOPE).collection(name);
-  let offset = 0, copied = 0, errors = 0;
-  // Pull ids page by page, then KV-get + KV-upsert (preserves the full doc body).
-  for (;;) {
-    const q = "SELECT RAW META().id FROM `" + BUCKET + "`.`" + SCOPE + "`.`" + name + "` LIMIT $lim OFFSET $off";
-    const r = await src.query(q, { parameters: { lim: pageSize, off: offset } });
-    const ids = r.rows;
-    if (!ids.length) break;
-    // process in small concurrent batches
-    for (let i = 0; i < ids.length; i += 50) {
-      const batch = ids.slice(i, i + 50);
-      await Promise.all(batch.map(async (id) => {
-        try {
-          const doc = await srcColl.get(id);
-          await dstColl.upsert(id, doc.content);
-          copied++;
-        } catch (e) {
-          errors++;
-        }
-      }));
-    }
-    offset += ids.length;
-    if (ids.length < pageSize) break;
+  const q = "SELECT RAW META().id FROM `" + BUCKET + "`.`" + SCOPE + "`.`" + name + "` LIMIT $lim OFFSET $off";
+  const r = await src.query(q, { parameters: { lim: limit, off: offset } });
+  const ids = r.rows;
+  let copied = 0, errors = 0;
+  for (let i = 0; i < ids.length; i += 50) {
+    const batch = ids.slice(i, i + 50);
+    await Promise.all(batch.map(async (id) => {
+      try {
+        const doc = await srcColl.get(id);
+        await dstColl.upsert(id, doc.content);
+        copied++;
+      } catch (e) { errors++; }
+    }));
   }
-  return { copied, errors };
+  return { scanned: ids.length, copied, errors, nextOffset: offset + ids.length, done: ids.length < limit };
 }
 
-// POST /api/migrate/run?token=XXX[&collection=Name]  -> copies one or all collections
+// POST /api/migrate/run?token=XXX&collection=Name&offset=N&limit=M
+//   Copies a bounded window and returns progress {scanned,copied,errors,nextOffset,done}.
+// POST /api/migrate/run?token=XXX   (no collection)
+//   Copies every SMALL collection fully in one request (each looped to done),
+//   and reports per-collection totals. Use the windowed form for big collections.
 router.post("/run", async function (req, res) {
   if (!checkToken(req, res)) return;
-  const pageSize = parseInt(req.query.pageSize || "1000", 10);
-  const only = req.query.collection;
   try {
     const src = await getSource();
     const dst = await getDest();
-    const list = only ? [only] : COLLECTIONS;
+    const only = req.query.collection;
+    if (only) {
+      const offset = parseInt(req.query.offset || "0", 10);
+      const limit = parseInt(req.query.limit || "500", 10);
+      const w = await copyWindow(src, dst, only, offset, limit);
+      return res.json({ ok: true, collection: only, offset, limit, ...w });
+    }
+    // No collection: loop each collection to completion in this request.
     const result = {};
-    for (const c of list) {
-      result[c] = await copyCollection(src, dst, c, pageSize);
+    for (const c of COLLECTIONS) {
+      let off = 0, copied = 0, errors = 0;
+      for (;;) {
+        const w = await copyWindow(src, dst, c, off, 1000);
+        copied += w.copied; errors += w.errors; off = w.nextOffset;
+        if (w.done) break;
+      }
+      result[c] = { copied, errors };
     }
     res.json({ ok: true, bucket: BUCKET, scope: SCOPE, result });
   } catch (e) {
