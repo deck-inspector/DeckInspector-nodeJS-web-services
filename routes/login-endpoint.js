@@ -97,9 +97,9 @@ router.route("/login").post(async function (req, res) {
         const userId = record.id || record._id;
 
         if (!record.deviceId) {
-          const doc = await collection.get(userId);
-          doc.content.deviceId = deviceId;
-          await collection.upsert(userId, doc.content);
+          // KV was timing out against the degraded data service; write through the healthy query service instead.
+          const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.deviceId = $2`;
+          await couchbaseDb.cluster.query(updateQuery, { parameters: [userId, deviceId] });
         } else if (record.deviceId !== deviceId) {
           return res
             .status(401)
@@ -155,11 +155,10 @@ router.route("/logout").post(async function (req, res) {
     }
 
     try {
-      const collection = couchbaseDb.Users;
       const userId = record.id || record._id;
-      const doc = await collection.get(userId);
-      doc.content.hasActiveSession = false;
-      await collection.upsert(userId, doc.content);
+      // KV was timing out against the degraded data service; write through the healthy query service instead.
+      const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.hasActiveSession = $2`;
+      await couchbaseDb.cluster.query(updateQuery, { parameters: [userId, false] });
       return res.status(201).send("User session cleared successfully.");
     } catch (err) {
       console.error("Logout error:", err);
