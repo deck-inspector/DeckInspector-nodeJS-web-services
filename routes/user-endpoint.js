@@ -406,7 +406,7 @@ router
       const username = req.params.username;
       const isActive = req.body.isActive;
       const result = await users.updateUserStatus(username, isActive);
-      res.status(result.status).send(result.message);
+      res.status(result.status).json({ message: result.message });
     } catch {
       res.status(500).send("Internal server error.");
     }
