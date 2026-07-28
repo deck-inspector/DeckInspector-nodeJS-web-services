@@ -200,9 +200,9 @@ var updateDevideId = async function (username, deviceId) {
     }
     
     const userId = results[0].id;
-    const userDoc = await collection.get(userId);
-    userDoc.content.deviceId = deviceId;
-    await collection.upsert(userId, userDoc.content);
+    // KV was timing out against the degraded data service; write through the healthy query service instead.
+    const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.deviceId = $2`;
+    await executeQuery(updateQuery, [userId, deviceId]);
     
     return {
       status: 201,
@@ -227,9 +227,9 @@ var updateUserStatus = async function (username, status) {
     }
     
     const userId = results[0].id;
-    const userDoc = await collection.get(userId);
-    userDoc.content.isActive = status;
-    await collection.upsert(userId, userDoc.content);
+    // KV was timing out against the degraded data service; write through the healthy query service instead.
+    const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.isActive = $2`;
+    await executeQuery(updateQuery, [userId, status]);
     
     return {
       status: 201,
@@ -254,9 +254,9 @@ var updateSession = async function (username) {
     }
     
     const userId = results[0].id;
-    const userDoc = await collection.get(userId);
-    userDoc.content.hasActiveSession = true;
-    await collection.upsert(userId, userDoc.content);
+    // KV was timing out against the degraded data service; write through the healthy query service instead.
+    const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.hasActiveSession = $2`;
+    await executeQuery(updateQuery, [userId, true]);
     
     return {
       status: 201,
@@ -282,9 +282,9 @@ var clearSession = async function (username) {
     }
     
     const userId = results[0].id;
-    const userDoc = await collection.get(userId);
-    userDoc.content.hasActiveSession = false;
-    await collection.upsert(userId, userDoc.content);
+    // KV was timing out against the degraded data service; write through the healthy query service instead.
+    const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.hasActiveSession = $2`;
+    await executeQuery(updateQuery, [userId, false]);
     
     return {
       status: 201,
