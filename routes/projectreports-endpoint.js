@@ -49,9 +49,15 @@ router.route('/downloadfile')
 .get(async function (req, res) {
   try {
     const axios = require('axios');
-    const u = req.query.u || '';
+    let u = req.query.u || '';
     let n = (req.query.n || 'report.docx').toString();
-    if (!u.startsWith('https://deckinspectorsappdata.blob.core.windows.net/')) {
+    // Original reports live on the older E3 storage account; accept either E3
+    // storage account, and tolerate a URL saved without the https scheme.
+    if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
+    let dlHost = '';
+    try { dlHost = new URL(u).hostname.toLowerCase(); } catch (e) { dlHost = ''; }
+    const allowedHosts = ['deckinspectorsappdata.blob.core.windows.net', 'deckinspectors.blob.core.windows.net'];
+    if (!allowedHosts.includes(dlHost)) {
       return res.status(400).send('Invalid file location.');
     }
     // sanitize the filename for all platforms
