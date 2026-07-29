@@ -56,12 +56,17 @@ router.route('/downloadfile')
     if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
     // Some original reports (e.g. certain Aggregate Construction projects) were
     // saved with a developer-machine URL (https://localhost:3000/...) instead of
-    // the live legacy report service. The legacy service serves the identical
-    // path, so rewrite any localhost/127.0.0.1 host to the legacy host and keep
-    // the path + query untouched.
+    // a real storage location. The file was never persisted anywhere we can
+    // reach: the old legacy report service only holds legacy single-tenant
+    // reports and HANGS (no clean 404) on any name it doesn't have, so probing
+    // it just spins. We still try it as a best effort (some names DO resolve
+    // there) but with a SHORT timeout so the user gets a clear, fast answer
+    // instead of a 2-minute spin, and we tell them to regenerate.
+    let wasLocalhost = false;
     try {
       const parsed = new URL(u);
       if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+        wasLocalhost = true;
         parsed.protocol = 'https:';
         parsed.host = 'deckmultireportingapp.azurewebsites.net';
         parsed.port = '';
@@ -83,12 +88,22 @@ router.route('/downloadfile')
       pdf: 'application/pdf',
       xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     };
-    const resp = await axios.get(u, { responseType: 'arraybuffer', timeout: 120000 });
+    // Real blob downloads can be large (~50MB) and need a generous timeout;
+    // dead localhost-origin records only hang the legacy service, so cap those
+    // short and fail with a helpful message.
+    const dlTimeout = wasLocalhost ? 30000 : 120000;
+    const resp = await axios.get(u, { responseType: 'arraybuffer', timeout: dlTimeout });
     res.setHeader('Content-Type', types[ext] || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${n.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(n)}`);
     res.send(Buffer.from(resp.data));
   } catch (err) {
     console.error('downloadfile error:', err.message);
+    // A localhost-origin record whose file can't be retrieved: tell the user
+    // how to recover instead of a generic error.
+    const rewrittenLocalhost = /localhost|127\.0\.0\.1/.test(req.query.u || '');
+    if (rewrittenLocalhost) {
+      return res.status(502).send('This original report is no longer stored anywhere we can retrieve (its saved location was a temporary address). Please re-open the project and use "Create Visual Report" to regenerate it.');
+    }
     res.status(500).send('Could not download the file.');
   }
 });
