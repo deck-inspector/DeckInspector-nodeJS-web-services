@@ -10,6 +10,20 @@ const ReportGenerationUtil = require("../ReportGenerationUtil");
 class SectionWordGenerator {
     async createSectionDoc(sectionId, sectionData, reportType, subprojectName, location, companyName) {
             console.log("sectionId received:", sectionId);
+        // A section referenced by a location can be orphaned (deleted, or its id
+        // no longer resolves). getSectionById then returns { error } with no
+        // .data.item, and reading it used to crash the WHOLE report with
+        // "Cannot read properties of undefined (reading 'item')". Skip the
+        // missing section (same as an excluded section) so the rest of the
+        // report still generates.
+        if (!sectionData || !sectionData.data || !sectionData.data.item) {
+            console.error("Section data missing, skipping section:", sectionId);
+            return;
+        }
+        if (!location || !location.data || !location.data.item) {
+            console.error("Location data missing for section, skipping section:", sectionId);
+            return;
+        }
         if (this.isSectionIncluded(reportType, sectionData)) {
             const locationType = this.getLocationType(location);
             const template = this.getTemplate(companyName, subprojectName);
