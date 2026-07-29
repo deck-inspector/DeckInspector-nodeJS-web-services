@@ -10,8 +10,15 @@ class SubprojectGenerator{
     async createSubProject(subProjectId,reportType) {
         console.log("Subproject Generation Started", subProjectId);
         const subProjectData = await getSubProjectById(subProjectId);
-        const subprojectName = subProjectData.data.item.name;
         const subProjectDoc = new SubprojectDoc();
+        // An orphaned/missing subproject id makes getSubProjectById return
+        // { error } with no .data.item. Skip it (empty doc) instead of crashing
+        // the whole report with "reading 'item'".
+        if (!subProjectData || !subProjectData.data || !subProjectData.data.item) {
+            console.error("Subproject data missing, skipping subproject:", subProjectId);
+            return subProjectDoc;
+        }
+        const subprojectName = subProjectData.data.item.name;
         const subProjectMetadataHashCode = ReportGenerationUtil.calculateHash(subProjectData);
         let subprojectLocationsHashCode = [];
         let locationPath = [];
@@ -62,6 +69,12 @@ class SubprojectGenerator{
     async updateSubProject(subProjectId, subprojectDoc,reportType) {
         console.log("Update Subproject Generation Started", subProjectId);
         const subProjectData = await getSubProjectById(subProjectId);
+        // An orphaned/missing subproject id makes getSubProjectById return
+        // { error } with no .data.item. Treat as "no update" instead of crashing.
+        if (!subProjectData || !subProjectData.data || !subProjectData.data.item) {
+            console.error("Subproject data missing on update, skipping subproject:", subProjectId);
+            return null;
+        }
         const subprojectName = subProjectData.data.item.name;
         const subProjectMetadataHashCode = ReportGenerationUtil.calculateHash(subProjectData);
         const originalHashCode = subprojectDoc.doc.hashCode;

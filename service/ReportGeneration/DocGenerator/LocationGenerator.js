@@ -9,8 +9,14 @@ class LocationGenerator {
     async createLocation(locationId, reportType, subprojectName = '') {
         console.log("Location creation started:", locationId);
         const location = await locations.getLocationById(locationId);
-        let locationSections = location.data.item.sections;
         let locationDoc = new LocationDoc();
+        // An orphaned/missing location id makes getLocationById return { error }
+        // with no .data.item. Skip it (empty doc) instead of crashing the report.
+        if (!location || !location.data || !location.data.item) {
+            console.error("Location data missing, skipping location:", locationId);
+            return locationDoc;
+        }
+        let locationSections = location.data.item.sections;
         if (locationSections) {
             let locationMetaDataHashCode = ReportGenerationUtil.calculateHash(location);
             let locationSectionHashCodes = [];
@@ -46,6 +52,12 @@ class LocationGenerator {
 
     async updateLocation(locationId, locationDoc, reportType, subprojectName = '') {
         const location = await locations.getLocationById(locationId);
+        // An orphaned/missing location id makes getLocationById return { error }
+        // with no .data.item. Treat as "no update" instead of crashing.
+        if (!location || !location.data || !location.data.item) {
+            console.error("Location data missing on update, skipping location:", locationId);
+            return null;
+        }
         let locationSections = location.data.item.sections;
         let originalHashCode = locationDoc.doc.hashCode;
         let sectionMap = locationDoc.sectionMap;
