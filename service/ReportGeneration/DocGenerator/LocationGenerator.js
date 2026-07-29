@@ -43,7 +43,8 @@ class LocationGenerator {
             } catch (e) {
                 console.error(e);
                 console.error("Location creation failed:", locationId)
-                throw e;
+                // Skip the bad location instead of failing the WHOLE report.
+                return locationDoc;
             }
         }
         console.log("Location creation completed:", locationId);

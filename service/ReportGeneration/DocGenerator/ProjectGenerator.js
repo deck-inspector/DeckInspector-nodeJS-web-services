@@ -23,30 +23,49 @@ class ProjectGenerator{
         const projectHashcodeArray = [];
         const docPath = [];
 
-        // Create Project Header Doc
-        projectDoc.projectHeaderDoc = await ProjectHeaderDocGenerator.createProjectHeaderDoc(projectId, project, "DeckInspectors", reportType);
-        projectHashcodeArray.push(projectDoc.projectHeaderDoc.hashCode);
-        docPath.push(projectDoc.projectHeaderDoc.filePath);
+        // Create Project Header Doc. A header failure must not kill the whole
+        // report - generate the body without the cover page rather than failing.
+        try {
+            projectDoc.projectHeaderDoc = await ProjectHeaderDocGenerator.createProjectHeaderDoc(projectId, project, "DeckInspectors", reportType);
+        } catch (e) {
+            console.error("Project header generation failed, continuing without cover page:", e && e.message);
+        }
+        if (projectDoc.projectHeaderDoc) {
+            projectHashcodeArray.push(projectDoc.projectHeaderDoc.hashCode);
+            docPath.push(projectDoc.projectHeaderDoc.filePath);
+        }
 
         const {subProjects, locations } = this.reOrderAndGroupProjects(project.children);
         console.log("After reOrderAndGroupProjects - subProjects count:", subProjects.length, "locations count:", locations.length);
         for(const mySubProject of subProjects) {
-            const subProjectDoc = await SubProjectGenerator.createSubProject(mySubProject.id,reportType);
-            if (subProjectDoc.doc !== null && subProjectDoc.doc !== undefined) {
-                projectDoc.subprojectMap.set(mySubProject.id.toString(), subProjectDoc);
-                projectHashcodeArray.push(subProjectDoc.doc.hashCode);
-                docPath.push(subProjectDoc.doc.filePath);
+            // Per-child guard: one bad subproject must not abort the whole report.
+            try {
+                const subId = (mySubProject && (mySubProject.id || mySubProject._id));
+                const subProjectDoc = await SubProjectGenerator.createSubProject(subId,reportType);
+                if (subProjectDoc && subProjectDoc.doc !== null && subProjectDoc.doc !== undefined) {
+                    projectDoc.subprojectMap.set(String(subId), subProjectDoc);
+                    projectHashcodeArray.push(subProjectDoc.doc.hashCode);
+                    docPath.push(subProjectDoc.doc.filePath);
+                }
+            } catch (e) {
+                console.error("Skipping subproject after error:", mySubProject && (mySubProject.id || mySubProject._id), e && e.message);
             }
         }
 
         for (const location of locations) {
-            const locationDoc = await LocationGenerator.createLocation(location.id,reportType);
-            if (locationDoc) {
-                if (locationDoc.doc !== null && locationDoc.doc !== undefined) {
-                    projectDoc.locationMap.set(location.id.toString(), locationDoc);
-                    projectHashcodeArray.push(locationDoc.doc.hashCode);
-                    docPath.push(locationDoc.doc.filePath)
+            // Per-child guard: one bad location must not abort the whole report.
+            try {
+                const locId = (location && (location.id || location._id));
+                const locationDoc = await LocationGenerator.createLocation(locId,reportType);
+                if (locationDoc) {
+                    if (locationDoc.doc !== null && locationDoc.doc !== undefined) {
+                        projectDoc.locationMap.set(String(locId), locationDoc);
+                        projectHashcodeArray.push(locationDoc.doc.hashCode);
+                        docPath.push(locationDoc.doc.filePath)
+                    }
                 }
+            } catch (e) {
+                console.error("Skipping location after error:", location && (location.id || location._id), e && e.message);
             }
         }
         projectHashcodeArray.push(ReportGenerationUtil.calculateHash(project));

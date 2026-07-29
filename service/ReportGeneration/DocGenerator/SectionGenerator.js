@@ -44,7 +44,10 @@ class SectionGenerator{
         } catch (e) {
             console.error(e);
             console.error("Failed for section :", sectionId);
-            throw e;
+            // Skip the bad section instead of failing the WHOLE report. A single
+            // section with an unexpected/undefined field (e.g. a '.toString()' on
+            // missing data) previously crashed the entire report generation.
+            return null;
         }
     }
 }

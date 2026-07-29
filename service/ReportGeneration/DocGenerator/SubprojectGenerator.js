@@ -59,7 +59,8 @@ class SubprojectGenerator{
         } catch (e) {
             console.error(e);
             console.error("Subproject Generation Failed", subProjectId);
-            throw e;
+            // Skip the bad subproject instead of failing the WHOLE report.
+            return subProjectDoc;
         }
         console.log("Subproject Generation Completed", subProjectId);
         return subProjectDoc;
@@ -147,7 +148,8 @@ class SubprojectGenerator{
         } catch (e) {
             console.error(e);
             console.error("Subproject Generation Failed", subProjectId);
-            throw e;
+            // Skip the bad subproject instead of failing the WHOLE report.
+            return null;
         }
         return null;  // No update needed.  SubProject doc is unchanged.
     }
