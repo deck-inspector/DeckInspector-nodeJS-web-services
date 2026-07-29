@@ -4,6 +4,7 @@ const ReportGenerationUtil = require("../ReportGenerationUtil");
 const ProjectChildType = require("../../../model/projectChildType");
 const LocationGenerator = require("./LocationGenerator");
 const SubProjectGenerator = require("./SubProjectGenerator");
+const SectionGenerator = require("./SectionGenerator");
 const ProjectReportHashCodeService = require("../../projectReportHashCodeService");
 const serialize = require('serialize-javascript');
 const ProjectReportUploader = require("../projectReportUploader");
@@ -68,6 +69,36 @@ class ProjectGenerator{
                 console.error("Skipping location after error:", location && (location.id || location._id), e && e.message);
             }
         }
+
+        // Single-level projects keep their sections DIRECTLY on the project (no
+        // subproject/location tree), so the loops above find nothing for them.
+        // Render those project-level sections here, treating the project itself
+        // as the parent "location", so single-level projects generate the same
+        // way multi-level ones do - no data conversion required.
+        const projType = (project.projecttype || project.projectType || '').toString().toLowerCase();
+        const projectSections = Array.isArray(project.sections) ? project.sections : [];
+        if ((projType === 'singlelevel' || (subProjects.length === 0 && locations.length === 0)) && projectSections.length > 0) {
+            console.log("Generating single-level body from", projectSections.length, "project-level section(s)");
+            const syntheticLocation = { data: { item: {
+                name: project.name || '',
+                type: 'projectlocation',
+                isInvasive: project.isInvasive === true,
+            } } };
+            for (const sec of projectSections) {
+                try {
+                    const secId = sec && (sec._id || sec.id);
+                    if (!secId) continue;
+                    const sectionDoc = await SectionGenerator.createSection(secId, syntheticLocation, '', reportType);
+                    if (sectionDoc && sectionDoc.filePath) {
+                        projectHashcodeArray.push(sectionDoc.hashCode);
+                        docPath.push(sectionDoc.filePath);
+                    }
+                } catch (e) {
+                    console.error("Skipping single-level section after error:", sec && (sec._id || sec.id), e && e.message);
+                }
+            }
+        }
+
         projectHashcodeArray.push(ReportGenerationUtil.calculateHash(project));
         const projectHashCode = ReportGenerationUtil.combineHashesInArray(projectHashcodeArray);
         await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
@@ -80,7 +111,16 @@ class ProjectGenerator{
         let projectResponse = await projects.getProjectById(projectId);
         // Extract project from wrapped response if needed
         const project = projectResponse.project || projectResponse;
-        
+
+        // Single-level projects don't fit the cached subproject/location update
+        // model (their sections live on the project). Rebuild from scratch via
+        // createProject so single-level reports regenerate correctly.
+        const projTypeU = (project.projecttype || project.projectType || '').toString().toLowerCase();
+        if (projTypeU === 'singlelevel') {
+            try { await ProjectReportHashCodeService.deleteProjectReportHashCodeByIdAndReportType(projectId, reportType); } catch (e) { console.error('single-level: could not clear cached hashcode:', e && e.message); }
+            return await this.createProject(projectId, reportType);
+        }
+
         // Handle both string and object formats
         let projectDoc;
         if (typeof existingProjectDoc === 'string') {

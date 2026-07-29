@@ -58,7 +58,13 @@ class ProjectHeaderDocGenerator{
 
     if (projectType === "singlelevel") {
         console.log("Generating single level project header doc");
-        return await SingleProjectReportGeneration.generateReportDoc(
+        // The cover page is identical for single- and multi-level projects (it
+        // only renders project-level metadata + logo). SingleProjectReport-
+        // Generation never implemented generateReportDoc (only generateReportHtml),
+        // so the docx path crashed with "generateReportDoc is not a function".
+        // Use the working multi-level cover generator for both levels.
+        return await ReportDocGeneration.generateReportDoc(
+            projectId,
             actualProject,
             companyName,
             sectionImageProperties,
