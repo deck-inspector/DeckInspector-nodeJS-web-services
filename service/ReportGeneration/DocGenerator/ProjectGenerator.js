@@ -9,6 +9,8 @@ const ProjectReportHashCodeService = require("../../projectReportHashCodeService
 const serialize = require('serialize-javascript');
 const ProjectReportUploader = require("../projectReportUploader");
 const ProjectHeaderDocGenerator = require("./ProjectHeaderDocGenerator");
+const FinalReportGenerator = require("../FinalReportGenerator");
+const PizZip = require("pizzip");
 const fs = require("fs");
 class ProjectGenerator{
     async createProject(projectId,reportType) {
@@ -101,7 +103,7 @@ class ProjectGenerator{
 
         projectHashcodeArray.push(ReportGenerationUtil.calculateHash(project));
         const projectHashCode = ReportGenerationUtil.combineHashesInArray(projectHashcodeArray);
-        await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
+        await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode, project && project.companyIdentifier);
         const projectDocToSave = this.getProjectReportHascodeDocToSave(projectDoc, projectId,reportType);
         await ProjectReportHashCodeService.addProjectReportHashCode(projectDocToSave);
         return projectDoc.doc.filePath;
@@ -219,7 +221,7 @@ class ProjectGenerator{
         // cachedFilePath fallback below still protects against merge failure.
         if (true) {
             console.log('Re-merging project report (data changed or no cached file).');
-            await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode);
+            await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode, project && project.companyIdentifier);
             if (projectDoc.doc && projectDoc.doc.filePath) {
                 await ProjectReportHashCodeService.deleteProjectReportHashCodeByIdAndReportType(projectId,reportType);
                 const projectDocToSave = this.getProjectReportHascodeDocToSave(projectDoc, projectId,reportType);
@@ -232,10 +234,25 @@ class ProjectGenerator{
         return (projectDoc.doc && projectDoc.doc.filePath) || cachedFilePath
     }
 
-    async saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode) {
+    async saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode, companyIdentifier) {
         const filePath = await ReportGenerationUtil.mergeDocxArray(docPath, projectId);
         let fileS3url = null;
         if (filePath != null) {
+            // Stamp the tenant's admin "Report Header" logo into the Visual
+            // report's page headers - the SAME branding the Final report gets
+            // (FinalReportGenerator.injectTenantLogo) - so the company logo now
+            // appears on the Visual report too, not only the Final report.
+            try {
+                if (companyIdentifier) {
+                    const buf = await fs.promises.readFile(filePath);
+                    const zip = new PizZip(buf);
+                    await FinalReportGenerator.injectTenantLogo(zip, companyIdentifier);
+                    await fs.promises.writeFile(filePath, zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
+                    console.log('Visual report: tenant header logo stamped for', companyIdentifier);
+                }
+            } catch (e) {
+                console.error('Visual report tenant logo injection failed (report continues without it):', e && e.message);
+            }
             fileS3url = await ProjectReportUploader.uploadToBlobStorage(filePath, projectId, reportType);
             await fs.promises.unlink(filePath);
         }
