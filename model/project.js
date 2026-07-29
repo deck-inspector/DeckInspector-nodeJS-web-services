@@ -106,7 +106,10 @@ var getProjectById = async function (id) {
     }
     const content = rows[0] || {};
     delete content.files;
-    return { success: true, project: { ...content } };
+    // Report generators consume the legacy { data: { item } } shape; newer callers
+    // use { success, project }. Return both so the N1QL rewrite (done to avoid the
+    // degraded-KV timeout) does not break report generation.
+    return { success: true, project: { ...content }, data: { item: { ...content } } };
   } catch (err) {
     console.error("Error fetching project by ID:", err);
 
