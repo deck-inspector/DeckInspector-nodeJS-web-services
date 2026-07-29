@@ -54,6 +54,20 @@ router.route('/downloadfile')
     // Original reports live on the older E3 storage account; accept either E3
     // storage account, and tolerate a URL saved without the https scheme.
     if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
+    // Some original reports (e.g. certain Aggregate Construction projects) were
+    // saved with a developer-machine URL (https://localhost:3000/...) instead of
+    // the live legacy report service. The legacy service serves the identical
+    // path, so rewrite any localhost/127.0.0.1 host to the legacy host and keep
+    // the path + query untouched.
+    try {
+      const parsed = new URL(u);
+      if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+        parsed.protocol = 'https:';
+        parsed.host = 'deckmultireportingapp.azurewebsites.net';
+        parsed.port = '';
+        u = parsed.toString();
+      }
+    } catch (e) { /* leave u as-is; the allowlist check below will reject it */ }
     let dlHost = '';
     try { dlHost = new URL(u).hostname.toLowerCase(); } catch (e) { dlHost = ''; }
     const allowedHosts = ['deckinspectorsappdata.blob.core.windows.net', 'deckinspectors.blob.core.windows.net', 'deckmultireportingapp.azurewebsites.net'];
