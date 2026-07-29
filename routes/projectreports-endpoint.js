@@ -56,7 +56,7 @@ router.route('/downloadfile')
     if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
     let dlHost = '';
     try { dlHost = new URL(u).hostname.toLowerCase(); } catch (e) { dlHost = ''; }
-    const allowedHosts = ['deckinspectorsappdata.blob.core.windows.net', 'deckinspectors.blob.core.windows.net'];
+    const allowedHosts = ['deckinspectorsappdata.blob.core.windows.net', 'deckinspectors.blob.core.windows.net', 'deckmultireportingapp.azurewebsites.net'];
     if (!allowedHosts.includes(dlHost)) {
       return res.status(400).send('Invalid file location.');
     }
