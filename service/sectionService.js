@@ -120,10 +120,14 @@ var getSectionsByParentId = async function (parentId) {
         sections: result,
       };
     }
+    // A parent (e.g. a location) with NO sections is a normal, valid state -
+    // not an error. Returning code 401 here made the /getSectionsByParentId
+    // endpoint respond HTTP 401, which the web app interprets as an expired
+    // session and logs the user out (seen on single-level projects whose
+    // location has no sections). Return an empty list instead.
     return {
-      code: 401,
-      success: false,
-      reason: "No Location found with the given parent ID",
+      success: true,
+      sections: [],
     };
   } catch (error) {
     return handleError(error);
