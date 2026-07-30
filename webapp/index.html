@@ -174,6 +174,13 @@ input,select{font-family:inherit;font-size:16px}
 .tag.bad{background:var(--danger-soft);color:var(--danger)}
 .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
 .photos img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;cursor:pointer;background:#e7edf2}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.pgitem{position:relative}
+.pgitem img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;cursor:pointer;background:#e7edf2;display:block}
+.pgdel{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(10,16,20,.65);color:#fff;font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.pgdel:hover{background:var(--danger)}
+.pgadd{aspect-ratio:4/3;border:2px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--ink-soft);cursor:pointer;background:var(--bg)}
+.pgadd:hover{border-color:var(--brand);color:var(--brand)}
 .unitgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
 .ucard{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:16px 18px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:box-shadow .15s;border:none;text-align:left;font-size:15px}
 .ucard:hover{box-shadow:0 6px 20px rgba(28,39,51,.15)}
@@ -788,6 +795,20 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <input v-model.trim="secForm.awe">
         </div>
+        <div class="field"><label>Photos ({{ (secForm.images||[]).length }})</label>
+          <div class="pgrid">
+            <div class="pgitem" v-for="(img,i) in secForm.images" :key="img + '-' + i">
+              <img :src="img" loading="lazy" alt="inspection photo" @click="lightbox=img">
+              <button class="pgdel" title="Remove this photo" @click="removeSecPhoto(i)">&#10005;</button>
+            </div>
+            <label class="pgadd" title="Add photos">
+              <span v-if="secPhotoBusy" class="spinner" style="width:18px;height:18px"></span>
+              <span v-else>&#65291;</span>
+              <input type="file" accept="image/*" multiple style="display:none" :disabled="secPhotoBusy" @change="addSecPhotos($event)">
+            </label>
+          </div>
+          <div style="font-size:12px;color:var(--ink-soft);margin-top:3px">&#65291; adds photos, &#10005; removes &mdash; nothing changes until you press <b>Save Changes</b>.</div>
+        </div>
         <div class="mrow">
           <button class="btn-cancel" @click="secEditOpen=false">Cancel</button>
           <button class="btn btn-primary" style="padding:12px 20px" :disabled="savingSec" @click="saveSecEdit">{{ savingSec ? 'Saving…' : 'Save Changes' }}</button>
@@ -1001,8 +1022,8 @@ createApp({
       userForm: { first_name: '', last_name: '', username: '', email: '', mobile: '', password: '', access_type: 'both' },
       assignPick: '',
       editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '', formId: null, inspDate: '', url: '' },
-      secEditOpen: false, loadingSec: false, savingSec: false, secOriginal: null, secId: null,
-      secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '' },
+      secEditOpen: false, loadingSec: false, savingSec: false, secOriginal: null, secId: null, secPhotoBusy: false,
+      secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '', images: [] },
       lifeOptions: ['0-1 Years', '1-4 Years', '4-7 Years', '7-10 Years'],
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
@@ -1415,6 +1436,7 @@ createApp({
           conditionalassessment: doc.conditionalassessment || '',
           additionalconsiderations: doc.additionalconsiderations || '',
           eee: doc.eee || '', lbc: doc.lbc || '', awe: doc.awe || '',
+          images: Array.isArray(doc.images) ? doc.images.slice() : [],
         };
       } catch (e) {
         this.secEditOpen = false;
@@ -1447,6 +1469,7 @@ createApp({
         conditionalassessment: this.secForm.conditionalassessment,
         additionalconsiderations: this.secForm.additionalconsiderations,
         eee: this.secForm.eee, lbc: this.secForm.lbc, awe: this.secForm.awe,
+        images: Array.isArray(this.secForm.images) ? this.secForm.images.slice() : [],
         editedat: new Date().toISOString(),
         lasteditedby: this.user.username,
       };
@@ -1460,6 +1483,39 @@ createApp({
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not save the inspection.', 'err');
       } finally { this.savingSec = false; }
+    },
+    removeSecPhoto(i) { this.secForm.images.splice(i, 1); },
+    async addSecPhotos(e) {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (!files.length) return;
+      this.secPhotoBusy = true;
+      let failed = 0;
+      try {
+        for (const f of files) {
+          try {
+            const dot = f.name ? f.name.lastIndexOf('.') : -1;
+            const ext = dot !== -1 ? f.name.slice(dot).toLowerCase() : '.jpg';
+            const uname = 'sec-' + String(this.secId || 'x').replace(/[^a-zA-Z0-9-]/g, '') + '-' + Date.now() + '-' + Math.floor(Math.random() * 10000) + ext;
+            const fd = new FormData();
+            fd.append('picture', f, uname);
+            fd.append('containerName', String((this.current && this.current.name) || 'project').replace(/\s+/g, '').toLowerCase());
+            fd.append('uploader', (this.user && this.user.username) || 'web');
+            fd.append('entityName', (this.current && this.current.name) || 'project');
+            const res = await this.api('/image/upload', { method: 'POST', body: fd });
+            if (!res.ok) throw new Error('upload');
+            const data = await res.json();
+            const u = data.url || (data.data && data.data.url) || '';
+            if (!u) throw new Error('upload');
+            this.secForm.images.push(u);
+          } catch (err) {
+            if (err.message === 'auth') throw err;
+            failed++;
+          }
+        }
+        if (failed) this.toast(failed + ' photo(s) failed to upload — please try those again.', 'err');
+      } catch (err) { /* session-expired handled by api() */ }
+      finally { this.secPhotoBusy = false; }
     },
 
     openEdit() {
