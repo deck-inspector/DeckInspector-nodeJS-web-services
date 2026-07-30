@@ -45,9 +45,10 @@ var getConclusiveSectionById = async function(id){
 
 
 var transformData = function(conclusiveSection) {
-    conclusiveSection.eeeconclusive = RatingMapping[conclusiveSection.eeeconclusive];
-    conclusiveSection.lbcconclusive = RatingMapping[conclusiveSection.lbcconclusive];
-    conclusiveSection.aweconclusive = RatingMapping[conclusiveSection.aweconclusive];
+    // Pass through values that are already display labels (see model/sections.js).
+    conclusiveSection.eeeconclusive = RatingMapping[conclusiveSection.eeeconclusive] || conclusiveSection.eeeconclusive;
+    conclusiveSection.lbcconclusive = RatingMapping[conclusiveSection.lbcconclusive] || conclusiveSection.lbcconclusive;
+    conclusiveSection.aweconclusive = RatingMapping[conclusiveSection.aweconclusive] || conclusiveSection.aweconclusive;
 };
 
 var getConclusiveSectionByParentId = async function(id){

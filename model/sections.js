@@ -151,9 +151,14 @@ var transformData = function(section) {
       section.visualsignsofleak = capitalizeWords(section.visualsignsofleak.toString());
       section.furtherinvasivereviewrequired = capitalizeWords(section.furtherinvasivereviewrequired.toString());
       section.conditionalassessment = capitalizeWords(section.conditionalassessment.toString());
-      section.eee = RatingMapping[section.eee];
-      section.lbc = RatingMapping[section.lbc];
-      section.awe = RatingMapping[section.awe];
+      // RatingMapping translates the mobile app's codes (one/four/seven/
+      // sevenplus) to display labels. Sections edited on the WEB already
+      // store the label ("0-1 Years", "1-4 Years", ...) - mapping those
+      // returned undefined and Life Expectancy printed BLANK on reports.
+      // Pass through any value that isn't a known code.
+      section.eee = RatingMapping[section.eee] || section.eee;
+      section.lbc = RatingMapping[section.lbc] || section.lbc;
+      section.awe = RatingMapping[section.awe] || section.awe;
 
 };
 
