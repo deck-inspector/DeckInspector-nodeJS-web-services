@@ -487,6 +487,7 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <div class="spacer" style="flex:1"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-inspect" style="width:auto;padding:12px 22px" @click="openInspect(current)">Inspection</button>
             <button class="btn-dl" @click="openEdit">&#9998; Edit</button>
             <button class="btn-dl" @click="toggleComplete(current)">{{ current.iscomplete ? '&#8634; Reopen' : '&#10003; Mark Complete' }}</button>
             <button class="btn-del" @click="deletingProject = current">Delete Project</button>
