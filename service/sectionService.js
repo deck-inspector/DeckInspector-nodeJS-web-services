@@ -221,9 +221,12 @@ var transformData = function(section) {
   section.visualsignsofleak = capitalizeWords(convertBooleanToString(section.visualsignsofleak));
   section.furtherinvasivereviewrequired = capitalizeWords(convertBooleanToString((section.furtherinvasivereviewrequired)));
   section.conditionalassessment = section.conditionalassessment != null ? capitalizeWords(section.conditionalassessment.toString()) : '';
-  section.eee = RatingMapping[section.eee];
-  section.lbc = RatingMapping[section.lbc];
-  section.awe = RatingMapping[section.awe];
+  // Web-edited sections store display labels ("0-1 Years"), not the mobile
+  // codes RatingMapping knows - pass unknown values through unchanged so
+  // they show in the web modal and print on reports.
+  section.eee = RatingMapping[section.eee] || section.eee;
+  section.lbc = RatingMapping[section.lbc] || section.lbc;
+  section.awe = RatingMapping[section.awe] || section.awe;
 
 };
 

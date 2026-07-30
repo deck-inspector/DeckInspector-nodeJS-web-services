@@ -115,9 +115,10 @@ const handleError = (error) => {
   var transformData = function(conclusiveSection) {
     conclusiveSection.propowneragreed = capitalizeWords(convertBooleanToString(conclusiveSection.propowneragreed));
     conclusiveSection.invasiverepairsinspectedandcompleted = capitalizeWords(convertBooleanToString(conclusiveSection.invasiverepairsinspectedandcompleted));
-    conclusiveSection.eeeconclusive = RatingMapping[conclusiveSection.eeeconclusive];
-    conclusiveSection.lbcconclusive = RatingMapping[conclusiveSection.lbcconclusive];
-    conclusiveSection.aweconclusive = RatingMapping[conclusiveSection.aweconclusive];
+    // Pass through values that are already display labels (see service/sectionService.js).
+    conclusiveSection.eeeconclusive = RatingMapping[conclusiveSection.eeeconclusive] || conclusiveSection.eeeconclusive;
+    conclusiveSection.lbcconclusive = RatingMapping[conclusiveSection.lbcconclusive] || conclusiveSection.lbcconclusive;
+    conclusiveSection.aweconclusive = RatingMapping[conclusiveSection.aweconclusive] || conclusiveSection.aweconclusive;
   };
 
   var convertBooleanToString = function (word) {
