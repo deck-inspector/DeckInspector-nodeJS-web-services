@@ -247,8 +247,13 @@ class ProjectGenerator{
                     const buf = await fs.promises.readFile(filePath);
                     const zip = new PizZip(buf);
                     await FinalReportGenerator.injectTenantLogo(zip, companyIdentifier);
+                    // Also stamp the tenant's admin "Report Footer" image (the
+                    // round logo) + footer text into every page footer - the
+                    // SAME branding the Final report gets - so the Visual
+                    // report footer matches the Final report footer.
+                    await FinalReportGenerator.injectTenantFooter(zip, companyIdentifier);
                     await fs.promises.writeFile(filePath, zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
-                    console.log('Visual report: tenant header logo stamped for', companyIdentifier);
+                    console.log('Visual report: tenant header logo + footer stamped for', companyIdentifier);
                 }
             } catch (e) {
                 console.error('Visual report tenant logo injection failed (report continues without it):', e && e.message);
