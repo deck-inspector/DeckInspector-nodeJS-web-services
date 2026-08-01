@@ -494,6 +494,32 @@ class FinalReportGenerator {
         const zip = new PizZip(content);
         let doc = zip.file('word/document.xml').asText();
 
+        // RENDER-TIME FIX (David, Aug 1): the master template's page-1
+        // paragraph "...there are: (EEE= Exterior Elevated Elements)" can
+        // carry legacy runs of dozens of literal SPACES that push the EEE
+        // note to the right of the line - and a longer client name makes the
+        // wrap worse. Admins upload masters through the admin site, so fix
+        // it HERE at generation time: blank any space-only text runs (>2
+        // spaces) inside that one paragraph. The uploaded template itself is
+        // never modified, and every future master renders correctly.
+        try {
+            const ei = doc.indexOf('EEE= Exterior');
+            if (ei !== -1) {
+                const ps = Math.max(doc.lastIndexOf('<w:p>', ei), doc.lastIndexOf('<w:p ', ei));
+                const pe = doc.indexOf('</w:p>', ei);
+                if (ps !== -1 && pe !== -1 && pe > ps) {
+                    const para = doc.slice(ps, pe);
+                    const cleaned = para.replace(/(<w:t[^>]*>)([^<]*)(<\/w:t>)/g, function (m, open, txt, close) {
+                        return (txt.trim() === '' && txt.length > 2) ? (open + close) : m;
+                    });
+                    if (cleaned !== para) {
+                        doc = doc.slice(0, ps) + cleaned + doc.slice(pe);
+                        console.log('FinalReport: EEE note space-gap normalized at render time');
+                    }
+                }
+            }
+        } catch (e) { console.log('FinalReport: EEE normalization skipped:', e && e.message); }
+
         const aliasValues = {
             'Property Address': data.addressStreet || data.projectAddress || '',
             'City': data.addressCity || '',
