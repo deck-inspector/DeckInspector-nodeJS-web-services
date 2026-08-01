@@ -584,8 +584,30 @@ class FinalReportGenerator {
                             const body = rPrMatch ? rBody.replace(rPrMatch[0], newRPr) : (newRPr + rBody);
                             return pre + '<w:r' + rAttrs + '>' + body + '</w:r>';
                         });
+                        // 3) also set the CONTROL's default formatting (sdtPr rPr)
+                        // to the verdict color: when someone re-picks a value in
+                        // Word, Word applies the control's default formatting -
+                        // previously the template's red, so a re-picked PASS
+                        // showed red. Now re-picking returns to the generated
+                        // verdict's color. (True conditional coloring per choice
+                        // is impossible in a macro-free .docx.)
+                        pfSdt = pfSdt.replace(/(<w:sdtPr>)([\s\S]*?)(<\/w:sdtPr>)/, function (m, open, inner, close) {
+                            const cleaned = inner.replace(/<w:rPr>[\s\S]*?<\/w:rPr>/, function (rpr) {
+                                let body = rpr.slice('<w:rPr>'.length, -('</w:rPr>'.length))
+                                    .replace(/<w:color[^>]*\/>/g, '')
+                                    .replace(/<w:b\/>|<w:b [^>]*\/>/g, '')
+                                    .replace(/<w:bCs[^>]*\/>/g, '');
+                                let fonts = '';
+                                body = body.replace(/<w:rFonts[^>]*\/>/, function (f) { fonts = f; return ''; });
+                                return '<w:rPr>' + fonts + '<w:b/><w:bCs/><w:color w:val="' + pfColor + '"/>' + body + '</w:rPr>';
+                            });
+                            if (cleaned.indexOf('<w:rPr>') === -1) {
+                                return open + '<w:rPr><w:b/><w:bCs/><w:color w:val="' + pfColor + '"/></w:rPr>' + cleaned + close;
+                            }
+                            return open + cleaned + close;
+                        });
                         doc = doc.slice(0, sdtStart) + pfSdt + doc.slice(sdtEnd);
-                        console.log('FinalReport: PASS/FAIL set to', data.passFail, '(bold ' + (data.passFail === 'PASS' ? 'green' : 'red') + ')');
+                        console.log('FinalReport: PASS/FAIL set to', data.passFail, '(bold ' + (data.passFail === 'PASS' ? 'green' : 'red') + ', control default matched)');
                     } else {
                         console.log('FinalReport: PASS/FAIL dropdown boundaries not found - value not set');
                     }
