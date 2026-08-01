@@ -55,9 +55,12 @@ var addProjectReport = async function (projectReport, callback) {
 
 var getProjectReportsbyProjectId = async function (project_id, callback) {
     try {
-        const query = `SELECT r.* 
-          FROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.ProjectReports r 
-          WHERE r.project_id = $1`;
+        // Project DOCUMENTS also live in this collection (docType
+        // 'ProjectDocument') - exclude them so they never appear in the
+        // Report Files list.
+        const query = `SELECT r.*
+          FROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.ProjectReports r
+          WHERE r.project_id = $1 AND (r.docType IS MISSING OR r.docType != 'ProjectDocument')`;
         
         const results = await executeQuery(query, [project_id]);
         

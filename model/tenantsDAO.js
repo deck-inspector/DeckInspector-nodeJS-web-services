@@ -305,10 +305,11 @@ module.exports = {
 
   updateAddIconsForTenant: async (id, iconsData) => {
     try {
-      const collection = await getTenantsCollection();
-      const doc = await collection.get(id);
-      doc.content.icons = iconsData;
-      await collection.upsert(id, doc.content);
+      // KV get/upsert times out against the degraded data service; write
+      // through the healthy query service instead (same pattern as the other
+      // KV->N1QL conversions).
+      const query = `UPDATE \`${couchbase.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Tenants AS t USE KEYS $1 SET t.icons = $2`;
+      await executeQuery(query, [id, iconsData]);
       return { ok: 1 };
     } catch (error) {
       console.error("Error updating icons:", error);
