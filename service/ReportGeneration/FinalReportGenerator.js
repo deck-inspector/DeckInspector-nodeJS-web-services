@@ -18,49 +18,20 @@ const axios = require("axios");
 // with project data, followed by the freshly generated Visual report as annex.
 class FinalReportGenerator {
 
+    // ONE corrected master template for ALL clients (David, Aug 1): every
+    // tenant's Final Report is generated from the corrected/confirmed
+    // Deck_FinalTemplate.docx. Per-tenant customization happens at generation
+    // time only: the client's company name + phone are substituted into the
+    // text, and the client's admin-panel header/footer images are stamped in.
+    // Stale per-tenant template files (e.g. westcoastdeckinspections_
+    // FinalTemplate.docx - an OLD uncorrected copy with pre-checked boxes,
+    // pre-filled dropdowns and broken pagination) are deliberately IGNORED.
     resolveTemplatePath(companyName) {
-        const cleanName = (companyName || '').replaceAll(/\s/g, "").replace('.ondeckinspectors.com', '');
-        const candidates = [
-            `${cleanName}_FinalTemplate.docx`,
-            `${cleanName}_finalTemplate.docx`,
-            'Deck_FinalTemplate.docx'
-        ];
-        for (const candidate of candidates) {
-            const absolute = path.join(__dirname, '..', '..', candidate);
-            if (candidate.length > '_FinalTemplate.docx'.length && fs.existsSync(absolute)) {
-                return absolute;
-            }
-        }
-        // final fallback: default Deck template
         return path.join(__dirname, '..', '..', 'Deck_FinalTemplate.docx');
     }
 
-    // Blob-first template resolution: the app folder is replaced on every
-    // deployment (zip deploy), which deletes any template uploaded through the
-    // admin panel. The blob copy written by /replacefinalreporttemplate is the
-    // durable source; local files are only a fast path until the next deploy.
     async getTemplateBuffer(companyName) {
-        const rawClean = (companyName || '').replaceAll(/\s/g, "").replace('.ondeckinspectors.com', '');
-        const names = [...new Set([rawClean.toLowerCase(), rawClean])]
-            .filter(n => n.length > 0)
-            .map(n => `${n}_FinalTemplate.docx`);
-        for (const n of names) {
-            try {
-                const buf = await getBlobBuffer(n, 'projectreports');
-                if (buf && buf.length > 0) {
-                    console.log('FinalReport: using tenant template from blob storage:', n);
-                    return buf;
-                }
-            } catch (e) { /* blob missing - keep looking */ }
-        }
-        for (const n of names) {
-            const absolute = path.join(__dirname, '..', '..', n);
-            if (fs.existsSync(absolute)) {
-                console.log('FinalReport: using tenant template from app folder:', n);
-                return fs.readFileSync(absolute);
-            }
-        }
-        console.log('FinalReport: no tenant template found for', rawClean, '- using default Deck template');
+        console.log('FinalReport: using the corrected master template (Deck_FinalTemplate.docx) for', companyName || '(unknown tenant)');
         return fs.readFileSync(path.join(__dirname, '..', '..', 'Deck_FinalTemplate.docx'));
     }
 
