@@ -306,7 +306,9 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <button class="btn btn-reports" style="width:auto;padding:12px 20px" @click="openAdd">&#65291; Add Project</button>
           <button class="btn btn-dl" style="width:auto;padding:12px 20px" title="Proposals — create before the project exists; accepted proposals convert into projects" @click="openProposals">&#128196; Proposals</button>
-          <button class="btn btn-dl" v-if="isPlatformAdmin" style="width:auto;padding:12px 20px" title="Upload the corrected Final Report master template used for ALL clients" @click="tplOpen=true">&#9881; Final Template</button>
+          <!-- The corrected Final Report MASTER template is managed in the
+               Multi-Tenant ADMIN site (e3-multi-tennant.com Dashboard ->
+               "Final Report Template" widget), not here. -->
         </div>
         <div class="kindrow" v-if="!loadingProjects">
           <button class="kind" :class="{on: filterMode==='active'}" @click="filterMode='active'">Active ({{ projectCounts.active }})</button>
@@ -990,30 +992,6 @@ input,select{font-family:inherit;font-size:16px}
       </ul>
       <div class="mrow" style="margin-top:14px">
         <button class="btn-cancel" @click="closeDocs">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============ FINAL REPORT MASTER TEMPLATE (platform admin) ============ -->
-  <div class="overlay" v-if="tplOpen" @click.self="tplOpen=false">
-    <div class="modal" style="max-width:560px">
-      <h3>Corrected Final Report &mdash; master template</h3>
-      <p style="margin-bottom:14px">This ONE template is used for <b>every client's</b> Final Report. Only the client's company name, phone, and their admin-panel header/footer logos change per client. Uploading here replaces it immediately for the next report generated &mdash; it is stored durably and survives app updates.</p>
-      <div class="docdrop" :class="{drag:tplDrag}" @click="$refs.tplUp.click()"
-           @dragover.prevent="tplDrag=true" @dragleave.prevent="tplDrag=false" @drop.prevent="onTplDrop">
-        <input type="file" ref="tplUp" accept=".docx" style="display:none" @change="onTplFile">
-        <template v-if="tplFile">
-          <div style="font-weight:600">&#128196; {{ tplFile.name }}</div>
-          <div style="font-size:12px;color:var(--ink-soft)">Click Replace to make this the master template.</div>
-        </template>
-        <template v-else>
-          <div style="font-size:22px">&#8613;</div>
-          <div><b>Drag &amp; drop</b> the corrected Final Report (.docx) here, or <span style="text-decoration:underline">click to choose it</span></div>
-        </template>
-      </div>
-      <div class="mrow" style="margin-top:14px">
-        <button class="btn-cancel" @click="tplOpen=false">Close</button>
-        <button class="btn btn-reports" :disabled="!tplFile || uploadingTpl" @click="uploadTemplate">{{ uploadingTpl ? 'Uploading&hellip;' : 'Replace master template' }}</button>
       </div>
     </div>
   </div>
