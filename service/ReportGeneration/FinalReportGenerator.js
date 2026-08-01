@@ -552,6 +552,14 @@ class FinalReportGenerator {
         // remains in place so the user can override the value in Word.
         try {
             if (data.passFail) {
+                // PASS must render BOLD GREEN, FAIL must render BOLD RED
+                // (David, Aug 1) - regardless of how the uploaded master's
+                // dropdown run is formatted. The old code only swapped an
+                // existing <w:color> value (a run with no color element got
+                // no color at all) and never applied bold. Now the first text
+                // run inside the PASS/FAIL dropdown is REWRITTEN: its fonts
+                // and size are kept, any old color/bold stripped, and
+                // <w:b/> + the verdict color forced in.
                 const pfColor = data.passFail === 'PASS' ? '00B050' : 'EE0000';
                 const comboIdx = doc.indexOf('w:displayText="PASS"');
                 if (comboIdx !== -1) {
@@ -559,11 +567,30 @@ class FinalReportGenerator {
                     const sdtEnd = doc.indexOf('</w:sdt>', comboIdx);
                     if (sdtStart !== -1 && sdtEnd !== -1) {
                         let pfSdt = doc.slice(sdtStart, sdtEnd);
+                        // 1) set the displayed text
                         pfSdt = pfSdt.replace(/(<w:sdtContent>[\s\S]*?<w:t[^>]*>)[^<]*(<\/w:t>)/, '$1' + data.passFail + '$2');
-                        pfSdt = pfSdt.replace(/(w:color w:val=")[0-9A-Fa-f]{6}(")/g, '$1' + pfColor + '$2');
+                        // 2) force bold + verdict color on the first run in the content
+                        pfSdt = pfSdt.replace(/(<w:sdtContent>[\s\S]*?)<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/, function (m, pre, rAttrs, rBody) {
+                            const rPrMatch = rBody.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
+                            let inner = rPrMatch ? rPrMatch[1] : '';
+                            // keep fonts/size, drop any existing color/bold
+                            inner = inner
+                                .replace(/<w:color[^>]*\/>/g, '')
+                                .replace(/<w:b\/>|<w:b [^>]*\/>/g, '')
+                                .replace(/<w:bCs[^>]*\/>/g, '');
+                            let fonts = '';
+                            inner = inner.replace(/<w:rFonts[^>]*\/>/, function (f) { fonts = f; return ''; });
+                            const newRPr = '<w:rPr>' + fonts + '<w:b/><w:bCs/><w:color w:val="' + pfColor + '"/>' + inner + '</w:rPr>';
+                            const body = rPrMatch ? rBody.replace(rPrMatch[0], newRPr) : (newRPr + rBody);
+                            return pre + '<w:r' + rAttrs + '>' + body + '</w:r>';
+                        });
                         doc = doc.slice(0, sdtStart) + pfSdt + doc.slice(sdtEnd);
-                        console.log('FinalReport: PASS/FAIL auto-set to', data.passFail);
+                        console.log('FinalReport: PASS/FAIL set to', data.passFail, '(bold ' + (data.passFail === 'PASS' ? 'green' : 'red') + ')');
+                    } else {
+                        console.log('FinalReport: PASS/FAIL dropdown boundaries not found - value not set');
                     }
+                } else {
+                    console.log('FinalReport: PASS/FAIL dropdown not found in template - value not set');
                 }
             }
         } catch (e) { console.log('FinalReport: PASS/FAIL auto-set failed:', e.message); }
