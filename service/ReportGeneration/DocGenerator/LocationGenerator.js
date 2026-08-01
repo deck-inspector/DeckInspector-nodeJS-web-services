@@ -23,9 +23,12 @@ class LocationGenerator {
             let sectionPath = [];
             try {
                 for (const section of locationSections) {
-                    const sectionDoc = await SectionGenerator.createSection(section.id, location, subprojectName, reportType);
+                    // Section refs may carry `id` OR `_id` (mobile vs web writers).
+                    const secId = section && (section.id || section._id);
+                    if (!secId) { console.error("Location section ref has no id, skipping:", section && section.name); continue; }
+                    const sectionDoc = await SectionGenerator.createSection(secId, location, subprojectName, reportType);
                     if (sectionDoc != null) {
-                        locationDoc.sectionMap.set(section.id.toString(), sectionDoc);
+                        locationDoc.sectionMap.set(String(secId), sectionDoc);
                         locationSectionHashCodes.push(sectionDoc.hashCode);
                         sectionPath.push(sectionDoc.filePath);
                     }
@@ -70,19 +73,23 @@ class LocationGenerator {
                 let locationSectionHashCodes = [];
                 let sectionPath = [];
                 for (const section of locationSections) {
-                    if (sectionMap.has(section._id.toString())) {
-                        const sectionDoc = await SectionGenerator.updateSection(section._id, sectionMap.get(section._id.toString()).hashCode, location, subprojectName, reportType);
+                    // Section refs may carry `id` OR `_id` (mobile vs web writers).
+                    const secId = section && (section.id || section._id);
+                    if (!secId) { console.error("Location section ref has no id, skipping:", section && section.name); continue; }
+                    const secKey = String(secId);
+                    if (sectionMap.has(secKey)) {
+                        const sectionDoc = await SectionGenerator.updateSection(secId, sectionMap.get(secKey).hashCode, location, subprojectName, reportType);
                         if (sectionDoc !== null) {
                             // Section Doc is updated
-                            sectionMap.set(section._id.toString(), sectionDoc);
+                            sectionMap.set(secKey, sectionDoc);
                         }
                     } else {
-                        const sectionDoc = await SectionGenerator.createSection(section._id, location, subprojectName, reportType);
-                        sectionMap.set(section._id.toString(), sectionDoc);
+                        const sectionDoc = await SectionGenerator.createSection(secId, location, subprojectName, reportType);
+                        sectionMap.set(secKey, sectionDoc);
                     }
-                    let newSectionDoc = sectionMap.get(section._id.toString());
+                    let newSectionDoc = sectionMap.get(secKey);
                     if (newSectionDoc != null) {
-                        newSectionMap.set(section._id.toString(), newSectionDoc);
+                        newSectionMap.set(secKey, newSectionDoc);
                         locationSectionHashCodes.push(newSectionDoc.hashCode);
                         sectionPath.push(newSectionDoc.filePath);
                     }

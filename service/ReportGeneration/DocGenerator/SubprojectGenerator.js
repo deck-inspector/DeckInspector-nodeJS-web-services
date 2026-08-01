@@ -25,11 +25,19 @@ class SubprojectGenerator{
         subprojectLocationsHashCode.push(subProjectMetadataHashCode);
         const {subProjectApartments, subProjectLocations } = this.reordersubProjectLocations(subProjectData.data.item.children);
         try {
+            // Children may carry their id as `id` OR `_id` depending on which
+            // app version wrote them (mobile vs web). Reading only one of the
+            // two passed `undefined` to createLocation, every location was
+            // skipped, and the report came out as the COVER PAGE ONLY
+            // (seen live: "Location creation started: undefined" x2 ->
+            // "No valid files to merge." on WestCoast 3944-46 Georgia).
             for (let key in subProjectApartments) {
-                let locationDoc = await LocationGenerator.createLocation(subProjectApartments[key].id,reportType,subprojectName);
+                const aptId = subProjectApartments[key] && (subProjectApartments[key].id || subProjectApartments[key]._id);
+                if (!aptId) { console.error("Subproject apartment child has no id, skipping:", subProjectApartments[key] && subProjectApartments[key].name); continue; }
+                let locationDoc = await LocationGenerator.createLocation(aptId,reportType,subprojectName);
                 if (locationDoc) {
                     if (locationDoc.doc !== null && locationDoc.doc !== undefined) {
-                        subProjectDoc.buildingApartmentMap.set(subProjectApartments[key].id.toString(), locationDoc);
+                        subProjectDoc.buildingApartmentMap.set(String(aptId), locationDoc);
                         subprojectLocationsHashCode.push(locationDoc.doc.hashCode);
                         locationPath.push(locationDoc.doc.filePath);
                     }
@@ -38,10 +46,12 @@ class SubprojectGenerator{
             }
 
             for (let key in subProjectLocations) {
-                let locationDoc = await LocationGenerator.createLocation(subProjectLocations[key]._id,reportType,subprojectName);
+                const locId = subProjectLocations[key] && (subProjectLocations[key].id || subProjectLocations[key]._id);
+                if (!locId) { console.error("Subproject location child has no id, skipping:", subProjectLocations[key] && subProjectLocations[key].name); continue; }
+                let locationDoc = await LocationGenerator.createLocation(locId,reportType,subprojectName);
                 if (locationDoc) {
                     if (locationDoc.doc !== null && locationDoc.doc !== undefined) {
-                        subProjectDoc.buildingLocationMap.set(subProjectLocations[key]._id.toString(), locationDoc);
+                        subProjectDoc.buildingLocationMap.set(String(locId), locationDoc);
                         subprojectLocationsHashCode.push(locationDoc.doc.hashCode);
                         locationPath.push(locationDoc.doc.filePath);
                     }
@@ -86,45 +96,52 @@ class SubprojectGenerator{
         let buildingLocationMap = new Map();
         let buildingApartmentMap = new Map();
         try {
+            // Children may carry `id` OR `_id` (mobile vs web writers) - read both.
             for (let key in subProjectApartments) {
-                if (subprojectDoc.buildingApartmentMap.get(subProjectApartments[key]._id.toString())) {
-                    let locationDoc = await LocationGenerator.updateLocation(subProjectApartments[key]._id,
-                        subprojectDoc.buildingApartmentMap.get(subProjectApartments[key]._id.toString()),
+                const aptId = subProjectApartments[key] && (subProjectApartments[key].id || subProjectApartments[key]._id);
+                if (!aptId) { console.error("Subproject apartment child has no id, skipping:", subProjectApartments[key] && subProjectApartments[key].name); continue; }
+                const aptKey = String(aptId);
+                if (subprojectDoc.buildingApartmentMap.get(aptKey)) {
+                    let locationDoc = await LocationGenerator.updateLocation(aptId,
+                        subprojectDoc.buildingApartmentMap.get(aptKey),
                         reportType,
                         subprojectName);
                     if (locationDoc !== null) {
-                        subprojectDoc.buildingApartmentMap.get(subProjectApartments[key]._id.toString()).doc = locationDoc;
+                        subprojectDoc.buildingApartmentMap.get(aptKey).doc = locationDoc;
                     }
                 } else {
                     console.log("New subproject apartment is added")
-                    let locationDoc = await LocationGenerator.createLocation(subProjectApartments[key]._id, reportType, subprojectName);
-                    subprojectDoc.buildingApartmentMap.set(subProjectApartments[key]._id.toString(), locationDoc);
+                    let locationDoc = await LocationGenerator.createLocation(aptId, reportType, subprojectName);
+                    subprojectDoc.buildingApartmentMap.set(aptKey, locationDoc);
                 }
 
-                let newLocationDoc = subprojectDoc.buildingApartmentMap.get(subProjectApartments[key]._id.toString());
-                if (newLocationDoc.doc !== null && newLocationDoc.doc !== undefined) {
-                    buildingApartmentMap.set(subProjectApartments[key]._id.toString(), newLocationDoc);
+                let newLocationDoc = subprojectDoc.buildingApartmentMap.get(aptKey);
+                if (newLocationDoc && newLocationDoc.doc !== null && newLocationDoc.doc !== undefined) {
+                    buildingApartmentMap.set(aptKey, newLocationDoc);
                     subprojectLocationsHashCode.push(newLocationDoc.doc.hashCode);
                     locationPath.push(newLocationDoc.doc.filePath)
                 }
             }
             for (let key in subProjectLocations) {
-                if (subprojectDoc.buildingLocationMap.has(subProjectLocations[key]._id.toString())) {
-                    let locationDoc = await LocationGenerator.updateLocation(subProjectLocations[key]._id,
-                        subprojectDoc.buildingLocationMap.get(subProjectLocations[key]._id.toString()),
+                const locId = subProjectLocations[key] && (subProjectLocations[key].id || subProjectLocations[key]._id);
+                if (!locId) { console.error("Subproject location child has no id, skipping:", subProjectLocations[key] && subProjectLocations[key].name); continue; }
+                const locKey = String(locId);
+                if (subprojectDoc.buildingLocationMap.has(locKey)) {
+                    let locationDoc = await LocationGenerator.updateLocation(locId,
+                        subprojectDoc.buildingLocationMap.get(locKey),
                         reportType,
                         subprojectName);
                     if (locationDoc !== null) {
-                        subprojectDoc.buildingLocationMap.get(subProjectLocations[key]._id.toString()).doc = locationDoc;
+                        subprojectDoc.buildingLocationMap.get(locKey).doc = locationDoc;
                     }
                 } else {
                     console.log("New subproject location is added");
-                    let locationDoc = await LocationGenerator.createLocation(subProjectLocations[key]._id, reportType, subprojectName);
-                    subprojectDoc.buildingLocationMap.set(subProjectLocations[key]._id.toString(), locationDoc);
+                    let locationDoc = await LocationGenerator.createLocation(locId, reportType, subprojectName);
+                    subprojectDoc.buildingLocationMap.set(locKey, locationDoc);
                 }
-                let newLocationDoc = subprojectDoc.buildingLocationMap.get(subProjectLocations[key]._id.toString());
-                if (newLocationDoc.doc !== null && newLocationDoc.doc !== undefined) {
-                    buildingLocationMap.set(subProjectLocations[key]._id.toString(), newLocationDoc);
+                let newLocationDoc = subprojectDoc.buildingLocationMap.get(locKey);
+                if (newLocationDoc && newLocationDoc.doc !== null && newLocationDoc.doc !== undefined) {
+                    buildingLocationMap.set(locKey, newLocationDoc);
                     subprojectLocationsHashCode.push(newLocationDoc.doc.hashCode);
                     locationPath.push(newLocationDoc.doc.filePath);
                 }
