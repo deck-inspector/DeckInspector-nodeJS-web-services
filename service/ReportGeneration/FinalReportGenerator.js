@@ -629,11 +629,14 @@ class FinalReportGenerator {
         const visualBuffer = await getBlobBuffer(urlArray[urlArray.length - 1], urlArray[urlArray.length - 2]);
 
         // Preferred: docxcompose merge (verified Word-clean). Fallback: Node merger + repairs.
+        // NOTE: merge_docx.py now inserts a page break before EVERY appended
+        // annex, so the Visual always starts on its own page. The old
+        // addVisualPageBreak() pin is no longer applied - combining both
+        // produced an extra blank page between the Final and the Visual.
         const sanitizedVisual = ReportGenerationUtil.sanitizeDocxBuffer(visualBuffer);
-        const pagedVisual = this.addVisualPageBreak(sanitizedVisual);
-        let mergedBuffer = this.combineWithDocxCompose(filledBuffer, pagedVisual, projectId);
+        let mergedBuffer = this.combineWithDocxCompose(filledBuffer, sanitizedVisual, projectId);
         if (!mergedBuffer) {
-            mergedBuffer = await this.combineAndRepair(filledBuffer, pagedVisual);
+            mergedBuffer = await this.combineAndRepair(filledBuffer, this.addVisualPageBreak(sanitizedVisual));
         }
         if (!mergedBuffer) {
             throw new Error('FinalReport: merge produced no output');
