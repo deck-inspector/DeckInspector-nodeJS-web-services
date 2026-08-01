@@ -192,6 +192,9 @@ input,select{font-family:inherit;font-size:16px}
 .lightbox{position:fixed;inset:0;background:rgba(10,16,20,.92);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out}
 .lightbox img{max-width:96vw;max-height:92vh;border-radius:8px}
 
+/* drag & drop zone for project documents */
+.docdrop{border:2px dashed var(--line);border-radius:12px;padding:22px 14px;text-align:center;cursor:pointer;background:var(--bg);margin-bottom:12px;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center}
+.docdrop:hover,.docdrop.drag{border-color:var(--brand);background:rgba(31,122,51,.05)}
 /* ---------- directory tree / tabs / documents ---------- */
 .inspect-layout{display:flex;gap:20px;align-items:flex-start}
 .dirtree{width:250px;flex-shrink:0;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 10px;position:sticky;top:80px;max-height:calc(100vh - 100px);overflow-y:auto}
@@ -283,7 +286,7 @@ input,select{font-family:inherit;font-size:16px}
         <button class="btn-ghost" :class="{navon: view==='users'}" @click="openUsers">&#128100; Users</button>
       </nav>
       <div class="spacer"></div>
-      <img :src="logo" alt="Deck Inspectors" style="height:38px;margin-right:4px">
+      <img v-if="logo" :src="logo" :alt="(user && user.companyIdentifier) || 'Company logo'" style="height:38px;margin-right:4px">
       <div class="userchip">
         <div class="avatar">{{ initials }}</div>
         <span>{{ user.first_name || user.username }}</span>
@@ -952,9 +955,22 @@ input,select{font-family:inherit;font-size:16px}
     <div class="modal" style="max-width:560px">
       <h3>Project Documents</h3>
       <p style="margin-bottom:14px"><b>{{ docsProject ? docsProject.name : '' }}</b> &mdash; contracts, layouts, and signed reports live here.</p>
+      <div class="docdrop" :class="{drag:docDrag}" @click="$refs.docUp.click()"
+           @dragover.prevent="docDrag=true" @dragleave.prevent="docDrag=false" @drop.prevent="onDocDrop">
+        <input type="file" ref="docUp" style="display:none" @change="onDocFile">
+        <template v-if="docFile">
+          <div style="font-weight:600">&#128196; {{ docFile.name }}</div>
+          <div style="font-size:12px;color:var(--ink-soft)">Click Upload to add it, or drop / click to pick a different file.</div>
+        </template>
+        <template v-else>
+          <div style="font-size:22px">&#8613;</div>
+          <div><b>Drag &amp; drop</b> a file here, or <span style="text-decoration:underline">click to choose one</span></div>
+          <div style="font-size:12px;color:var(--ink-soft)">PDF, Word, images &mdash; any file type</div>
+        </template>
+      </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-        <input type="file" :key="'df'+docs.length" @change="onDocFile" style="font-size:14px">
         <button class="btn btn-dl" :disabled="!docFile || uploadingDoc" @click="uploadDoc">{{ uploadingDoc ? 'Uploading&hellip;' : '&#11014; Upload' }}</button>
+        <button class="btn-cancel" v-if="docFile && !uploadingDoc" @click="docFile=null">Clear</button>
       </div>
       <div class="empty" v-if="loadingDocs" style="padding:20px 0">Loading&hellip;</div>
       <div class="empty" v-else-if="!docs.length" style="padding:20px 0">No documents yet &mdash; upload the first one above.</div>
@@ -1007,7 +1023,11 @@ const { createApp } = Vue;
 createApp({
   data() {
     return {
-      logo: LOGO, logoE3: LOGO_E3,
+      // Header logo is the LOGGED-IN TENANT's own logo (from the admin
+      // panel), loaded after sign-in. It must never default to another
+      // company's branding - clients like West Coast Deck Inspections are
+      // separate companies from Deck Inspectors.
+      logo: '', logoE3: LOGO_E3,
       user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
@@ -1029,7 +1049,7 @@ createApp({
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       structTab: 'buildings',
-      docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFile: null, uploadingDoc: false, docDeleting: null,
+      docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFile: null, uploadingDoc: false, docDeleting: null, docDrag: false,
       proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
       propBusy: false, propConverting: false, propDeleting: null,
       toasts: [], toastSeq: 0,
@@ -1071,7 +1091,7 @@ createApp({
   created() {
     try {
       const saved = localStorage.getItem('e3v2_user');
-      if (saved) { this.user = JSON.parse(saved); this.loadProjects(); }
+      if (saved) { this.user = JSON.parse(saved); this.loadProjects(); this.loadBranding(); }
     } catch (e) { /* ignore */ }
     history.replaceState({ v: 'projects' }, '');
     window.addEventListener('popstate', (e) => this.onPop(e));
@@ -1115,6 +1135,7 @@ createApp({
         localStorage.setItem('e3v2_user', JSON.stringify(this.user));
         this.loginForm.password = '';
         this.loadProjects();
+        this.loadBranding();
       } catch (e) {
         this.loginError = 'Could not reach the server. Check your connection.';
       } finally { this.loggingIn = false; }
@@ -1809,7 +1830,30 @@ createApp({
       } catch (e) { this.docs = []; }
       finally { this.loadingDocs = false; }
     },
-    onDocFile(e) { this.docFile = (e.target.files && e.target.files[0]) || null; },
+    // The header logo is the signed-in tenant's own logo from the admin
+    // panel (Report Header image, or the tenant logo field). No logo set =
+    // no logo shown; NEVER another company's branding.
+    async loadBranding() {
+      try {
+        const cid = this.user && this.user.companyIdentifier;
+        if (!cid) { this.logo = ''; return; }
+        const res = await this.api('/tenants/identifier/' + encodeURIComponent(cid));
+        if (!res.ok) { this.logo = ''; return; }
+        const j = await res.json();
+        const t = j.Tenant || j.tenant || j;
+        this.logo = (t && ((t.icons && t.icons.header) || t.logo)) || '';
+      } catch (e) { this.logo = ''; }
+    },
+    onDocFile(e) {
+      this.docFile = (e.target.files && e.target.files[0]) || null;
+      // allow choosing the same file again later
+      if (e.target) e.target.value = '';
+    },
+    onDocDrop(e) {
+      this.docDrag = false;
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) this.docFile = f;
+    },
     async uploadDoc() {
       if (!this.docFile || !this.docsProject) return;
       this.uploadingDoc = true;
