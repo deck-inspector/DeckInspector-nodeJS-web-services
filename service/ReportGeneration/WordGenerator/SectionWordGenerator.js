@@ -195,40 +195,36 @@ class SectionWordGenerator {
                     return tempArray;
                 },
                 tile: async (imageUrl) => {
-                    if (imageUrl === undefined) {
+                    // An image slot can be undefined (partial chunk of 4). It can
+                    // also be a NON-STRING (null / object / number) when the
+                    // inspection's image data is malformed - e.g. duplicated or
+                    // partially-synced image entries from the mobile app.
+                    // path.extname()/startsWith() THROW on a non-string, and with
+                    // failFast:false that single error made docx-templates fail the
+                    // WHOLE section, so the section vanished from the report (report
+                    // came out as cover page only). Skip any bad/non-string/non-http
+                    // entry instead - a missing image must never drop the section.
+                    if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) {
                         return;
                     }
-                    const extension = path.extname(imageUrl);
-
-                    if (!imageUrl.startsWith('http') ) {
-                        //imageurl = 'https://www.deckinspectors.com/wp-content/uploads/2020/07/logo_new_new-1.png';
-                        return;
-                    }
-                    console.log(imageUrl);
                     try {
-                        const resp = await fetch(
-                            imageUrl
-                        );
+                        const resp = await fetch(imageUrl);
                         if (resp.ok) {
                             const imagebuffer = resp.arrayBuffer
                                 ? await resp.arrayBuffer()
                                 : await resp.buffer();
-                            const extension = path.extname(imageUrl);
                             //fix image rotation
                             try {
                                 const {buffer} = await jo.rotate(Buffer.from(imagebuffer), {quality: 50});
-
                                 return {height: 6.2, width: 4.85, data: buffer, extension: '.jpg'};
                             } catch (error) {
-                                console.log('An error occurred when rotating the file: ' + error);
                                 return {height: 6.2, width: 4.85, data: imagebuffer, extension: '.jpg'};
                             }
-                        } else {
-
                         }
                     } catch (error) {
-                        console.log(error);
+                        console.log('tile: skipping image that failed to load:', error && error.message);
                     }
+                    return;
                 },
             }
             const buffer = await ReportGenerationUtil.createDocReportWithParams(template, data, additionalJsContext);
