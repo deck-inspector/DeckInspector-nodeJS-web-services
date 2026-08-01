@@ -306,6 +306,7 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <button class="btn btn-reports" style="width:auto;padding:12px 20px" @click="openAdd">&#65291; Add Project</button>
           <button class="btn btn-dl" style="width:auto;padding:12px 20px" title="Proposals — create before the project exists; accepted proposals convert into projects" @click="openProposals">&#128196; Proposals</button>
+          <button class="btn btn-dl" v-if="isPlatformAdmin" style="width:auto;padding:12px 20px" title="Upload the corrected Final Report master template used for ALL clients" @click="tplOpen=true">&#9881; Final Template</button>
         </div>
         <div class="kindrow" v-if="!loadingProjects">
           <button class="kind" :class="{on: filterMode==='active'}" @click="filterMode='active'">Active ({{ projectCounts.active }})</button>
@@ -993,6 +994,30 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ FINAL REPORT MASTER TEMPLATE (platform admin) ============ -->
+  <div class="overlay" v-if="tplOpen" @click.self="tplOpen=false">
+    <div class="modal" style="max-width:560px">
+      <h3>Corrected Final Report &mdash; master template</h3>
+      <p style="margin-bottom:14px">This ONE template is used for <b>every client's</b> Final Report. Only the client's company name, phone, and their admin-panel header/footer logos change per client. Uploading here replaces it immediately for the next report generated &mdash; it is stored durably and survives app updates.</p>
+      <div class="docdrop" :class="{drag:tplDrag}" @click="$refs.tplUp.click()"
+           @dragover.prevent="tplDrag=true" @dragleave.prevent="tplDrag=false" @drop.prevent="onTplDrop">
+        <input type="file" ref="tplUp" accept=".docx" style="display:none" @change="onTplFile">
+        <template v-if="tplFile">
+          <div style="font-weight:600">&#128196; {{ tplFile.name }}</div>
+          <div style="font-size:12px;color:var(--ink-soft)">Click Replace to make this the master template.</div>
+        </template>
+        <template v-else>
+          <div style="font-size:22px">&#8613;</div>
+          <div><b>Drag &amp; drop</b> the corrected Final Report (.docx) here, or <span style="text-decoration:underline">click to choose it</span></div>
+        </template>
+      </div>
+      <div class="mrow" style="margin-top:14px">
+        <button class="btn-cancel" @click="tplOpen=false">Close</button>
+        <button class="btn btn-reports" :disabled="!tplFile || uploadingTpl" @click="uploadTemplate">{{ uploadingTpl ? 'Uploading&hellip;' : 'Replace master template' }}</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ DOCUMENT DELETE CONFIRM ============ -->
   <div class="overlay" v-if="docDeleting" @click.self="docDeleting=null">
     <div class="modal">
@@ -1038,7 +1063,7 @@ createApp({
       forms: [], photoBusy: false,
       structOpen: false, structBusy: false, structDelete: null,
       struct: { mode: 'add', kind: 'unit', id: null, parentid: null, parenttype: 'project', name: '', description: '', ltype: 'apartment' },
-      tplFile: null, uploadingTpl: false,
+      tplFile: null, uploadingTpl: false, tplOpen: false, tplDrag: false,
       users: [], loadingUsers: false, userAddOpen: false, savingUser: false, deletingUser: null,
       userForm: { first_name: '', last_name: '', username: '', email: '', mobile: '', password: '', access_type: 'both' },
       assignPick: '',
@@ -1056,6 +1081,12 @@ createApp({
     };
   },
   computed: {
+    // Platform admin = Deck Inspectors (David's own tenant). Only they can
+    // replace the Final Report MASTER template used for all clients.
+    isPlatformAdmin() {
+      const cid = ((this.user && this.user.companyIdentifier) || '').toLowerCase();
+      return cid.indexOf('deck inspectors') === 0;
+    },
     initials() {
       const u = this.user || {};
       const a = (u.first_name || u.username || '?')[0] || '?';
@@ -1396,7 +1427,19 @@ createApp({
         if (e.message !== 'auth') this.toast('Could not build the Excel file.', 'err');
       } finally { this.downloadingExcel = false; }
     },
-    onTplFile(e) { this.tplFile = (e.target.files && e.target.files[0]) || null; },
+    onTplFile(e) {
+      const f = (e.target.files && e.target.files[0]) || null;
+      if (f && !/\.docx$/i.test(f.name)) { this.toast('The master template must be a Word .docx file.', 'err'); return; }
+      this.tplFile = f;
+      if (e.target) e.target.value = '';
+    },
+    onTplDrop(e) {
+      this.tplDrag = false;
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      if (!/\.docx$/i.test(f.name)) { this.toast('The master template must be a Word .docx file.', 'err'); return; }
+      this.tplFile = f;
+    },
     async uploadTemplate() {
       if (!this.tplFile) return;
       this.uploadingTpl = true;
@@ -1405,9 +1448,14 @@ createApp({
         fd.append('file', this.tplFile);
         fd.append('companyName', (this.user && this.user.companyIdentifier) || '');
         const res = await this.api('/project/replacefinalreporttemplate', { method: 'POST', body: fd });
-        if (!res.ok) throw new Error('bad');
-        this.tplFile = null;
-        this.toast('Final Report template replaced. It is used for the next report you create.');
+        if (!res.ok) {
+          let msg = 'Could not upload the template.';
+          try { msg = (await res.json()).message || msg; } catch (e2) { /* keep default */ }
+          this.toast(msg, 'err');
+          return;
+        }
+        this.tplFile = null; this.tplOpen = false;
+        this.toast('Master Final Report template replaced for ALL clients - used from the next report on.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not upload the template.', 'err');
       } finally { this.uploadingTpl = false; }
