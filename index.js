@@ -18,10 +18,20 @@ const { connectToDatabase } = require("./database/couchbase");
 app.use(cors());
 app.timeout = 600000;
 
-// New web app (v2) — served alongside the API at /app
-app.use("/app", express.static(path.join(__dirname, "webapp")));
+// New web app (v2) — served alongside the API at /app.
+// index.html is served with no-cache so browsers always revalidate and pick
+// up newly deployed UI immediately (users were seeing stale cached pages -
+// e.g. the Documents drag & drop "not landing" after a deploy).
+const staticOpts = {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  }
+};
+app.use("/app", express.static(path.join(__dirname, "webapp"), staticOpts));
 // Launch: serve the web app at the root as well (e3-web.com cutover)
-app.use(express.static(path.join(__dirname, "webapp")));
+app.use(express.static(path.join(__dirname, "webapp"), staticOpts));
 
 require("./routes")(app);
 app.get("/", (req, res) => {
