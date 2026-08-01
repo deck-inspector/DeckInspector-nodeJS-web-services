@@ -508,45 +508,52 @@ router.route('/finalreport')
       }
     })
 
+// Replace the ONE corrected Final Report MASTER template used for ALL
+// clients (David, Aug 1). There are no per-tenant Final templates anymore -
+// that is exactly what caused stale, uncorrected copies to be used. The
+// uploaded .docx becomes Deck_FinalTemplate.docx (app folder) AND is
+// persisted to blob storage under the same fixed name, so it survives code
+// deployments and is always the version report generation references.
+// Per-tenant branding (company name, phone, admin header/footer images)
+// is applied at generation time, not baked into the template.
 router.route('/replacefinalreporttemplate')
     .post(upload.single('file'), async function (req, res){
       try{
-        
         const uploadedFile = req.file;
-        //var companyIdentifier = req.user.company;
         if (!uploadedFile) {
           return res.status(400).json({ message: 'No file uploaded.' });
         }
 
-        const {companyName} = req.body;
-
-        if (!companyName) {
-          return res.status(400).json({ message: 'Company name is missing.' });
+        // Validate BEFORE replacing anything: a corrupt upload must never
+        // break Final Report generation for every client.
+        try {
+          const PizZip = require('pizzip');
+          const buf = fs.readFileSync(uploadedFile.path);
+          const zip = new PizZip(buf);
+          if (!zip.file('word/document.xml')) throw new Error('not a Word document');
+        } catch (vErr) {
+          try { fs.unlinkSync(uploadedFile.path); } catch (e) { /* ignore */ }
+          return res.status(400).json({ message: 'That file is not a valid Word (.docx) document - the master template was NOT changed.' });
         }
-        const cleanName = companyName.replaceAll(/\s/g, "").replace('.ondeckinspectors.com','').toLowerCase();
-        const existingFileName = `${cleanName}_FinalTemplate.docx`;
-        const filePath = path.join(__dirname, '..', existingFileName);
 
-        // Check if the file to be replaced exists
+        const existingFileName = 'Deck_FinalTemplate.docx';
+        const filePath = path.join(__dirname, '..', existingFileName);
         if (fs.existsSync(filePath)) {
-          // Delete the existing file
           fs.unlinkSync(filePath);
         }
-
-        //Rename the uploaded file
         fs.renameSync(uploadedFile.path, filePath);
 
         // Persist to blob storage: the app folder is replaced on every code
         // deployment, so the blob copy is the durable source of the template.
         try {
           const blobResult = await uploadBlob.uploadFile('projectreports', existingFileName, filePath, {
-            metadata: { kind: 'finalreporttemplate', company: cleanName }
+            metadata: { kind: 'finalreporttemplate-master', uploadedAt: new Date().toISOString() }
           });
-          console.log('Final template persisted to blob:', blobResult);
+          console.log('Final MASTER template persisted to blob:', blobResult);
         } catch (blobErr) {
           console.error('Final template blob persist failed:', blobErr && blobErr.message);
         }
-        res.status(200).json({ message: 'File replaced successfully.' });
+        res.status(200).json({ message: 'Master Final Report template replaced for all clients.' });
       } catch(err){
         console.error('Error replacing final report template: ', err);
         return res.status(500).send('Error replacing final report template');
