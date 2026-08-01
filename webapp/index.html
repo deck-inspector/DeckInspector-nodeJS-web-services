@@ -392,14 +392,13 @@ input,select{font-family:inherit;font-size:16px}
             <label>Owner / MGR</label><input v-model.trim="prop.form.ownerMgr" placeholder="Owner or property manager">
             <div style="display:flex;gap:8px"><div style="flex:1"><label>Contact Phone</label><input v-model.trim="prop.form.contactPhone" placeholder="760-555-0000"></div><div style="flex:1.4"><label>Contact Email</label><input v-model.trim="prop.form.contactEmail" placeholder="name@email.com"></div></div>
             <h4>Document selections</h4>
-            <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Pick from the list or type your own value.</div>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Every dropdown from the Word document, with the same choices.</div>
             <template v-for="f in propFields" :key="f.idx">
               <label>{{ f.label }}</label>
               <input v-if="f.kind==='date'" v-model.trim="prop.form.values[f.idx]" placeholder="M/D/YYYY">
-              <template v-else>
-                <input v-model.trim="prop.form.values[f.idx]" :list="'pdl'+f.idx" :placeholder="f.options[0]">
-                <datalist :id="'pdl'+f.idx"><option v-for="o in f.options" :key="o" :value="o.trim()"></option></datalist>
-              </template>
+              <select v-else v-model="prop.form.values[f.idx]">
+                <option v-for="o in propSelOptions(f)" :key="o" :value="o">{{ o }}</option>
+              </select>
             </template>
             <div class="prop-actions">
               <button class="btn btn-inspect" style="flex:1" :disabled="propBusy || !prop.form.property" @click="saveProposal(false)">{{ propBusy ? 'Saving…' : '💾 Save' }}</button>
@@ -1869,6 +1868,16 @@ createApp({
         } else { this.docs = []; }
       } catch (e) { this.docs = []; }
       finally { this.loadingDocs = false; }
+    },
+    // Options for a proposal "Document selections" dropdown: the SAME list
+    // the Word document's dropdown has (parsed from the live template). If a
+    // previously saved proposal holds a custom value that's not in the list,
+    // it's kept as the first option so nothing silently changes on open.
+    propSelOptions(f) {
+      const opts = (f.options || []).map(o => String(o).trim()).filter(o => o.length);
+      const cur = String((this.prop && this.prop.form.values[f.idx]) || '').trim();
+      if (cur && opts.indexOf(cur) === -1) return [cur].concat(opts);
+      return opts;
     },
     // The header logo is the signed-in tenant's own logo from the admin
     // panel (Report Header image, or the tenant logo field). No logo set =
