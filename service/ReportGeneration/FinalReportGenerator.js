@@ -611,9 +611,26 @@ class FinalReportGenerator {
                 doc = doc.split('%%CNAME%%').join(cname);
                 console.log('FinalReport: company name substituted ->', tenantRec.name);
             }
-            if (tenantRec && tenantRec.phone) {
-                doc = doc.split('888-224-0489').join(this.xmlEscape(tenantRec.phone));
-                console.log('FinalReport: phone substituted');
+            // Phone + website: ALWAYS replace Deck Inspectors' defaults with
+            // the CLIENT's values from the admin panel (David, Aug 1: "do not
+            // allow deck inspectors phone number or url to populate this
+            // drop down"). If the client has none on file, the default is
+            // REMOVED - another company's contact info must never print on a
+            // client's report. (The E3 Association line is a different string
+            // and is left alone.)
+            {
+                const isDeckTenant = ((companyIdentifier || '') + '').toLowerCase().indexOf('deck inspectors') === 0;
+                if (!isDeckTenant) {
+                    const tphone = (tenantRec && tenantRec.phone ? String(tenantRec.phone).trim() : '');
+                    doc = doc.split('888-224-0489').join(this.xmlEscape(tphone));
+                    console.log('FinalReport: phone ' + (tphone ? 'substituted' : 'removed (none on file)'));
+                    let tsite = (tenantRec && tenantRec.website ? String(tenantRec.website).trim() : '');
+                    if (!tsite && tenantRec && tenantRec.footerText && /^[\w.-]+\.[A-Za-z]{2,}$/.test(String(tenantRec.footerText).trim())) {
+                        tsite = String(tenantRec.footerText).trim();
+                    }
+                    doc = doc.split('www.deckinspectors.com').join(this.xmlEscape(tsite));
+                    console.log('FinalReport: website ' + (tsite ? ('substituted -> ' + tsite) : 'removed (none on file)'));
+                }
             }
         } catch (e) { console.log('FinalReport: company substitution failed', e.message); }
 
