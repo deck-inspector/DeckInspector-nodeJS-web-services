@@ -31,7 +31,17 @@ class FinalReportGenerator {
     }
 
     async getTemplateBuffer(companyName) {
-        console.log('FinalReport: using the corrected master template (Deck_FinalTemplate.docx) for', companyName || '(unknown tenant)');
+        // Blob first: the admin's "Corrected Final Report" upload (webapp ->
+        // /replacefinalreporttemplate) is persisted to blob under this fixed
+        // name and survives code deployments. The repo copy is the fallback.
+        try {
+            const buf = await getBlobBuffer('Deck_FinalTemplate.docx', 'projectreports');
+            if (buf && buf.length > 0) {
+                console.log('FinalReport: using admin-uploaded master template (blob) for', companyName || '(unknown tenant)');
+                return buf;
+            }
+        } catch (e) { /* no admin upload yet - use the repo copy */ }
+        console.log('FinalReport: using repo master template (Deck_FinalTemplate.docx) for', companyName || '(unknown tenant)');
         return fs.readFileSync(path.join(__dirname, '..', '..', 'Deck_FinalTemplate.docx'));
     }
 
