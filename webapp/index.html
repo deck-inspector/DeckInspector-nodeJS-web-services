@@ -195,6 +195,8 @@ input,select{font-family:inherit;font-size:16px}
 /* drag & drop zone for project documents */
 .docdrop{border:2px dashed var(--line);border-radius:12px;padding:22px 14px;text-align:center;cursor:pointer;background:var(--bg);margin-bottom:12px;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center}
 .docdrop:hover,.docdrop.drag{border-color:var(--brand);background:rgba(31,122,51,.05)}
+/* a button that also accepts drag & drop (Upload Completed Report) */
+.btn.dropready{outline:3px dashed #fff;outline-offset:-6px;filter:brightness(1.15)}
 /* ---------- directory tree / tabs / documents ---------- */
 .inspect-layout{display:flex;gap:20px;align-items:flex-start}
 .dirtree{width:250px;flex-shrink:0;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 10px;position:sticky;top:80px;max-height:calc(100vh - 100px);overflow-y:auto}
@@ -522,7 +524,9 @@ input,select{font-family:inherit;font-size:16px}
             <button class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create {{ kindLabel }} (Word)</button>
             <button class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="generating" @click="generateReport('pdf')">&#128462; Create {{ kindLabel }} (PDF)</button>
             <button class="btn btn-big btn-final" :disabled="downloadingFinal" @click="downloadFinal">&#11015; Download Latest Final Report</button>
-            <button class="btn btn-big" style="background:#1F7A33" :disabled="uploadingReport" @click="$refs.repUp.click()">&#11014; {{ uploadingReport ? 'Uploading&hellip;' : 'Upload Completed Report' }}</button>
+            <button class="btn btn-big" :class="{dropready:repDrag}" style="background:#1F7A33" :disabled="uploadingReport" @click="$refs.repUp.click()"
+                    @dragover.prevent="repDrag=true" @dragleave.prevent="repDrag=false" @drop.prevent="onRepDrop"
+                    title="Click to choose a file, or drag & drop it onto this button">&#11014; {{ uploadingReport ? 'Uploading&hellip;' : (repDrag ? 'Drop to upload' : 'Upload Completed Report') }}</button>
             <input type="file" ref="repUp" accept=".docx,.doc,.pdf" style="display:none" @change="uploadCompletedReport">
             <button class="btn btn-big" style="background:var(--bg);color:var(--ink);border:1.5px solid var(--line)" :disabled="downloadingExcel" @click="downloadExcel">&#128202; Project Data (Excel)</button>
           </div>
@@ -1052,7 +1056,7 @@ createApp({
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       structTab: 'buildings',
-      docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFile: null, uploadingDoc: false, docDeleting: null, docDrag: false,
+      docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFile: null, uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
       proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
       propBusy: false, propConverting: false, propDeleting: null,
       toasts: [], toastSeq: 0,
@@ -1252,6 +1256,16 @@ createApp({
     async uploadCompletedReport(e) {
       const f = (e.target.files && e.target.files[0]) || null;
       e.target.value = '';
+      await this.uploadCompletedFile(f);
+    },
+    onRepDrop(e) {
+      this.repDrag = false;
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      if (!/\.(docx|doc|pdf)$/i.test(f.name)) { this.toast('Please drop a Word or PDF report file.', 'err'); return; }
+      this.uploadCompletedFile(f);
+    },
+    async uploadCompletedFile(f) {
       if (!f || !this.current) return;
       this.uploadingReport = true;
       try {
