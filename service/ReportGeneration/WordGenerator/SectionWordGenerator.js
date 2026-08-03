@@ -30,7 +30,16 @@ class SectionWordGenerator {
             const baseSectionDocValues = this.getBaseSectionDocValues(sectionData, reportType, subprojectName, locationType, location);
             let sectionDocValues;
             if (reportType === projectReportType.INVASIVEONLY || reportType === projectReportType.INVASIVEVISUAL) {
-                if (location.data.item.isInvasive && location.data.item.isInvasive === true) {
+                // The section already passed isSectionIncluded (further invasive review
+                // required). Do NOT additionally require location.isInvasive === true:
+                // when an inspector marks the SECTION invasive but the location flag was
+                // never set, the section silently vanished from Invasive reports
+                // (Aug 3, "can't print the invasive report"). Log the inconsistency
+                // instead of dropping the section.
+                {
+                    if (location.data.item.isInvasive !== true) {
+                        console.error(`Invasive report: location "${location.data.item.name}" is not flagged isInvasive but section requires invasive review - including it anyway.`);
+                    }
                     if (sectionData) {
                         let sectionDocValuesWhenUnitAvailable = this.getSectionDocValuesWhenUnitAvailable(sectionData);
                         const invasiveSectionData = await invasiveSections.getInvasiveSectionByParentId(sectionId);
@@ -107,8 +116,8 @@ class SectionWordGenerator {
             exteriorelements: sectionData.data.item.exteriorelements?.toString().replaceAll(',', ', '),
             waterproofing: sectionData.data.item.waterproofingelements?.toString().replaceAll(',', ', '),
             visualreview: sectionData.data.item.visualreview,
-            signsofleak: sectionData.data.item.visualsignofleak === 'True' ? 'Yes' : 'No',
-            furtherinvasive: sectionData.data.item.furtherinvasivereviewrequired === 'True' ? 'Yes' : 'No',
+            signsofleak: this.isYes(sectionData.data.item.visualsignofleak !== undefined ? sectionData.data.item.visualsignofleak : sectionData.data.item.visualsignsofleak) ? 'Yes' : 'No',
+            furtherinvasive: this.isYes(sectionData.data.item.furtherinvasivereviewrequired) ? 'Yes' : 'No',
             conditionalassesment: sectionData.data.item.conditionalassessment === 'Futureinspection' ? 'Future Inspection' : sectionData.data.item.conditionalassessment,
             additionalconsiderations: sectionData.data.item.additionalconsiderations,
             eee: sectionData.data.item.eee,
@@ -166,9 +175,16 @@ class SectionWordGenerator {
     }
 
 
+    // The data stores yes-ish values inconsistently across mobile versions and the
+    // web editor: true (boolean), "True", "true", "Yes", "yes". Comparing === 'True'
+    // silently excluded real invasive sections (315 N. Swall unit 201, value "Yes")
+    // and made Invasive reports come out empty (Aug 3). Accept every yes form.
+    isYes(v) {
+        return v === true || /^(true|yes)$/i.test(String(v || '').trim());
+    }
     isSectionIncluded(reportType, section) {
         if (reportType === projectReportType.INVASIVEONLY || reportType === projectReportType.INVASIVEVISUAL) {
-            return section.data.item.furtherinvasivereviewrequired === 'True';
+            return this.isYes(section.data.item.furtherinvasivereviewrequired);
         } else if (reportType === projectReportType.VISUALREPORT) {
             return true;
         }
