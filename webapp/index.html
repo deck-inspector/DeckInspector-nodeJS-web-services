@@ -246,7 +246,19 @@ input,select{font-family:inherit;font-size:16px}
   body,.main{background:#fff !important;padding:0 !important;margin:0 !important}
   .prop-wrap{display:block}
   .ppdoc{border:none;box-shadow:none;border-radius:0;max-width:none;padding:0}
+  @page{margin:12mm 13mm}
+  /* Compact print metrics so the whole document fits in 4 pages and the closing
+     signature block ends ON the last content page (no lone page 5). */
+  .ppdoc{font-size:10pt;line-height:1.3}
+  .ppdoc p{margin:0 0 7px}
+  .ppdoc .pp-sec{margin:10px 0 4px}
+  .ppdoc table{margin:8px 0 10px}
+  .ppdoc td{padding:3px 6px}
+  .ppdoc .pp-caps{font-size:9.5pt}
+  .ppdoc .pp-sign{margin-top:12px}
+  .ppdoc .pp-foot{margin-top:12px}
   .ppdoc .pp-break{page-break-before:always;margin-top:0;border-top:none;padding-top:0}
+  .ppdoc .pp-flow{page-break-before:auto}
   /* Keep the closing block (initials + owner/agent + title + signature + footer logo)
      together on ONE page — the signature line must never strand alone on a last page
      (David, Aug 3: browser Print/PDF split "Signature:" + logo onto their own page). */
@@ -464,7 +476,10 @@ input,select{font-family:inherit;font-size:16px}
             <div class="pp-sec">SECTION (4) REPORTS:</div>
             <p>A report of the project (Visual, Invasive or Final) will be prepared in accordance with the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551 (SB326) and San Francisco Section 604 compliance and guidelines and submitted to the Owner / Agent or City for their records and incorporation into the Reserve Study Analysis or public record at the cost identified in the price proposal above.</p>
             <p>If any conditions are found to exist where damage is excessive, causing a concern for the safety of the residents or others, {{ coName }} is required by law to inform both the owner and the local or state Building and Safety Department as required by California Health and Safety Code &sect;17973 (SB721), California Civil Code &sect;5551 (SB326) or the City of San Francisco Section 604, and ask the Owner / Agent to close the area(s) to all persons. The Notice of Unsafe Conditions is a separate fee, if required and identified in the price proposal above.</p>
-            <div class="pp-sec pp-break">PAYMENTS FOR PROFESSIONAL SERVICES:</div>
+            <!-- pp-flow: this section is NOT forced onto a new printed page — it flows up
+                 to fill the space after Section 4 so the proposal prints in 4 pages, with
+                 the signature block ending ON page 4 (David, Aug 3: "delete page 5"). -->
+            <div class="pp-sec pp-break pp-flow">PAYMENTS FOR PROFESSIONAL SERVICES:</div>
             <p>All fees are fully earned by {{ coName }} upon the dispatch of inspectors.</p>
             <p>Total due amounts will be billed and due payable upon completion of dispatch of the inspectors or the completion of a Request for Bid (RFP). Reports will be released to the client / undersigned when all payments have been received by {{ coName }}.</p>
             <p>A late fee of 15% of the amount of the invoice shall be assessed on any invoice which is not paid within five (15) calendar days of its due date. In addition to the late fee, any invoice which is not paid within thirty (30) calendar days of its due date shall also bear interest at the rate of 18% per annum from the original due date of the invoice.</p>
