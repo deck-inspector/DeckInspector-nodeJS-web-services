@@ -246,19 +246,12 @@ input,select{font-family:inherit;font-size:16px}
   body,.main{background:#fff !important;padding:0 !important;margin:0 !important}
   .prop-wrap{display:block}
   .ppdoc{border:none;box-shadow:none;border-radius:0;max-width:none;padding:0}
-  @page{margin:12mm 13mm}
-  /* Compact print metrics so the whole document fits in 4 pages and the closing
-     signature block ends ON the last content page (no lone page 5). */
-  .ppdoc{font-size:10pt;line-height:1.3}
-  .ppdoc p{margin:0 0 7px}
-  .ppdoc .pp-sec{margin:10px 0 4px}
-  .ppdoc table{margin:8px 0 10px}
-  .ppdoc td{padding:3px 6px}
-  .ppdoc .pp-caps{font-size:9.5pt}
-  .ppdoc .pp-sign{margin-top:12px}
-  .ppdoc .pp-foot{margin-top:12px}
-  .ppdoc .pp-break{page-break-before:always;margin-top:0;border-top:none;padding-top:0}
-  .ppdoc .pp-flow{page-break-before:auto}
+  @page{margin:14mm 15mm}
+  /* NO forced page breaks in print (David, Aug 3): forcing sections onto new pages left
+     half-blank pages. The document flows continuously at full size like a normal
+     contract — every page fills, and the keep-together rules below still guarantee the
+     signature block, tables, and headings never split awkwardly. */
+  .ppdoc .pp-break{page-break-before:auto;margin-top:16px;border-top:none;padding-top:0}
   /* Keep the closing block (initials + owner/agent + title + signature + footer logo)
      together on ONE page — the signature line must never strand alone on a last page
      (David, Aug 3: browser Print/PDF split "Signature:" + logo onto their own page). */
