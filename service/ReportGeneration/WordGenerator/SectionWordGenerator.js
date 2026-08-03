@@ -24,7 +24,26 @@ class SectionWordGenerator {
             console.error("Location data missing for section, skipping section:", sectionId);
             return;
         }
-        if (this.isSectionIncluded(reportType, sectionData)) {
+        // Inclusion for Invasive report types: the section qualifies if
+        // furtherinvasivereviewrequired is set OR an InvasiveSection record
+        // actually exists for it. The flag alone proved unreliable (a route
+        // bug silently cleared it on web saves), which excluded every section
+        // and produced a cover-page-only Invasive report - the recorded
+        // invasive inspection is ground truth, so honor it.
+        let included = this.isSectionIncluded(reportType, sectionData);
+        let prefetchedInvasiveData = null;
+        if (!included && (reportType === projectReportType.INVASIVEONLY || reportType === projectReportType.INVASIVEVISUAL)) {
+            try {
+                prefetchedInvasiveData = await invasiveSections.getInvasiveSectionByParentId(sectionId);
+                if (prefetchedInvasiveData && prefetchedInvasiveData.data && prefetchedInvasiveData.data.item) {
+                    included = true;
+                    console.error(`Invasive report: section "${sectionData.data.item.name}" has an invasive record but furtherinvasivereviewrequired is not set - including it anyway.`);
+                }
+            } catch (e) {
+                console.error('Invasive record lookup failed for section', sectionId, e && e.message);
+            }
+        }
+        if (included) {
             const locationType = this.getLocationType(location);
             const template = this.getTemplate(companyName, subprojectName);
             const baseSectionDocValues = this.getBaseSectionDocValues(sectionData, reportType, subprojectName, locationType, location);
@@ -42,7 +61,7 @@ class SectionWordGenerator {
                     }
                     if (sectionData) {
                         let sectionDocValuesWhenUnitAvailable = this.getSectionDocValuesWhenUnitAvailable(sectionData);
-                        const invasiveSectionData = await invasiveSections.getInvasiveSectionByParentId(sectionId);
+                        const invasiveSectionData = prefetchedInvasiveData || await invasiveSections.getInvasiveSectionByParentId(sectionId);
                         if (invasiveSectionData.data && invasiveSectionData.data.item) {
                             let invasiveData = this.getInvasiveData(invasiveSectionData);
                             if (reportType === ProjectReportType.INVASIVEONLY) {
