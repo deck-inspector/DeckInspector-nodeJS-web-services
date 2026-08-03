@@ -246,7 +246,15 @@ input,select{font-family:inherit;font-size:16px}
   body,.main{background:#fff !important;padding:0 !important;margin:0 !important}
   .prop-wrap{display:block}
   .ppdoc{border:none;box-shadow:none;border-radius:0;max-width:none;padding:0}
-  .ppdoc .pp-break{page-break-before:always;margin-top:0}
+  .ppdoc .pp-break{page-break-before:always;margin-top:0;border-top:none;padding-top:0}
+  /* Keep the closing block (initials + owner/agent + title + signature + footer logo)
+     together on ONE page — the signature line must never strand alone on a last page
+     (David, Aug 3: browser Print/PDF split "Signature:" + logo onto their own page). */
+  .ppdoc .pp-close{break-inside:avoid;page-break-inside:avoid}
+  /* Don't break right after a section heading; avoid widow/orphan lines and split tables. */
+  .ppdoc .pp-sec{break-after:avoid;page-break-after:avoid}
+  .ppdoc p{orphans:3;widows:3}
+  .ppdoc table,.ppdoc tr{break-inside:avoid;page-break-inside:avoid}
 }
 .ppdoc .pp-break{border-top:1px dashed #bbb;padding-top:14px;margin-top:22px}
 </style>
@@ -465,15 +473,18 @@ input,select{font-family:inherit;font-size:16px}
             <p>Owner/Undersigned and its representatives acknowledge that their failure to commence an action within the periods of time set forth in this paragraph shall constitute an absolute bar and complete defense to any action brought thereafter.</p>
             <p>Furthermore, in no event shall {{ coName }} be liable under this Agreement for, and Owner/Undersigned hereby expressly releases the {{ coName }} from and against, any indirect, special, incidental, punitive, exemplary or consequential damages, including, but not limited to, damages for loss of revenue and profits, loss of business or business interruptions, loss of use of assets or facilities, and rental expenses and, in all cases, the total liability of {{ coName }} on any and all claims brought by Owner/Undersigned against {{ coName }}, under any theory at law or in equity, shall not exceed the actual price paid to {{ coName }} by Owner/Undersigned pursuant to this Agreement.</p>
             <p class="pp-caps">ANY CONTROVERSY OR CLAIM ARISING OUT OF OR RELATING TO THIS AGREEMENT OR THE BREACH THEREOF SHALL BE SETTLED BY ARBITRATION IN LOS ANGELES, CALIFORNIA IN AN ARBITRATION ADMINISTERED BY, AND GOVERNED IN ACCORDANCE WITH, THE CONSTRUCTION ARBITRATION RULES OF THE AMERICAN ARBITRATION ASSOCIATION THEN IN EFFECT, AND JUDGMENT UPON THE AWARD MAY BE RENDERED BY ANY COURT OF COMPETENT JURISDICTION AND SHALL BE FINAL AND BINDING UPON THE PARTIES HERETO. NOTICE: BY INITIALING IN THE SPACE BELOW YOU ARE AGREEING TO HAVE ANY DISPUTE ARISING OUT OF THE MATTERS INCLUDED IN THE ARBITRATION OF DISPUTES PROVISION DECIDED BY NEUTRAL ARBITRATION AS PROVIDED BY CALIFORNIA LAW AND YOU ARE GIVING UP ANY RIGHTS YOU MIGHT POSSESS TO HAVE THE DISPUTE LITIGATED IN A COURT OR JURY TRIAL. BY INITIALING IN THE SPACE BELOW YOU ARE GIVING UP YOUR JUDICIAL RIGHTS TO DISCOVERY AND APPEAL, UNLESS THOSE RIGHTS ARE SPECIFICALLY INCLUDED IN THE ARBITRATION OF DISPUTES PROVISION. IF YOU REFUSE TO SUBMIT TO ARBITRATION AFTER AGREEING TO THIS PROVISION, YOU MAY BE COMPELLED TO ARBITRATE UNDER THE AUTHORITY OF THE BUSINESS AND PROFESSIONS CODE OR OTHER APPLICABLE LAWS. YOUR AGREEMENT TO THIS ARBITRATION PROVISION IS VOLUNTARY. WE HAVE READ AND UNDERSTAND THE FOREGOING AND BY AFFIXING OUR INITIALS HERETO ACKNOWLEDGE THAT THE PARTIES AGREE TO SUBMIT DISPUTES ARISING OUT OF THIS AGREEMENT TO NEUTRAL ARBITRATION. Initial below:</p>
-            <div class="pp-sign">
-              <p>Owner/Undersigned&rsquo;s Initials: ________ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {{ coName }} Initials: __________</p>
-              <p>Owner/ Agent: ______________________________________<br><span style="margin-left:110px">(Print Full Name)</span></p>
-              <p>Title: _____________________</p>
-              <p>Signature: ________________________ Date: __________</p>
-            </div>
-            <div class="pp-foot">
-              <img v-if="propBranding && propBranding.footerLogo" :src="propBranding.footerLogo" alt="">
-              <div v-if="propBranding && propBranding.footerText">{{ propBranding.footerText }}</div>
+            <!-- pp-close keeps the whole signing block + footer logo on ONE printed page -->
+            <div class="pp-close">
+              <div class="pp-sign">
+                <p>Owner/Undersigned&rsquo;s Initials: ________ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {{ coName }} Initials: __________</p>
+                <p>Owner/ Agent: ______________________________________<br><span style="margin-left:110px">(Print Full Name)</span></p>
+                <p>Title: _____________________</p>
+                <p>Signature: ________________________ Date: __________</p>
+              </div>
+              <div class="pp-foot">
+                <img v-if="propBranding && propBranding.footerLogo" :src="propBranding.footerLogo" alt="">
+                <div v-if="propBranding && propBranding.footerText">{{ propBranding.footerText }}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -2060,6 +2071,14 @@ createApp({
         return null;
       } finally { this.propBusy = false; }
     },
+    // Downloaded/printed proposal files are named after the INSPECTION ADDRESS
+    // (David, Aug 3), falling back to the property name if no address entered yet.
+    propFileBase() {
+      const f = (this.prop && this.prop.form) || {};
+      const base = String(f.addressStreet || f.address || f.property || 'Proposal').trim();
+      // strip characters that are illegal in filenames; collapse whitespace
+      return (base.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120)) || 'Proposal';
+    },
     async downloadPropWord() {
       await this.saveProposal(true);
       this.propBusy = true;
@@ -2069,7 +2088,7 @@ createApp({
         const blob = await res.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = (this.prop.form.property || 'Proposal') + ' - Proposal.docx';
+        a.download = this.propFileBase() + ' Proposal.docx';
         document.body.appendChild(a); a.click(); a.remove();
         this.toast('Proposal Word document downloaded.');
       } catch (e) {
@@ -2078,7 +2097,13 @@ createApp({
     },
     async printProposal() {
       await this.ensurePropMeta();
-      this.$nextTick(() => window.print());
+      // The browser names a printed/saved PDF after document.title — set it to the
+      // inspection address for the print, then restore the app title afterwards.
+      const prevTitle = document.title;
+      document.title = this.propFileBase();
+      this.$nextTick(() => {
+        try { window.print(); } finally { setTimeout(() => { document.title = prevTitle; }, 2000); }
+      });
     },
     // Accepted proposal -> becomes a project; the signed copy is then uploaded
     // to that project's Documents (the Documents modal opens ready for it).
