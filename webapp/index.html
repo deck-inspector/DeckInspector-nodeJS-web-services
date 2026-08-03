@@ -799,6 +799,47 @@ input,select{font-family:inherit;font-size:16px}
             <button class="kind" v-for="o in ['Yes','No']" :key="o" :class="{on: secForm.furtherinvasivereviewrequired===o}" @click="secForm.furtherinvasivereviewrequired=o">{{ o }}</button>
           </div>
         </div>
+
+        <!-- ===== INVASIVE INSPECTION (shown when invasive review is required, or a
+             record already exists). Loads the InvasiveSection linked to this visual
+             section; photos can be imported from the visual inspection or uploaded;
+             saved together with Save Changes. ===== -->
+        <div class="field" v-if="secForm.furtherinvasivereviewrequired==='Yes' || inv.id" style="border:2px solid #C00000;border-radius:12px;padding:14px 14px 8px;background:#fff8f8">
+          <label style="color:#C00000;font-weight:700">Invasive Inspection</label>
+          <div class="hint" v-if="inv.loading" style="margin:6px 0">Loading invasive inspection&hellip;</div>
+          <template v-else>
+            <div class="hint" v-if="!inv.id" style="margin:2px 0 8px">No invasive inspection recorded yet &mdash; fill this in and press <b>Save Changes</b> to create it.</div>
+            <div class="field"><label>Invasive Findings / Description</label>
+              <textarea v-model="inv.invasiveDescription" rows="4" style="width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:15px"></textarea>
+            </div>
+            <div class="field"><label>Post-Invasive Repairs Required</label>
+              <div class="kindrow" style="margin:0">
+                <button class="kind" v-for="o in ['Yes','No']" :key="'inv'+o" :class="{on: inv.postinvasiverepairsrequired===o}" @click="inv.postinvasiverepairsrequired=o">{{ o }}</button>
+              </div>
+            </div>
+            <div class="field"><label>Invasive Photos ({{ (inv.invasiveimages||[]).length }})</label>
+              <div class="pgrid">
+                <div class="pgitem" v-for="(img,i) in inv.invasiveimages" :key="'inv'+img+'-'+i">
+                  <img :src="img" loading="lazy" alt="invasive photo" @click="lightbox=img">
+                  <button class="pgdel" title="Remove this photo" @click="inv.invasiveimages.splice(i,1)">&#10005;</button>
+                </div>
+                <label class="pgadd" title="Upload photos">
+                  <span v-if="invPhotoBusy" class="spinner" style="width:18px;height:18px"></span>
+                  <span v-else>&#65291;</span>
+                  <input type="file" accept="image/*" multiple style="display:none" :disabled="invPhotoBusy" @change="addInvPhotos($event)">
+                </label>
+              </div>
+            </div>
+            <div class="field" v-if="invImportCandidates.length">
+              <label>Import photos from the visual inspection &mdash; click to add</label>
+              <div class="pgrid">
+                <div class="pgitem" v-for="img in invImportCandidates" :key="'imp'+img" style="cursor:pointer;outline:2px dashed var(--line)" title="Click to add to the invasive photos" @click="inv.invasiveimages.push(img)">
+                  <img :src="img" loading="lazy" alt="visual inspection photo">
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
         <div class="field"><label>Condition Assessment</label>
           <div class="kindrow" style="margin:0 0 6px">
             <button class="kind" v-for="o in ['Pass','Fail']" :key="o" :class="{on: secForm.conditionalassessment===o}" @click="secForm.conditionalassessment=o">{{ o }}</button>
@@ -1070,6 +1111,9 @@ createApp({
       editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '', formId: null, inspDate: '', url: '' },
       secEditOpen: false, loadingSec: false, savingSec: false, secOriginal: null, secId: null, secPhotoBusy: false,
       secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '', images: [] },
+      // Invasive inspection linked to the open section (InvasiveSection record)
+      inv: { id: null, loading: false, invasiveDescription: '', postinvasiverepairsrequired: 'No', invasiveimages: [] },
+      invPhotoBusy: false,
       lifeOptions: ['0-1 Years', '1-4 Years', '4-7 Years', '7-10 Years'],
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
@@ -1081,6 +1125,12 @@ createApp({
     };
   },
   computed: {
+    // Visual-inspection photos not yet in the invasive photo list — offered as
+    // one-click imports in the Invasive Inspection panel.
+    invImportCandidates() {
+      const have = new Set(this.inv.invasiveimages || []);
+      return (this.secForm.images || []).filter(u => !have.has(u));
+    },
     // Platform admin = Deck Inspectors (David's own tenant). Only they can
     // replace the Final Report MASTER template used for all clients.
     isPlatformAdmin() {
@@ -1518,10 +1568,33 @@ createApp({
           eee: doc.eee || '', lbc: doc.lbc || '', awe: doc.awe || '',
           images: Array.isArray(doc.images) ? doc.images.slice() : [],
         };
+        await this.loadInvasive();
       } catch (e) {
         this.secEditOpen = false;
         if (e.message !== 'auth') this.toast('Could not load this inspection section.', 'err');
       } finally { this.loadingSec = false; }
+    },
+    async loadInvasive() {
+      this.inv = { id: null, loading: true, invasiveDescription: '', postinvasiverepairsrequired: 'No', invasiveimages: [] };
+      try {
+        const res = await this.api('/invasivesection/getInvasiveSectionByParentId', {
+          method: 'POST', json: { parentSectionId: this.secId, username: this.user.username },
+        });
+        if (res.ok) {
+          const j = await res.json();
+          const rec = (j.sections && j.sections[0]) || null;
+          if (rec) {
+            this.inv = {
+              id: rec.id || rec._id, loading: false,
+              invasiveDescription: rec.invasiveDescription || '',
+              postinvasiverepairsrequired: this.ynText(rec.postinvasiverepairsrequired),
+              invasiveimages: Array.isArray(rec.invasiveimages) ? rec.invasiveimages.slice() : [],
+            };
+            return;
+          }
+        }
+      } catch (e) { /* none found is fine */ }
+      this.inv.loading = false;
     },
     backToType(originalVal, formText) {
       // preserve the stored type: arrays stay arrays, strings stay strings
@@ -1557,12 +1630,64 @@ createApp({
       try {
         const res = await this.api('/section/' + encodeURIComponent(this.secId), { method: 'PUT', json: payload });
         if (!res.ok) throw new Error('bad');
+        const invOk = await this.saveInvasive();
         this.secEditOpen = false;
-        this.toast('Inspection updated — it will print this way on the next report.');
+        this.toast(invOk === false
+          ? 'Inspection saved, but the INVASIVE part failed — reopen and try again.'
+          : 'Inspection updated — it will print this way on the next report.', invOk === false ? 'err' : undefined);
         this.loadSections();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not save the inspection.', 'err');
       } finally { this.savingSec = false; }
+    },
+    // Create/update the InvasiveSection linked to this visual section. Returns
+    // true (saved), null (nothing to save), or false (failed).
+    async saveInvasive() {
+      const applicable = this.secForm.furtherinvasivereviewrequired === 'Yes' || this.inv.id;
+      if (!applicable) return null;
+      const empty = !this.inv.invasiveDescription.trim() && !(this.inv.invasiveimages || []).length;
+      if (!this.inv.id && empty) return null; // don't create an empty record
+      const payload = {
+        invasiveDescription: this.inv.invasiveDescription,
+        postinvasiverepairsrequired: this.inv.postinvasiverepairsrequired === 'Yes' ? 'true' : 'false',
+        invasiveimages: (this.inv.invasiveimages || []).slice(),
+      };
+      try {
+        let res;
+        if (this.inv.id) {
+          res = await this.api('/invasivesection/' + encodeURIComponent(this.inv.id), { method: 'PUT', json: payload });
+        } else {
+          res = await this.api('/invasivesection/add', { method: 'POST', json: { ...payload, parentid: this.secId } });
+        }
+        return res.ok ? true : false;
+      } catch (e) { return false; }
+    },
+    async addInvPhotos(e) {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (!files.length) return;
+      this.invPhotoBusy = true;
+      let failed = 0;
+      try {
+        for (const f of files) {
+          try {
+            const dot = f.name ? f.name.lastIndexOf('.') : -1;
+            const ext = dot !== -1 ? f.name.slice(dot).toLowerCase() : '.jpg';
+            const uname = 'inv-' + String(this.secId || 'x').replace(/[^a-zA-Z0-9-]/g, '') + '-' + Date.now() + '-' + Math.floor(Math.random() * 10000) + ext;
+            const fd = new FormData();
+            fd.append('picture', f, uname);
+            fd.append('containerName', String((this.current && this.current.name) || 'project').replace(/\s+/g, '').toLowerCase());
+            fd.append('uploader', (this.user && this.user.username) || 'web');
+            fd.append('entityName', (this.current && this.current.name) || 'project');
+            const res = await this.api('/image/upload', { method: 'POST', body: fd });
+            if (!res.ok) { failed++; continue; }
+            const j = await res.json().catch(() => null);
+            const url = j && (j.url || (j.data && j.data.url) || j.imageUrl);
+            if (url) this.inv.invasiveimages.push(url); else failed++;
+          } catch (err) { failed++; }
+        }
+        if (failed) this.toast(failed + ' photo(s) could not be uploaded.', 'err');
+      } finally { this.invPhotoBusy = false; }
     },
     removeSecPhoto(i) { this.secForm.images.splice(i, 1); },
     async addSecPhotos(e) {
