@@ -99,10 +99,14 @@ const getInvasiveSectionByParentId = async (parentId) => {
         sections: result,
       };
     }
+    // A visual section with NO invasive record is a normal, valid state - not
+    // an error. Returning code 401 here made the route respond HTTP 401, which
+    // the web app treats as an expired session and logs the user out the
+    // moment the Edit Inspection modal loads. Return an empty list instead
+    // (same rule as sectionService.getSectionsByParentId).
     return {
-      code: 401,
-      success: false,
-      reason: "No Invasive Section found with the given parent ID",
+      success: true,
+      sections: [],
     };
   } catch (error) {
     return handleError(error);
