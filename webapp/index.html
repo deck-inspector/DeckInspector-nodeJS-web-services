@@ -678,6 +678,7 @@ input,select{font-family:inherit;font-size:16px}
           <div class="scard" v-for="s in sections" :key="s._id || s.id">
             <div style="display:flex;align-items:flex-start;gap:8px">
               <h4 style="flex:1">{{ s.name }}</h4>
+              <button class="btn-edit" style="color:#C00000;border-color:#C00000" @click="openSecEditInvasive(s)">&#128269; Invasive</button>
               <button class="btn-edit" @click="openSecEdit(s)">&#9998; Edit</button>
             </div>
             <div class="tagrow">
@@ -804,7 +805,7 @@ input,select{font-family:inherit;font-size:16px}
              record already exists). Loads the InvasiveSection linked to this visual
              section; photos can be imported from the visual inspection or uploaded;
              saved together with Save Changes. ===== -->
-        <div class="field" v-if="secForm.furtherinvasivereviewrequired==='Yes' || inv.id" style="border:2px solid #C00000;border-radius:12px;padding:14px 14px 8px;background:#fff8f8">
+        <div class="field" id="invblock" v-if="secForm.furtherinvasivereviewrequired==='Yes' || inv.id" style="border:2px solid #C00000;border-radius:12px;padding:14px 14px 8px;background:#fff8f8">
           <label style="color:#C00000;font-weight:700">Invasive Inspection</label>
           <div class="hint" v-if="inv.loading" style="margin:6px 0">Loading invasive inspection&hellip;</div>
           <template v-else>
@@ -1548,6 +1549,20 @@ createApp({
     /* ---------- inspection section editing ---------- */
     listToText(v) { return Array.isArray(v) ? v.join(', ') : (v || ''); },
     ynText(v) { return (v === true || /^(yes|true)$/i.test(String(v))) ? 'Yes' : 'No'; },
+    async openSecEditInvasive(s) {
+      // Open the Edit Inspection modal focused on the Invasive Inspection
+      // block. If the section isn't marked for invasive review yet, flip the
+      // chip to Yes so the block appears (it's only persisted on Save Changes).
+      await this.openSecEdit(s);
+      if (!this.secEditOpen) return;
+      if (this.secForm.furtherinvasivereviewrequired !== 'Yes' && !this.inv.id) {
+        this.secForm.furtherinvasivereviewrequired = 'Yes';
+      }
+      this.$nextTick(() => {
+        const el = document.getElementById('invblock');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    },
     async openSecEdit(s) {
       this.secEditOpen = true; this.loadingSec = true;
       this.secId = s._id || s.id;
@@ -1577,8 +1592,12 @@ createApp({
     async loadInvasive() {
       this.inv = { id: null, loading: true, invasiveDescription: '', postinvasiverepairsrequired: 'No', invasiveimages: [] };
       try {
-        const res = await this.api('/invasivesection/getInvasiveSectionByParentId', {
-          method: 'POST', json: { parentSectionId: this.secId, username: this.user.username },
+        // RAW fetch, never the api() wrapper: this endpoint returned HTTP 401
+        // when the section simply has no invasive record yet, and api() reads
+        // any 401 as an expired session and LOGS THE USER OUT.
+        const res = await fetch(API + '/invasivesection/getInvasiveSectionByParentId', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parentSectionId: this.secId, username: this.user.username }),
         });
         if (res.ok) {
           const j = await res.json();
