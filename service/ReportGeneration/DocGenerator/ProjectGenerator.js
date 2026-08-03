@@ -12,6 +12,7 @@ const ProjectHeaderDocGenerator = require("./ProjectHeaderDocGenerator");
 const FinalReportGenerator = require("../FinalReportGenerator");
 const PizZip = require("pizzip");
 const fs = require("fs");
+const ReportTypeConst = require("../../../model/projectReportType");
 class ProjectGenerator{
     async createProject(projectId,reportType) {
         console.log("Project Generation started", projectId);
@@ -235,6 +236,30 @@ class ProjectGenerator{
     }
 
     async saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode, companyIdentifier) {
+        // INVASIVE reports end with the tenant SIGNATURE PAGE (signature block +
+        // Inspector Name / Qualifying Title / License # dropdown content
+        // controls), extracted verbatim from the end of the Final Report
+        // template into Deck_SignaturePage.docx (David, Aug 3). Appended as the
+        // LAST annex; scripts/merge_docx.py puts each annex on its own page, so
+        // it becomes the report's final page. Failures never block the report.
+        if (reportType === ReportTypeConst.INVASIVEONLY || reportType === ReportTypeConst.INVASIVEVISUAL) {
+            try {
+                const sigFile = 'Deck_SignaturePage.docx';
+                if (fs.existsSync(sigFile)) {
+                    const sigUrl = await ProjectReportUploader.uploadToBlobStorage(sigFile, projectId + '-signature', reportType);
+                    if (sigUrl) {
+                        docPath.push(sigUrl);
+                        console.log('Invasive report: signature page appended.');
+                    } else {
+                        console.error('Signature page upload returned no url - invasive report continues without it.');
+                    }
+                } else {
+                    console.error('Deck_SignaturePage.docx not found - invasive report continues without the signature page.');
+                }
+            } catch (e) {
+                console.error('Signature page append failed (report continues):', e && e.message);
+            }
+        }
         const filePath = await ReportGenerationUtil.mergeDocxArray(docPath, projectId);
         let fileS3url = null;
         if (filePath != null) {
