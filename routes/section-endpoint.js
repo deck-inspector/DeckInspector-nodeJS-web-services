@@ -93,12 +93,18 @@ router.route('/:id')
     const newData = req.body;
     // Couchbase: parentid is a string, no ObjectId wrapping
 
-    if(newData.furtherinvasivereviewrequired){
-      newData.furtherinvasivereviewrequired = newData.furtherinvasivereviewrequired.toLowerCase()==='true'
+    // Normalize to boolean. Accept booleans and Yes/No as well as true/false:
+    // the backend itself SERVES these fields as "Yes"/"No" (transformData), so
+    // the web app naturally sends "Yes" back - the old ==='true' check turned
+    // "Yes" into FALSE, silently clearing the invasive flag on every web save
+    // (which then excluded the section from Invasive reports).
+    const toBool = v => v === true || /^(true|yes)$/i.test(String(v));
+    if(newData.furtherinvasivereviewrequired !== undefined && newData.furtherinvasivereviewrequired !== null){
+      newData.furtherinvasivereviewrequired = toBool(newData.furtherinvasivereviewrequired);
     }
-    if(newData.visualsignsofleak)
+    if(newData.visualsignsofleak !== undefined && newData.visualsignsofleak !== null)
     {
-      newData.visualsignsofleak = newData.visualsignsofleak.toLowerCase()==='true'
+      newData.visualsignsofleak = toBool(newData.visualsignsofleak);
     }
 
     var result = await SectionService.editSetion(sectionId,newData);
