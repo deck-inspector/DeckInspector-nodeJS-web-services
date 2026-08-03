@@ -2079,13 +2079,20 @@ createApp({
         return null;
       } finally { this.propBusy = false; }
     },
-    // Downloaded/printed proposal files are named after the INSPECTION ADDRESS
-    // (David, Aug 3), falling back to the property name if no address entered yet.
+    // Downloaded/printed proposal files are named "street, city stateZip" (David, Aug 3),
+    // falling back to the property name if no address is entered yet.
+    // PERIODS ARE STRIPPED: Chrome treats everything after the last "." in the suggested
+    // filename as an extension, so "1030 - 1140 S. Garfield Ave" saved as "1030 - 1140 S.pdf".
     propFileBase() {
       const f = (this.prop && this.prop.form) || {};
-      const base = String(f.addressStreet || f.address || f.property || 'Proposal').trim();
-      // strip characters that are illegal in filenames; collapse whitespace
-      return (base.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120)) || 'Proposal';
+      const street = String(f.addressStreet || f.address || '').trim();
+      const city = String(f.addressCity || '').trim();
+      const zip = String(f.addressStateZip || '').trim();
+      let base = street ? [street, city, zip].filter(Boolean).join(', ')
+                        : String(f.property || 'Proposal').trim();
+      // strip periods (Chrome extension-truncation) + illegal filename chars; tidy spacing
+      base = base.replace(/\./g, '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+      return base.slice(0, 150) || 'Proposal';
     },
     async downloadPropWord() {
       await this.saveProposal(true);
