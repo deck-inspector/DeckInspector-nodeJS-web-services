@@ -71,6 +71,22 @@ async function createCouchbaseCluster() {
     cached.cluster = await couchbase.connect(DB_CONN_STR, options);
     console.log("Successfully connected to Couchbase cluster");
 
+    // READ-YOUR-OWN-WRITES for every N1QL query (Aug 3): all writes go through
+    // N1QL, and list screens re-query immediately after saving. The default
+    // scan consistency (not_bounded) lets the GSI index lag a few seconds, so a
+    // newly created project / just-saved inspection didn't appear until the user
+    // pressed F5. RequestPlus makes each query wait for the index to include
+    // all mutations pending at request time. USE KEYS lookups don't use the
+    // index, so report generation's per-doc reads are unaffected.
+    const rawQuery = cached.cluster.query.bind(cached.cluster);
+    cached.cluster.query = (statement, queryOptions) => {
+      const opts = Object.assign({}, queryOptions || {});
+      if (opts.scanConsistency === undefined) {
+        opts.scanConsistency = couchbase.QueryScanConsistency.RequestPlus;
+      }
+      return rawQuery(statement, opts);
+    };
+
     cached.bucket = cached.cluster.bucket(DB_BUCKET_NAME);
     console.log("Successfully accessed bucket:", DB_BUCKET_NAME);
   } catch (error) {
