@@ -1661,6 +1661,10 @@ createApp({
         const res = await this.api('/section/' + encodeURIComponent(this.secId), { method: 'PUT', json: payload });
         if (!res.ok) throw new Error('bad');
         const invOk = await this.saveInvasive();
+        // Update the on-screen section card IMMEDIATELY from what was just saved
+        // (no refresh needed to see the change), then re-fetch from the server.
+        const si = this.sections.findIndex(x => (x._id || x.id) === this.secId);
+        if (si !== -1) this.sections.splice(si, 1, { ...this.sections[si], ...payload });
         this.secEditOpen = false;
         this.toast(invOk === false
           ? 'Inspection saved, but the INVASIVE part failed — reopen and try again.'
