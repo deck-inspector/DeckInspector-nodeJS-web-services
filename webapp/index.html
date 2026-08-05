@@ -405,13 +405,23 @@ input,select{font-family:inherit;font-size:16px}
             <label>Owner / MGR</label><input v-model.trim="prop.form.ownerMgr" placeholder="Owner or property manager">
             <div style="display:flex;gap:8px"><div style="flex:1"><label>Contact Phone</label><input v-model.trim="prop.form.contactPhone" placeholder="760-555-0000"></div><div style="flex:1.4"><label>Contact Email</label><input v-model.trim="prop.form.contactEmail" placeholder="name@email.com"></div></div>
             <h4>Document selections</h4>
-            <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Every dropdown from the Word document, with the same choices.</div>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Every dropdown from the Word document, with the same choices. Press &#9998; on any field to type your own pricing or wording instead.</div>
             <template v-for="f in propFields" :key="f.idx">
               <label>{{ f.label }}</label>
               <input v-if="f.kind==='date'" v-model.trim="prop.form.values[f.idx]" placeholder="M/D/YYYY">
-              <select v-else v-model="prop.form.values[f.idx]">
-                <option v-for="o in propSelOptions(f)" :key="o" :value="o">{{ o }}</option>
-              </select>
+              <div v-else style="display:flex;gap:6px;align-items:stretch">
+                <!-- pick from the template's dropdown choices, or (✎) free-type custom
+                     pricing/language for THIS proposal (David, Aug 3) -->
+                <select v-if="!propCustom[f.idx]" v-model="prop.form.values[f.idx]" style="flex:1;min-width:0">
+                  <option v-for="o in propSelOptions(f)" :key="o" :value="o">{{ o }}</option>
+                </select>
+                <textarea v-else v-model="prop.form.values[f.idx]" :rows="String(prop.form.values[f.idx]||'').length > 60 ? 3 : 1"
+                  style="flex:1;min-width:0;padding:8px 10px;border:1.5px solid var(--brand);border-radius:8px;font-family:inherit;font-size:13.5px;resize:vertical"
+                  placeholder="Type the custom text / price to print"></textarea>
+                <button type="button" class="btn-edit" style="flex:0 0 auto;align-self:flex-start"
+                  :title="propCustom[f.idx] ? 'Back to the dropdown choices' : 'Type a custom value for this proposal'"
+                  @click="togglePropCustom(f)">{{ propCustom[f.idx] ? '&#9662;' : '&#9998;' }}</button>
+              </div>
             </template>
             <div class="prop-actions">
               <button class="btn btn-inspect" style="flex:1" :disabled="propBusy || !prop.form.property" @click="saveProposal(false)">{{ propBusy ? 'Saving…' : '💾 Save' }}</button>
@@ -1121,6 +1131,7 @@ createApp({
       structTab: 'buildings',
       docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFile: null, uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
       proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
+      propCustom: {},
       propBusy: false, propConverting: false, propDeleting: null,
       toasts: [], toastSeq: 0,
     };
@@ -2181,10 +2192,17 @@ createApp({
           ? (now.getMonth() + 1) + '/' + now.getDate() + '/' + now.getFullYear()
           : (f.value || '').trim();
       }
+      this.propCustom = {};
       this.prop = { id: null, status: 'draft', form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', values } };
+    },
+    // Per-field switch between the template's dropdown choices and a free-typed
+    // custom value (pricing or wording) for this one proposal.
+    togglePropCustom(f) {
+      this.propCustom = { ...this.propCustom, [f.idx]: !this.propCustom[f.idx] };
     },
     async editProposal(pr) {
       await this.ensurePropMeta();
+      this.propCustom = {};
       const copy = JSON.parse(JSON.stringify(pr));
       copy.form = copy.form || {};
       copy.form.values = copy.form.values || {};
