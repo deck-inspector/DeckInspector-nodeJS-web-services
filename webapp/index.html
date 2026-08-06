@@ -563,11 +563,12 @@ input,select{font-family:inherit;font-size:16px}
             <div>Building your report — usually 1–3 minutes. The list below updates automatically; you can keep working.</div>
           </div>
           <div v-if="clientForms.length" style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
-            <h3 style="margin:0 0 4px">Blank Forms</h3>
-            <div class="hint">Fillable forms with your company branding — open in Microsoft Word, complete the dropdowns, fields and photos, then save.</div>
-            <div class="genrow">
-              <button v-for="f in clientForms" :key="f.key" class="btn btn-big" style="background:var(--bg);color:var(--ink);border:1.5px solid var(--line)"
-                      :disabled="downloadingForm===f.key" @click="downloadClientForm(f)">&#128196; {{ downloadingForm===f.key ? 'Preparing&hellip;' : f.label }}</button>
+            <h3 style="margin:0 0 4px">Forms</h3>
+            <div class="hint">Fill these in online with your company branding, then download as Word or save/print as PDF — or download a blank copy to complete in Microsoft Word.</div>
+            <div v-for="f in clientForms" :key="f.key" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+              <span style="min-width:230px;font-weight:700">&#128196; {{ f.label }}</span>
+              <button class="btn-dl" @click="openFormEditor(f)">&#9998; Fill Online</button>
+              <button class="btn-dl" :disabled="downloadingForm===f.key" @click="downloadClientForm(f)">&#11015; {{ downloadingForm===f.key ? 'Preparing&hellip;' : 'Download Blank' }}</button>
             </div>
           </div>
         </div>
@@ -907,6 +908,41 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ CLIENT FORM ONLINE EDITOR ============ -->
+  <div class="overlay" v-if="formEd.open" style="align-items:flex-start">
+    <div class="modal" style="max-width:820px;width:100%;max-height:94vh;overflow-y:auto;margin:20px auto">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h3 style="flex:1;margin:0">{{ formEd.label }}</h3>
+        <button class="btn-cancel" @click="formEd.open=false">Close</button>
+      </div>
+      <div class="hint" style="margin:6px 0 14px">Complete the fields below, then <b>Download Word</b> for the exact branded document, or <b>Save / Print PDF</b>. Your company logo and footer are added automatically.</div>
+      <template v-for="(g,gi) in formEd.groups" :key="'g'+gi">
+        <div style="font-weight:800;color:var(--brand);border-bottom:2px solid var(--brand-soft);margin:16px 0 8px;padding-bottom:4px" v-if="g.title && g.title!=='General'">{{ g.title }}</div>
+        <div class="field" v-for="f in g.fields" :key="f.ref" style="margin-bottom:10px">
+          <label>{{ f.label }}</label>
+          <select v-if="f.type==='dropdown' || (f.type==='combo' && f.options.length)" v-model="formEd.values[f.ref]" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:15px;font-family:inherit">
+            <option value="">— choose —</option>
+            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+          </select>
+          <div v-else-if="f.type==='picture'">
+            <div class="pgrid" v-if="formEd.photos[f.ref]"><div class="pgitem"><img :src="formEd.photos[f.ref]" alt="photo"><button class="pgdel" @click="formEd.photos[f.ref]=''">&#10005;</button></div></div>
+            <label class="btn-dl" style="cursor:pointer;display:inline-block">
+              <span v-if="formEd.photoBusy[f.ref]">Uploading&hellip;</span>
+              <span v-else>&#128247; {{ formEd.photos[f.ref] ? 'Replace photo' : 'Upload photo' }}</span>
+              <input type="file" accept="image/*" style="display:none" :disabled="formEd.photoBusy[f.ref]" @change="ffPickPhoto(f, $event)">
+            </label>
+          </div>
+          <input v-else v-model="formEd.values[f.ref]" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:15px;font-family:inherit">
+        </div>
+      </template>
+      <div class="mrow" style="position:sticky;bottom:0;background:#fff;padding-top:12px;border-top:1px solid var(--line);margin-top:16px">
+        <button class="btn-cancel" @click="formEd.open=false">Close</button>
+        <button class="btn btn-primary" style="padding:12px 20px" :disabled="formEd.busy" @click="downloadFilledWord">{{ formEd.busy && formEd.busyKind==='word' ? 'Building&hellip;' : '⬇ Download Word' }}</button>
+        <button class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="printFilledForm">🖨 Save / Print PDF</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ EDIT PROJECT ============ -->
   <div class="overlay" v-if="editOpen">
     <div class="modal">
@@ -1119,6 +1155,7 @@ createApp({
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
+      formEd: { open: false, key: '', label: '', ext: 'docx', groups: [], values: {}, photos: {}, photoBusy: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' },
       forms: [], photoBusy: false,
@@ -1387,6 +1424,95 @@ createApp({
         const data = await res.json();
         this.clientForms = (data && data.forms) || [];
       } catch (e) { this.clientForms = []; }
+    },
+    async openFormEditor(f) {
+      this.formEd = { open: true, key: f.key, label: f.label, ext: f.ext, groups: [], values: {}, photos: {}, photoBusy: {}, busy: false, busyKind: '' };
+      try {
+        const res = await this.api('/project/clientformschema?key=' + encodeURIComponent(f.key));
+        if (!res.ok) throw new Error('bad');
+        const data = await res.json();
+        this.formEd.groups = (data && data.groups) || [];
+        // seed values with the template defaults (dropdowns keep a sensible start)
+        for (const g of this.formEd.groups) for (const fld of g.fields) {
+          if (fld.type !== 'picture') this.formEd.values[fld.ref] = fld.value || '';
+        }
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not open that form.', 'err');
+        this.formEd.open = false;
+      }
+    },
+    async ffPickPhoto(fld, e) {
+      const file = (e.target.files || [])[0];
+      e.target.value = '';
+      if (!file) return;
+      this.formEd.photoBusy[fld.ref] = true;
+      try {
+        const dot = file.name ? file.name.lastIndexOf('.') : -1;
+        const ext = dot !== -1 ? file.name.slice(dot).toLowerCase() : '.jpg';
+        const uname = 'form-' + this.formEd.key + '-' + fld.ref.replace(/[^a-zA-Z0-9-]/g, '') + '-' + Date.now() + ext;
+        const fd = new FormData();
+        fd.append('picture', file, uname);
+        fd.append('containerName', String((this.current && this.current.name) || 'project').replace(/\s+/g, '').toLowerCase());
+        fd.append('uploader', (this.user && this.user.username) || 'web');
+        fd.append('entityName', (this.current && this.current.name) || 'project');
+        const res = await this.api('/image/upload', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error('upload');
+        const j = await res.json();
+        const url = j.url || (j.data && j.data.url) || '';
+        if (!url) throw new Error('upload');
+        this.formEd.photos[fld.ref] = url;
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Photo upload failed.', 'err');
+      } finally { this.formEd.photoBusy[fld.ref] = false; }
+    },
+    async downloadFilledWord() {
+      this.formEd.busy = true; this.formEd.busyKind = 'word';
+      try {
+        const res = await this.api('/project/clientformfill', {
+          method: 'POST',
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos },
+        });
+        if (!res.ok) throw new Error('bad');
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = this.formEd.label + ' - completed.' + (this.formEd.ext || 'docx');
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        this.toast('Completed Word document downloaded.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not build the document.', 'err');
+      } finally { this.formEd.busy = false; this.formEd.busyKind = ''; }
+    },
+    printFilledForm() {
+      const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const brand = (this.user && this.user.companyIdentifier) || '';
+      let body = '';
+      for (const g of this.formEd.groups) {
+        if (g.title && g.title !== 'General') body += '<h2>' + esc(g.title) + '</h2>';
+        body += '<table>';
+        for (const f of g.fields) {
+          let v = '';
+          if (f.type === 'picture') v = this.formEd.photos[f.ref] ? '<img src="' + this.formEd.photos[f.ref] + '">' : '';
+          else v = '<span class="val">' + esc(this.formEd.values[f.ref] || '') + '</span>';
+          body += '<tr><td class="lbl">' + esc(f.label) + '</td><td>' + v + '</td></tr>';
+        }
+        body += '</table>';
+      }
+      const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(this.formEd.label) + '</title>' +
+        '<style>body{font-family:Calibri,Arial,sans-serif;color:#1c2733;margin:32px;}' +
+        'h1{font-size:20px;text-align:center;margin:0 0 4px}h2{color:#1f3864;font-size:14px;border-bottom:2px solid #d9e2f3;margin:18px 0 6px;padding-bottom:3px}' +
+        '.sub{text-align:center;color:#666;margin:0 0 18px;font-size:12px}' +
+        'table{width:100%;border-collapse:collapse;margin:6px 0 12px}' +
+        'td{border:1px solid #c9d3df;padding:6px 9px;font-size:13px;vertical-align:top}' +
+        'td.lbl{background:#d9e2f3;font-weight:700;width:38%}.val{color:#c00000;font-weight:700}' +
+        'img{max-width:320px;max-height:240px;border-radius:6px}' +
+        '@media print{body{margin:12mm}}</style></head><body>' +
+        '<h1>' + esc(this.formEd.label) + '</h1><p class="sub">' + esc(brand) + '</p>' + body +
+        '<script>window.onload=function(){setTimeout(function(){window.print();},250);}<\/script></body></html>';
+      const w = window.open('', '_blank');
+      if (!w) { this.toast('Allow pop-ups to print, or use Download Word.', 'err'); return; }
+      w.document.open(); w.document.write(html); w.document.close();
     },
     async downloadClientForm(f) {
       this.downloadingForm = f.key;
