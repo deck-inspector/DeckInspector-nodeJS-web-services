@@ -597,6 +597,137 @@ router.route('/replaceproposaltemplate')
       }
     })
 
+/* ============ CLIENT FORMS (admin-managed blank templates) ============
+ * Downloadable blank forms the client fills in themselves in Word - the
+ * Final Report Upon Completion (macro-enabled .docm with dropdowns that
+ * color-change on selection) and the Notice of Unsafe Conditions (.docx with
+ * user-input text + photo content controls). ONE master per form for ALL
+ * clients (like the Final Report master); the client's own admin Report
+ * Header logo + Report Footer are stamped in at download time - the SAME
+ * per-tenant branding the Final Report gets - so every client gets the form
+ * under their own brand. Content controls, dropdowns and macros are left
+ * untouched: only the header/footer parts are rewritten.
+ */
+const CLIENT_FORMS = {
+  finalcompletion: {
+    file: 'Deck_FinalCompletionTemplate.docm',
+    label: 'Final Report Upon Completion',
+    ext: 'docm',
+    contentType: 'application/vnd.ms-word.document.macroEnabled.12',
+  },
+  unsafeconditions: {
+    file: 'Deck_UnsafeConditionsTemplate.docx',
+    label: 'Notice of Unsafe Conditions',
+    ext: 'docx',
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  },
+};
+
+// Resolve a form master: blob storage first (durable across code deploys),
+// then the app folder copy shipped in the repo.
+async function getClientFormMaster(form) {
+  try {
+    const buf = await uploadBlob.getBlobBuffer(form.file, 'projectreports');
+    if (buf && buf.length > 0) return buf;
+  } catch (e) { /* blob missing - fall back to the repo copy */ }
+  const absolute = path.join(__dirname, '..', form.file);
+  if (fs.existsSync(absolute)) return fs.readFileSync(absolute);
+  return null;
+}
+
+// List the forms available to the logged-in client (only those whose master
+// actually resolves) - drives the buttons under the web app's Reports tab.
+router.route('/clientforms')
+  .get(async function (req, res) {
+    try {
+      const out = [];
+      for (const key of Object.keys(CLIENT_FORMS)) {
+        const form = CLIENT_FORMS[key];
+        const buf = await getClientFormMaster(form);
+        if (buf) out.push({ key, label: form.label, ext: form.ext });
+      }
+      return res.status(200).json({ forms: out });
+    } catch (err) {
+      console.error('Error listing client forms:', err && err.message);
+      return res.status(500).json({ message: 'Could not list client forms.' });
+    }
+  });
+
+// Download one client form, branded with THIS tenant's logo + footer.
+router.route('/clientform')
+  .get(async function (req, res) {
+    try {
+      const key = (req.query.key || '').toString();
+      const form = CLIENT_FORMS[key];
+      if (!form) return res.status(404).json({ message: 'Unknown form.' });
+      const master = await getClientFormMaster(form);
+      if (!master) return res.status(404).json({ message: 'That form has not been set up yet.' });
+
+      const companyIdentifier = req.user && req.user.company;
+      let outBuf = master;
+      // Stamp the tenant's admin Report Header logo + Report Footer - the SAME
+      // functions the Final Report uses. They only rewrite header/footer XML,
+      // so dropdowns, content controls and (for the .docm) macros survive. Any
+      // failure falls back to the un-branded master rather than blocking.
+      try {
+        const PizZip = require('pizzip');
+        const zip = new PizZip(master);
+        await FinalReportGenerator.injectTenantLogo(zip, companyIdentifier);
+        await FinalReportGenerator.injectTenantFooter(zip, companyIdentifier);
+        outBuf = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+      } catch (brandErr) {
+        console.error('Client form branding failed, sending un-branded master:', brandErr && brandErr.message);
+      }
+
+      res.setHeader('Content-Type', form.contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${form.label}.${form.ext}"`);
+      return res.send(outBuf);
+    } catch (err) {
+      console.error('Error serving client form:', err && err.message);
+      return res.status(500).json({ message: 'Could not download that form.' });
+    }
+  });
+
+// Admin site: upload/replace a client form master (one master for all clients,
+// like the Final Report master). formKey identifies which form.
+router.route('/replaceclientform')
+  .post(upload.single('file'), async function (req, res) {
+    try {
+      const uploadedFile = req.file;
+      if (!uploadedFile) return res.status(400).json({ message: 'No file uploaded.' });
+      const key = (req.body.formKey || '').toString();
+      const form = CLIENT_FORMS[key];
+      if (!form) {
+        try { fs.unlinkSync(uploadedFile.path); } catch (e) { /* ignore */ }
+        return res.status(400).json({ message: 'Unknown form key.' });
+      }
+      // Validate it is a real Word package before replacing anything.
+      try {
+        const PizZip = require('pizzip');
+        const zip = new PizZip(fs.readFileSync(uploadedFile.path));
+        if (!zip.file('word/document.xml')) throw new Error('not a Word document');
+      } catch (vErr) {
+        try { fs.unlinkSync(uploadedFile.path); } catch (e) { /* ignore */ }
+        return res.status(400).json({ message: 'That file is not a valid Word document - the form was NOT changed.' });
+      }
+      const filePath = path.join(__dirname, '..', form.file);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      fs.renameSync(uploadedFile.path, filePath);
+      try {
+        const blobResult = await uploadBlob.uploadFile('projectreports', form.file, filePath, {
+          metadata: { kind: 'clientform', formKey: key, uploadedAt: new Date().toISOString() }
+        });
+        console.log('Client form master persisted to blob:', form.file, blobResult);
+      } catch (blobErr) {
+        console.error('Client form blob persist failed:', blobErr && blobErr.message);
+      }
+      return res.status(200).json({ message: form.label + ' replaced for all clients.' });
+    } catch (err) {
+      console.error('Error replacing client form:', err && err.message);
+      return res.status(500).json({ message: 'Error replacing the form.' });
+    }
+  });
+
 // Field definitions (dropdowns + current defaults) parsed from the tenant's
 // CURRENT proposal template, so the web form always matches the document.
 router.route('/proposalform')
