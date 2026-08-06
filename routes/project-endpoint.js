@@ -728,6 +728,90 @@ router.route('/replaceclientform')
     }
   });
 
+// On-site FILL: field schema parsed from a form's content controls, so the web
+// editor always matches the current template (dropdowns, text, photo slots).
+router.route('/clientformschema')
+  .get(async function (req, res) {
+    try {
+      const key = (req.query.key || '').toString();
+      const form = CLIENT_FORMS[key];
+      if (!form) return res.status(404).json({ message: 'Unknown form.' });
+      const master = await getClientFormMaster(form);
+      if (!master) return res.status(404).json({ message: 'That form has not been set up yet.' });
+      const PizZip = require('pizzip');
+      const engine = require('../service/clientFormEngine');
+      const xml = new PizZip(master).file('word/document.xml').asText();
+      const groups = engine.buildSchema(xml);
+      return res.status(200).json({ key, label: form.label, ext: form.ext, groups });
+    } catch (err) {
+      console.error('Error building client form schema:', err && err.message);
+      return res.status(500).json({ message: 'Could not read that form.' });
+    }
+  });
+
+// On-site FILL: build a completed, branded Word file from the submitted field
+// values + photo URLs. The real template is filled in place, so the output is
+// pixel-identical to the template (fonts, cell shading, colors) and, for the
+// .docm, keeps its macros/dropdowns.
+router.route('/clientformfill')
+  .post(async function (req, res) {
+    try {
+      const { key, values, photos } = req.body || {};
+      const form = CLIENT_FORMS[key];
+      if (!form) return res.status(404).json({ message: 'Unknown form.' });
+      const master = await getClientFormMaster(form);
+      if (!master) return res.status(404).json({ message: 'That form has not been set up yet.' });
+
+      const PizZip = require('pizzip');
+      const engine = require('../service/clientFormEngine');
+      const zip = new PizZip(master);
+      let xml = zip.file('word/document.xml').asText();
+
+      // Text / dropdown / combo values.
+      xml = engine.fillTextControls(xml, values || {});
+
+      // Photos: each is a URL already uploaded via /api/image/upload. Fetch the
+      // bytes and embed them into the matching picture content control.
+      const picsByRef = {};
+      if (photos && typeof photos === 'object') {
+        const axios = require('axios');
+        for (const ref of Object.keys(photos)) {
+          const url = photos[ref];
+          if (!url) continue;
+          try {
+            const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
+            const extMatch = String(url).split('?')[0].toLowerCase().match(/\.(png|jpe?g)$/);
+            const ext = extMatch ? extMatch[1] : 'png';
+            picsByRef[ref] = { buf: Buffer.from(resp.data), ext };
+          } catch (e) {
+            console.error('Client form photo fetch failed for', ref, e && e.message);
+          }
+        }
+      }
+      if (Object.keys(picsByRef).length) {
+        xml = engine.fillPictureControls(zip, xml, picsByRef, PizZip);
+      }
+      zip.file('word/document.xml', xml);
+
+      // Brand with this tenant's header logo + footer (same as the download).
+      try {
+        const companyIdentifier = req.user && req.user.company;
+        await FinalReportGenerator.injectTenantLogo(zip, companyIdentifier);
+        await FinalReportGenerator.injectTenantFooter(zip, companyIdentifier);
+      } catch (brandErr) {
+        console.error('Client form fill branding failed (continuing):', brandErr && brandErr.message);
+      }
+
+      const outBuf = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+      res.setHeader('Content-Type', form.contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${form.label} - completed.${form.ext}"`);
+      return res.send(outBuf);
+    } catch (err) {
+      console.error('Error filling client form:', err && err.message);
+      return res.status(500).json({ message: 'Could not build the completed form.' });
+    }
+  });
+
 // Field definitions (dropdowns + current defaults) parsed from the tenant's
 // CURRENT proposal template, so the web form always matches the document.
 router.route('/proposalform')
