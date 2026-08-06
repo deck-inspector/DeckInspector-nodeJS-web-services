@@ -562,6 +562,14 @@ input,select{font-family:inherit;font-size:16px}
             <div class="spinner"></div>
             <div>Building your report — usually 1–3 minutes. The list below updates automatically; you can keep working.</div>
           </div>
+          <div v-if="clientForms.length" style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
+            <h3 style="margin:0 0 4px">Blank Forms</h3>
+            <div class="hint">Fillable forms with your company branding — open in Microsoft Word, complete the dropdowns, fields and photos, then save.</div>
+            <div class="genrow">
+              <button v-for="f in clientForms" :key="f.key" class="btn btn-big" style="background:var(--bg);color:var(--ink);border:1.5px solid var(--line)"
+                      :disabled="downloadingForm===f.key" @click="downloadClientForm(f)">&#128196; {{ downloadingForm===f.key ? 'Preparing&hellip;' : f.label }}</button>
+            </div>
+          </div>
         </div>
 
         <div class="panel">
@@ -1110,6 +1118,7 @@ createApp({
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
+      clientForms: [], downloadingForm: '',
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' },
       forms: [], photoBusy: false,
@@ -1265,6 +1274,7 @@ createApp({
       this.assignPick = '';
       this.loadReports();
       if (!this.users.length) this.loadUsers();
+      if (!this.clientForms.length) this.loadClientForms();
     },
     projectId(p) { return p.id || p._id; },
     async loadReports() {
@@ -1369,6 +1379,30 @@ createApp({
       } catch (err) {
         if (err.message !== 'auth') this.toast('Could not upload the report.', 'err');
       } finally { this.uploadingReport = false; }
+    },
+    async loadClientForms() {
+      try {
+        const res = await this.api('/project/clientforms');
+        if (!res.ok) { this.clientForms = []; return; }
+        const data = await res.json();
+        this.clientForms = (data && data.forms) || [];
+      } catch (e) { this.clientForms = []; }
+    },
+    async downloadClientForm(f) {
+      this.downloadingForm = f.key;
+      try {
+        const res = await this.api('/project/clientform?key=' + encodeURIComponent(f.key));
+        if (!res.ok) throw new Error('bad');
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = f.label + '.' + (f.ext || 'docx');
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        this.toast(f.label + ' downloaded.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not download ' + f.label + '.', 'err');
+      } finally { this.downloadingForm = ''; }
     },
     async downloadFinal() {
       this.downloadingFinal = true;
