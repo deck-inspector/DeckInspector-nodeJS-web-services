@@ -367,16 +367,19 @@ function rowGroups(xml){
 function buildLayout(xml){
   const controls={};
   const rg=rowGroups(xml);
-  const rcByRow={}; for(const r of rg.rows) if(r.rcRef) rcByRow[r.key]=r.rcRef;
+  const rcByRow={};
   for(const c of parse(xml)){
     const outer=xml.slice(c._start, c._end);
+    const row = rg.rowByRef[c.ref]||null;
+    const isRC = (c.alias||'').trim().toLowerCase()==='repairs completed';
     controls[c.ref]={
       type:c.type, options:(c.options||[]).map(o=>o.value), value:c.value||'',
       alias:c.alias||'', context:c.context||'',
       color:controlColor(outer),
-      row: rg.rowByRef[c.ref]||null,
-      isRepairsCompleted: (c.alias||'').trim().toLowerCase()==='repairs completed',
+      row: row,
+      isRepairsCompleted: isRC,
     };
+    if(isRC && row) rcByRow[row]=c.ref; // derive directly from controls (robust)
   }
   return { html: renderFormHtml(xml), controls, rcByRow };
 }
@@ -411,20 +414,25 @@ function substituteCompanyInDoc(xml, name){
 // (from submitted values, else template) is NO or IN PROGRESS, flip that row's
 // green controls to red (00B050/008000 -> FF0000) inside their sdt blocks.
 function applyConditionalColors(xml, values){
+  // Group controls by row directly from the blocks (robust across templates).
   const rg=rowGroups(xml);
+  const blocks=findSdtBlocks(xml);
+  const rcByRow={}; const greenByRow={}; const valByRef={};
+  for(const b of blocks){
+    const outer=xml.slice(b.start,b.end);
+    const pr=parseSdtPr(outer); if(!pr.id) continue;
+    const row=rg.rowByRef[pr.id]; if(!row) continue;
+    if((pr.alias||'').trim().toLowerCase()==='repairs completed'){ rcByRow[row]=pr.id; valByRef[pr.id]=currentText(outer); }
+    if(controlColor(outer)==='green'){ (greenByRow[row]=greenByRow[row]||[]).push(pr.id); }
+  }
   const flip=new Set();
-  for(const row of rg.rows){
-    if(!row.rcRef || !row.greenRefs.length) continue;
-    let rc = (values && values[row.rcRef]!=null) ? values[row.rcRef] : null;
-    if(rc==null){ // fall back to template current value
-      const b=findSdtBlocks(xml).find(bl=>{const o=xml.slice(bl.start,bl.end);return parseSdtPr(o).id===row.rcRef;});
-      if(b) rc=currentText(xml.slice(b.start,b.end));
-    }
+  for(const row of Object.keys(greenByRow)){
+    const rcRef=rcByRow[row]; if(!rcRef) continue;
+    let rc=(values && values[rcRef]!=null && values[rcRef]!=='') ? values[rcRef] : valByRef[rcRef];
     const s=String(rc||'').trim().toUpperCase();
-    if(s==='NO'||s==='IN PROGRESS'){ for(const gid of row.greenRefs) flip.add(gid); }
+    if(s==='NO'||s==='IN PROGRESS'){ for(const gid of greenByRow[row]) flip.add(gid); }
   }
   if(!flip.size) return xml;
-  const blocks=findSdtBlocks(xml);
   let out='', cursor=0;
   for(const b of blocks){
     out+=xml.slice(cursor,b.start);
