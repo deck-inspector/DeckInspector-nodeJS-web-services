@@ -245,3 +245,97 @@ function buildSchema(xml) {
 }
 module.exports.buildSchema = buildSchema;
 module.exports.stripText = stripText;
+
+// ---- FORM LAYOUT (HTML that mirrors the document, with control tokens) ----
+// Renders the body to HTML preserving tables, cell shading, headers and the
+// element rows, replacing each content control with @@CTRL:<id>@@. The client
+// swaps those tokens for real <select>/<input>/photo controls, so the on-site
+// editor looks and reads like the actual form.
+function _fhEsc(s){return String(s==null?'':s).replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function _fhScan(inner, wanted){
+  const re=/<(w:p|w:tbl|w:tr|w:tc|w:sdt)(\s[^>]*?)?(\/?)>|<\/(w:p|w:tbl|w:tr|w:tc|w:sdt)>/g;
+  const out=[]; let depth=0, startIdx=-1, startTag=null, m;
+  while((m=re.exec(inner))){
+    const open=m[1], selfClose=m[3]==='/', close=m[4];
+    if(open){
+      if(selfClose){ if(depth===0 && wanted.includes(open)) out.push({tag:open, xml:m[0]}); continue; }
+      if(depth===0){ if(wanted.includes(open)){ startIdx=m.index; startTag=open; } depth=1; }
+      else depth++;
+    } else if(close){ depth--; if(depth===0 && startIdx!==-1 && close===startTag){ out.push({tag:close, xml:inner.slice(startIdx, re.lastIndex)}); startIdx=-1; startTag=null; } }
+  }
+  return out;
+}
+function _fhMeta(sdt){
+  const pr=(sdt.match(/<w:sdtPr>([\s\S]*?)<\/w:sdtPr>/)||[])[1]||'';
+  const id=(pr.match(/<w:id[^>]*w:val="(-?\d+)"/)||[])[1]||null;
+  let type='text';
+  if(/<w:dropDownList/.test(pr))type='dropdown'; else if(/<w:comboBox/.test(pr))type='combo'; else if(/<w:picture\/?>/.test(pr))type='picture';
+  return {id,type};
+}
+function _fhPara(p){
+  let html=''; const re=/<w:sdt>[\s\S]*?<\/w:sdt>|<w:r\b[\s\S]*?<\/w:r>/g; let m;
+  while((m=re.exec(p))){
+    const chunk=m[0];
+    if(chunk.startsWith('<w:sdt>')){ const meta=_fhMeta(chunk); if(meta.id) html+='@@CTRL:'+meta.id+'@@'; }
+    else { const t=(chunk.match(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)||[]).map(s=>s.replace(/<[^>]+>/g,'')).join('');
+      if(!t){ if(/<w:tab\b/.test(chunk)) html+=' '; continue; }
+      const bold=/<w:b\/>|<w:b\s/.test(chunk); const red=/w:color="FF0000"/i.test(chunk);
+      let s=_fhEsc(t); if(bold)s='<b>'+s+'</b>'; if(red)s='<span style="color:#c00000">'+s+'</span>'; html+=s; }
+  }
+  return html;
+}
+function _fhCellStyle(tc){
+  const pr=(tc.match(/<w:tcPr>([\s\S]*?)<\/w:tcPr>/)||[])[1]||'';
+  const fill=(pr.match(/<w:shd[^>]*w:fill="([0-9A-Fa-f]{6})"/)||[])[1];
+  const span=(pr.match(/<w:gridSpan[^>]*w:val="(\d+)"/)||[])[1];
+  let st='border:1px solid #b9c4d0;padding:3px 6px;vertical-align:middle;font-size:12px;';
+  if(fill && fill.toUpperCase()!=='FFFFFF') st+='background:#'+fill+';';
+  return {style:st, colspan: span?(' colspan="'+span+'"'):''};
+}
+function _fhTc(tc){
+  const {style,colspan}=_fhCellStyle(tc);
+  const inner=(tc.match(/<w:tc>([\s\S]*)<\/w:tc>/)||[,''])[1];
+  let content=''; const kids=_fhScan(inner,['w:p','w:tbl','w:sdt']);
+  for(const k of kids){
+    if(k.tag==='w:sdt'){ const meta=_fhMeta(k.xml); content+= meta.id?('@@CTRL:'+meta.id+'@@'):''; }
+    else if(k.tag==='w:tbl'){ content+=_fhTable(k.xml); }
+    else { const t=_fhPara(k.xml); content+='<div>'+t+'</div>'; }
+  }
+  content=content.replace(/(<div>\s*<\/div>)+/g,'')||'&nbsp;';
+  return '<td'+colspan+' style="'+style+'">'+content+'</td>';
+}
+function _fhRow(tr){
+  const inner=(tr.match(/<w:tr\b[^>]*>([\s\S]*)<\/w:tr>/)||[,''])[1];
+  const kids=_fhScan(inner,['w:tc','w:sdt']); let html='<tr>';
+  for(const k of kids){
+    if(k.tag==='w:tc'){ html+=_fhTc(k.xml); }
+    else { const meta=_fhMeta(k.xml); const innerTc=(k.xml.match(/<w:tc>[\s\S]*<\/w:tc>/)||[])[0];
+      const {style,colspan}= innerTc?_fhCellStyle(innerTc):{style:'border:1px solid #b9c4d0;padding:3px 6px;font-size:12px;',colspan:''};
+      html+='<td'+colspan+' style="'+style+'">'+(meta.id?('@@CTRL:'+meta.id+'@@'):'')+'</td>'; }
+  }
+  return html+'</tr>';
+}
+function _fhTable(tbl){
+  const rows=_fhScan((tbl.match(/<w:tbl>([\s\S]*)<\/w:tbl>/)||[,''])[1],['w:tr']);
+  return '<table style="border-collapse:collapse;width:100%;margin:8px 0">'+rows.map(r=>_fhRow(r.xml)).join('')+'</table>';
+}
+function renderFormHtml(xml){
+  let inner=(xml.match(/<w:body>([\s\S]*)<\/w:body>/)||[,''])[1];
+  inner=inner.replace(/<w:sectPr[\s\S]*$/,'');
+  const kids=_fhScan(inner,['w:p','w:tbl','w:sdt']); let html='';
+  for(const k of kids){
+    if(k.tag==='w:tbl') html+=_fhTable(k.xml);
+    else if(k.tag==='w:sdt'){ const meta=_fhMeta(k.xml); if(meta.id) html+='<div>@@CTRL:'+meta.id+'@@</div>'; }
+    else { const t=_fhPara(k.xml); if(t.trim()) html+='<p style="margin:6px 0;font-size:12px">'+t+'</p>'; }
+  }
+  return html;
+}
+function buildLayout(xml){
+  const controls={};
+  for(const c of parse(xml)){
+    controls[c.ref]={ type:c.type, options:(c.options||[]).map(o=>o.value), value:c.value||'' };
+  }
+  return { html: renderFormHtml(xml), controls };
+}
+module.exports.renderFormHtml = renderFormHtml;
+module.exports.buildLayout = buildLayout;
