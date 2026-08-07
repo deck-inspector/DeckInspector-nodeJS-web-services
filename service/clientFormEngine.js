@@ -330,12 +330,117 @@ function renderFormHtml(xml){
   }
   return html;
 }
+// Colour class of a control from the run colour in its block.
+// green = 'good condition' fields (00B050/008000); red = editable fields
+// (FF0000/EE0000); everything else = other.
+function controlColor(block){
+  const cols=(block.match(/<w:color w:val="([0-9A-Fa-f]{6})"/g)||[]).map(s=>s.replace(/.*val="([0-9A-Fa-f]{6})".*/,'$1').toUpperCase());
+  if(cols.includes('00B050')||cols.includes('008000')) return 'green';
+  if(cols.includes('FF0000')||cols.includes('EE0000')) return 'red';
+  return 'other';
+}
+// Group controls by their enclosing table row so the "Repairs Completed =
+// NO/IN PROGRESS turns the row's green fields red" rule can be applied.
+// Returns { rowByRef:{id:rowKey}, rows:[{key, rcRef, greenRefs:[...], refs:[...]}] }.
+function rowGroups(xml){
+  const rowByRef={}; const rows=[]; let key=0;
+  const body=(xml.match(/<w:body>([\s\S]*)<\/w:body>/)||[,''])[1];
+  const tbls=_fhScan(body,['w:tbl']);
+  for(const t of tbls){
+    const trs=_fhScan((t.xml.match(/<w:tbl>([\s\S]*)<\/w:tbl>/)||[,''])[1],['w:tr']);
+    for(const tr of trs){
+      const blocks=findSdtBlocks(tr.xml);
+      if(!blocks.length) continue;
+      const row={key:'r'+(key++), rcRef:null, greenRefs:[], refs:[]};
+      for(const b of blocks){
+        const outer=tr.xml.slice(b.start,b.end);
+        const pr=parseSdtPr(outer); if(!pr.id) continue;
+        rowByRef[pr.id]=row.key; row.refs.push(pr.id);
+        if((pr.alias||'').trim().toLowerCase()==='repairs completed') row.rcRef=pr.id;
+        if(controlColor(outer)==='green') row.greenRefs.push(pr.id);
+      }
+      rows.push(row);
+    }
+  }
+  return { rowByRef, rows };
+}
 function buildLayout(xml){
   const controls={};
+  const rg=rowGroups(xml);
+  const rcByRow={}; for(const r of rg.rows) if(r.rcRef) rcByRow[r.key]=r.rcRef;
   for(const c of parse(xml)){
-    controls[c.ref]={ type:c.type, options:(c.options||[]).map(o=>o.value), value:c.value||'' };
+    const outer=xml.slice(c._start, c._end);
+    controls[c.ref]={
+      type:c.type, options:(c.options||[]).map(o=>o.value), value:c.value||'',
+      alias:c.alias||'', context:c.context||'',
+      color:controlColor(outer),
+      row: rg.rowByRef[c.ref]||null,
+      isRepairsCompleted: (c.alias||'').trim().toLowerCase()==='repairs completed',
+    };
   }
-  return { html: renderFormHtml(xml), controls };
+  return { html: renderFormHtml(xml), controls, rcByRow };
 }
+
+// Replace the branding company name in body text. Longest first so
+// "Deck Inspectors, Inc." is handled before "Deck Inspectors".
+function substituteCompany(str, name){
+  if(!name) return str;
+  const clean=String(name).trim();
+  if(!clean || /^deck inspectors/i.test(clean)) return str; // no change for Deck itself
+  return str
+    .replace(/Deck Inspectors,?\s*Inc\.?/g, clean)
+    .replace(/Deck Inspectors/g, clean);
+}
+// Same, but only inside <w:t> text runs of the document XML. Also handles the
+// case where "Deck Inspectors" is split across two runs (Word does this).
+function substituteCompanyInDoc(xml, name){
+  if(!name || /^deck inspectors/i.test(String(name).trim())) return xml;
+  const clean=String(name).trim();
+  // Cross-run: "Deck</w:t> ... <w:t>Inspectors[, Inc.]" -> company name in the
+  // first run, second run's phrase text emptied (its tags/formatting kept).
+  xml = xml.replace(/Deck(\s*<\/w:t>[\s\S]{0,300}?<w:t(?:\s[^>]*)?>)\s*Inspectors,?\s*(?:Inc\.?)?/g, (m, gap) => clean + gap);
+  // Dropdown OPTION text/values (e.g. "Report Performed by" -> Deck Inspectors)
+  // so the client's name shows as the option and selected value.
+  const attrEsc = clean.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  xml = xml.replace(/(w:(?:displayText|value)=")Deck Inspectors,?\s*(?:Inc\.?)?\s*(")/g, '$1' + attrEsc + '$2');
+  // Same-run visible text occurrences.
+  return xml.replace(/(<w:t(?:\s[^>]*)?>)([\s\S]*?)(<\/w:t>)/g, (m,a,txt,z)=> a+substituteCompany(txt,name)+z);
+}
+
+// Apply the green->red rule: for every row whose "Repairs Completed" value
+// (from submitted values, else template) is NO or IN PROGRESS, flip that row's
+// green controls to red (00B050/008000 -> FF0000) inside their sdt blocks.
+function applyConditionalColors(xml, values){
+  const rg=rowGroups(xml);
+  const flip=new Set();
+  for(const row of rg.rows){
+    if(!row.rcRef || !row.greenRefs.length) continue;
+    let rc = (values && values[row.rcRef]!=null) ? values[row.rcRef] : null;
+    if(rc==null){ // fall back to template current value
+      const b=findSdtBlocks(xml).find(bl=>{const o=xml.slice(bl.start,bl.end);return parseSdtPr(o).id===row.rcRef;});
+      if(b) rc=currentText(xml.slice(b.start,b.end));
+    }
+    const s=String(rc||'').trim().toUpperCase();
+    if(s==='NO'||s==='IN PROGRESS'){ for(const gid of row.greenRefs) flip.add(gid); }
+  }
+  if(!flip.size) return xml;
+  const blocks=findSdtBlocks(xml);
+  let out='', cursor=0;
+  for(const b of blocks){
+    out+=xml.slice(cursor,b.start);
+    let block=xml.slice(b.start,b.end);
+    const id=parseSdtPr(block).id;
+    if(id && flip.has(id)) block=block.replace(/w:val="00B050"/g,'w:val="FF0000"').replace(/w:val="008000"/g,'w:val="FF0000"');
+    out+=block; cursor=b.end;
+  }
+  out+=xml.slice(cursor);
+  return out;
+}
+
 module.exports.renderFormHtml = renderFormHtml;
 module.exports.buildLayout = buildLayout;
+module.exports.controlColor = controlColor;
+module.exports.rowGroups = rowGroups;
+module.exports.substituteCompany = substituteCompany;
+module.exports.substituteCompanyInDoc = substituteCompanyInDoc;
+module.exports.applyConditionalColors = applyConditionalColors;
