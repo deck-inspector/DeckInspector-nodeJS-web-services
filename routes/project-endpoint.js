@@ -749,6 +749,29 @@ router.route('/clientformschema')
     }
   });
 
+// On-site FILL (layout): HTML that mirrors the real form (tables, shading,
+// element rows, column headers) with @@CTRL:<id>@@ tokens where each control
+// goes, plus a controls map {id:{type,options,value}}. The web editor swaps
+// the tokens for real dropdowns/inputs so it looks and reads like the form.
+router.route('/clientformlayout')
+  .get(async function (req, res) {
+    try {
+      const key = (req.query.key || '').toString();
+      const form = CLIENT_FORMS[key];
+      if (!form) return res.status(404).json({ message: 'Unknown form.' });
+      const master = await getClientFormMaster(form);
+      if (!master) return res.status(404).json({ message: 'That form has not been set up yet.' });
+      const PizZip = require('pizzip');
+      const engine = require('../service/clientFormEngine');
+      const xml = new PizZip(master).file('word/document.xml').asText();
+      const layout = engine.buildLayout(xml);
+      return res.status(200).json({ key, label: form.label, ext: form.ext, html: layout.html, controls: layout.controls });
+    } catch (err) {
+      console.error('Error building client form layout:', err && err.message);
+      return res.status(500).json({ message: 'Could not read that form.' });
+    }
+  });
+
 // On-site FILL: build a completed, branded Word file from the submitted field
 // values + photo URLs. The real template is filled in place, so the output is
 // pixel-identical to the template (fonts, cell shading, colors) and, for the
