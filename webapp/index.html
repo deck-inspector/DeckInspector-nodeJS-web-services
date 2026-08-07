@@ -185,6 +185,8 @@ input,select{font-family:inherit;font-size:16px}
 .ff-canvas table{max-width:100%}
 .ff-canvas td div{min-height:14px}
 .ff-canvas select.ff-ctl,.ff-canvas input.ff-ctl{width:100%;box-sizing:border-box;border:1px solid #cfd8e3;border-radius:5px;background:#fffef2;color:#c00000;font-weight:700;font-size:12px;font-family:inherit;padding:3px 4px}
+.ff-canvas select.ff-green,.ff-canvas input.ff-green{color:#00B050 !important}
+.ff-canvas select.ff-other,.ff-canvas input.ff-other{color:#393939 !important}
 .ff-canvas select.ff-ctl:focus,.ff-canvas input.ff-ctl:focus{outline:2px solid var(--brand);border-color:var(--brand)}
 .ff-canvas .ff-pic{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
 .ff-canvas .ff-pic img{max-width:150px;max-height:110px;border-radius:6px;border:1px solid #cfd8e3}
@@ -1146,7 +1148,7 @@ createApp({
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
-      formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, busy: false, busyKind: '' },
+      formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' },
       forms: [], photoBusy: false,
@@ -1419,19 +1421,36 @@ createApp({
     ffEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
     // Build the interactive control HTML that replaces each @@CTRL:id@@ token.
     ffControlHtml(ref) {
-      const c = this.formEd.controls[ref] || { type: 'text', options: [], value: '' };
+      const c = this.formEd.controls[ref] || { type: 'text', options: [], value: '', color: 'other', row: null };
       const val = this.formEd.values[ref] != null ? this.formEd.values[ref] : (c.value || '');
+      const meta = ' data-ref="' + this.ffEsc(ref) + '" data-color="' + this.ffEsc(c.color || 'other') + '" data-row="' + this.ffEsc(c.row || '') + '"';
       if (c.type === 'dropdown' || (c.type === 'combo' && (c.options || []).length)) {
         let o = '<option value="">—</option>';
         for (const op of (c.options || [])) o += '<option value="' + this.ffEsc(op) + '"' + (op === val ? ' selected' : '') + '>' + this.ffEsc(op) + '</option>';
-        return '<select class="ff-ctl" data-ref="' + this.ffEsc(ref) + '">' + o + '</select>';
+        return '<select class="ff-ctl"' + meta + '>' + o + '</select>';
       }
       if (c.type === 'picture') {
         const img = this.formEd.photos[ref] ? '<img src="' + this.ffEsc(this.formEd.photos[ref]) + '">' : '';
         return '<span class="ff-pic" data-picwrap="' + this.ffEsc(ref) + '">' + img +
           '<label class="ff-picbtn">📷 Photo<input type="file" accept="image/*" data-picref="' + this.ffEsc(ref) + '" style="display:none"></label></span>';
       }
-      return '<input class="ff-ctl" type="text" data-ref="' + this.ffEsc(ref) + '" value="' + this.ffEsc(val) + '">';
+      return '<input class="ff-ctl" type="text"' + meta + ' value="' + this.ffEsc(val) + '">';
+    },
+    // Colour each control: green fields stay green unless their row's Repairs
+    // Completed is NO / IN PROGRESS (then red); red fields red; others neutral.
+    ffApplyColors() {
+      const root = this.$refs.ffCanvas; if (!root) return;
+      root.querySelectorAll('[data-color]').forEach(el => {
+        const color = el.getAttribute('data-color'); const row = el.getAttribute('data-row');
+        el.classList.remove('ff-green', 'ff-other');
+        if (color === 'green') {
+          const rc = this.formEd.rcByRow[row];
+          const v = rc ? String(this.formEd.values[rc] || '').trim().toUpperCase() : '';
+          if (!(v === 'NO' || v === 'IN PROGRESS')) el.classList.add('ff-green');
+        } else if (color !== 'red') {
+          el.classList.add('ff-other');
+        }
+      });
     },
     ffRender() {
       // token html -> interactive controls
@@ -1444,11 +1463,70 @@ createApp({
       root.querySelectorAll('select.ff-ctl,input.ff-ctl').forEach(el => {
         const ref = el.getAttribute('data-ref');
         const ev = el.tagName === 'SELECT' ? 'change' : 'input';
-        el.addEventListener(ev, () => { this.formEd.values[ref] = el.value; });
+        el.addEventListener(ev, () => { this.formEd.values[ref] = el.value; this.ffApplyColors(); });
       });
       root.querySelectorAll('input[data-picref]').forEach(el => {
         el.addEventListener('change', (e) => this.ffPickPhoto(el.getAttribute('data-picref'), e));
       });
+      this.ffApplyColors();
+    },
+    // Prefill address, this report's date, and the original (Visual) report date.
+    async ffAutofill() {
+      const setVal = (ref, v) => {
+        if (ref == null || v == null || v === '') return;
+        this.formEd.values[ref] = v;
+        const el = this.$refs.ffCanvas && this.$refs.ffCanvas.querySelector('[data-ref="' + (window.CSS && CSS.escape ? CSS.escape(ref) : ref) + '"]');
+        if (el) el.value = v;
+      };
+      const byAlias = (a) => {
+        a = a.toLowerCase();
+        for (const ref of Object.keys(this.formEd.controls)) {
+          const c = this.formEd.controls[ref];
+          if ((c.alias || '').trim().toLowerCase() === a) return ref;
+        }
+        return null;
+      };
+      const byContext = (needle) => {
+        needle = needle.toLowerCase();
+        for (const ref of Object.keys(this.formEd.controls)) {
+          const c = this.formEd.controls[ref];
+          if ((c.context || '').toLowerCase().indexOf(needle) > -1) return ref;
+        }
+        return null;
+      };
+      // Address split from the project address "Street, City, ST Zip"
+      const addr = (this.current && this.current.address) || '';
+      if (addr) {
+        const parts = addr.split(',').map(s => s.trim());
+        const street = parts[0] || '';
+        const city = parts[1] || '';
+        let state = '', zip = '';
+        const sz = (parts[2] || '').trim().split(/\s+/);
+        if (sz.length >= 2) { state = sz[0]; zip = sz.slice(1).join(' '); }
+        else if (sz.length === 1) { state = sz[0]; }
+        setVal(byAlias('Property Address') || byContext('property address'), street || addr);
+        setVal(byAlias('City'), city);
+        setVal(byAlias('State'), state);
+        setVal(byAlias('Zip'), zip);
+      }
+      // This report's date = today
+      const today = new Date();
+      const fmt = d => (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
+      setVal(byAlias('Date') || byContext('date of final'), fmt(today));
+      // Original inspection date = the project's Visual report date
+      try {
+        const res = await this.api('/projectreports/' + encodeURIComponent(this.projectId(this.current)));
+        if (res.ok) {
+          const list = (await res.json()) || [];
+          const visuals = list.filter(r => r && r.name && r.name.indexOf('Final Report') === -1 && !this.isFailed(r) && r.timestamp)
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          if (visuals.length) {
+            const d = new Date(visuals[0].timestamp);
+            if (!isNaN(d)) setVal(byContext('original'), fmt(d));
+          }
+        }
+      } catch (e) { /* leave original date blank if none */ }
+      this.ffApplyColors();
     },
     async openFormEditor(f) {
       this.formEd = { open: true, loading: true, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, busy: false, busyKind: '' };
@@ -1458,6 +1536,7 @@ createApp({
         const data = await res.json();
         this.formEd.tokenHtml = data.html || '';
         this.formEd.controls = data.controls || {};
+        this.formEd.rcByRow = data.rcByRow || {};
         // seed values from the template's current content
         for (const ref of Object.keys(this.formEd.controls)) {
           const c = this.formEd.controls[ref];
@@ -1465,6 +1544,7 @@ createApp({
         }
         this.formEd.loading = false;
         this.ffRender();
+        this.$nextTick(() => this.ffAutofill());
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not open that form.', 'err');
         this.formEd.open = false;
@@ -1515,20 +1595,32 @@ createApp({
         if (e.message !== 'auth') this.toast('Could not build the document.', 'err');
       } finally { this.formEd.busy = false; this.formEd.busyKind = ''; }
     },
+    ffColorFor(id) {
+      const c = this.formEd.controls[id] || {};
+      if (c.color === 'green') {
+        const rc = this.formEd.rcByRow[c.row];
+        const v = rc ? String(this.formEd.values[rc] || '').trim().toUpperCase() : '';
+        return (v === 'NO' || v === 'IN PROGRESS') ? '#c00000' : '#00B050';
+      }
+      if (c.color === 'red') return '#c00000';
+      return '#393939';
+    },
     printFilledForm() {
-      // Print the exact form layout with the chosen values shown as text.
-      const brand = (this.user && this.user.companyIdentifier) || '';
+      // Print the exact form layout with the chosen values shown as text,
+      // honouring the green/red rule and keeping rows from splitting pages.
       const body = (this.formEd.tokenHtml || '').replace(/@@CTRL:(-?\d+)@@/g, (m, id) => {
         const c = this.formEd.controls[id] || {};
         if (c.type === 'picture') return this.formEd.photos[id] ? '<img class="pv" src="' + this.ffEsc(this.formEd.photos[id]) + '">' : '';
-        return '<span class="pv">' + this.ffEsc(this.formEd.values[id] || '') + '</span>';
+        return '<span class="pv" style="color:' + this.ffColorFor(id) + '">' + this.ffEsc(this.formEd.values[id] || '') + '</span>';
       });
       const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + this.ffEsc(this.formEd.label) + '</title>' +
-        '<style>body{font-family:Calibri,Arial,sans-serif;color:#1c2733;margin:14mm;font-size:12px}' +
-        'table{border-collapse:collapse;width:100%;margin:8px 0}td{border:1px solid #b9c4d0;padding:3px 6px;vertical-align:middle;font-size:12px}' +
-        '.pv{color:#c00000;font-weight:700}.pv[src],img.pv{max-width:150px;max-height:110px;border-radius:6px}' +
+        '<style>@page{size:Letter;margin:14mm}' +
+        'body{font-family:Calibri,Arial,sans-serif;color:#393939;font-size:12px}' +
+        'table{border-collapse:collapse;width:100%;margin:8px 0}' +
+        'tr{page-break-inside:avoid}td{border:1px solid #b9c4d0;padding:3px 6px;vertical-align:middle;font-size:12px}' +
+        '.pv{font-weight:700}img.pv{max-width:150px;max-height:110px;border-radius:6px}' +
         'p{margin:6px 0}</style></head><body>' + body +
-        '<script>window.onload=function(){setTimeout(function(){window.print();},300);}<\/script></body></html>';
+        '<script>window.onload=function(){setTimeout(function(){window.print();},350);}<\/script></body></html>';
       const w = window.open('', '_blank');
       if (!w) { this.toast('Allow pop-ups to print, or use Download Word.', 'err'); return; }
       w.document.open(); w.document.write(html); w.document.close();
