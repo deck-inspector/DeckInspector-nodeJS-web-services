@@ -181,6 +181,14 @@ input,select{font-family:inherit;font-size:16px}
 .pgdel:hover{background:var(--danger)}
 .pgadd{aspect-ratio:4/3;border:2px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--ink-soft);cursor:pointer;background:var(--bg)}
 .pgadd:hover{border-color:var(--brand);color:var(--brand)}
+.ff-canvas{font-family:Calibri,Arial,sans-serif;color:#1c2733;font-size:12px}
+.ff-canvas table{max-width:100%}
+.ff-canvas td div{min-height:14px}
+.ff-canvas select.ff-ctl,.ff-canvas input.ff-ctl{width:100%;box-sizing:border-box;border:1px solid #cfd8e3;border-radius:5px;background:#fffef2;color:#c00000;font-weight:700;font-size:12px;font-family:inherit;padding:3px 4px}
+.ff-canvas select.ff-ctl:focus,.ff-canvas input.ff-ctl:focus{outline:2px solid var(--brand);border-color:var(--brand)}
+.ff-canvas .ff-pic{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ff-canvas .ff-pic img{max-width:150px;max-height:110px;border-radius:6px;border:1px solid #cfd8e3}
+.ff-canvas .ff-picbtn{cursor:pointer;color:var(--brand);font-weight:700;border:1.5px dashed var(--brand);border-radius:6px;padding:4px 8px;font-size:12px}
 .unitgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
 .ucard{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:16px 18px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:box-shadow .15s;border:none;text-align:left;font-size:15px}
 .ucard:hover{box-shadow:0 6px 20px rgba(28,39,51,.15)}
@@ -910,32 +918,15 @@ input,select{font-family:inherit;font-size:16px}
 
   <!-- ============ CLIENT FORM ONLINE EDITOR ============ -->
   <div class="overlay" v-if="formEd.open" style="align-items:flex-start">
-    <div class="modal" style="max-width:820px;width:100%;max-height:94vh;overflow-y:auto;margin:20px auto">
-      <div style="display:flex;align-items:center;gap:10px">
+    <div class="modal" style="max-width:1000px;width:100%;max-height:94vh;overflow-y:auto;margin:16px auto">
+      <div style="display:flex;align-items:center;gap:10px;position:sticky;top:-28px;background:#fff;padding:6px 0;z-index:2">
         <h3 style="flex:1;margin:0">{{ formEd.label }}</h3>
         <button class="btn-cancel" @click="formEd.open=false">Close</button>
       </div>
-      <div class="hint" style="margin:6px 0 14px">Complete the fields below, then <b>Download Word</b> for the exact branded document, or <b>Save / Print PDF</b>. Your company logo and footer are added automatically.</div>
-      <template v-for="(g,gi) in formEd.groups" :key="'g'+gi">
-        <div style="font-weight:800;color:var(--brand);border-bottom:2px solid var(--brand-soft);margin:16px 0 8px;padding-bottom:4px" v-if="g.title && g.title!=='General'">{{ g.title }}</div>
-        <div class="field" v-for="f in g.fields" :key="f.ref" style="margin-bottom:10px">
-          <label>{{ f.label }}</label>
-          <select v-if="f.type==='dropdown' || (f.type==='combo' && f.options.length)" v-model="formEd.values[f.ref]" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:15px;font-family:inherit">
-            <option value="">— choose —</option>
-            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-          </select>
-          <div v-else-if="f.type==='picture'">
-            <div class="pgrid" v-if="formEd.photos[f.ref]"><div class="pgitem"><img :src="formEd.photos[f.ref]" alt="photo"><button class="pgdel" @click="formEd.photos[f.ref]=''">&#10005;</button></div></div>
-            <label class="btn-dl" style="cursor:pointer;display:inline-block">
-              <span v-if="formEd.photoBusy[f.ref]">Uploading&hellip;</span>
-              <span v-else>&#128247; {{ formEd.photos[f.ref] ? 'Replace photo' : 'Upload photo' }}</span>
-              <input type="file" accept="image/*" style="display:none" :disabled="formEd.photoBusy[f.ref]" @change="ffPickPhoto(f, $event)">
-            </label>
-          </div>
-          <input v-else v-model="formEd.values[f.ref]" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:15px;font-family:inherit">
-        </div>
-      </template>
-      <div class="mrow" style="position:sticky;bottom:0;background:#fff;padding-top:12px;border-top:1px solid var(--line);margin-top:16px">
+      <div class="hint" style="margin:4px 0 12px">Fill in the form below — it matches your document exactly. Then <b>Download Word</b> for the branded file, or <b>Save / Print PDF</b>. Your logo and footer are added automatically.</div>
+      <div v-if="formEd.loading" class="empty" style="padding:40px 0">Loading the form&hellip;</div>
+      <div v-else class="ff-canvas" ref="ffCanvas" v-html="formEd.renderedHtml"></div>
+      <div class="mrow" style="position:sticky;bottom:0;background:#fff;padding-top:12px;border-top:1px solid var(--line);margin-top:16px;z-index:2">
         <button class="btn-cancel" @click="formEd.open=false">Close</button>
         <button class="btn btn-primary" style="padding:12px 20px" :disabled="formEd.busy" @click="downloadFilledWord">{{ formEd.busy && formEd.busyKind==='word' ? 'Building&hellip;' : '⬇ Download Word' }}</button>
         <button class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="printFilledForm">🖨 Save / Print PDF</button>
@@ -1155,7 +1146,7 @@ createApp({
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
-      formEd: { open: false, key: '', label: '', ext: 'docx', groups: [], values: {}, photos: {}, photoBusy: {}, busy: false, busyKind: '' },
+      formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' },
       forms: [], photoBusy: false,
@@ -1425,31 +1416,68 @@ createApp({
         this.clientForms = (data && data.forms) || [];
       } catch (e) { this.clientForms = []; }
     },
+    ffEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
+    // Build the interactive control HTML that replaces each @@CTRL:id@@ token.
+    ffControlHtml(ref) {
+      const c = this.formEd.controls[ref] || { type: 'text', options: [], value: '' };
+      const val = this.formEd.values[ref] != null ? this.formEd.values[ref] : (c.value || '');
+      if (c.type === 'dropdown' || (c.type === 'combo' && (c.options || []).length)) {
+        let o = '<option value="">—</option>';
+        for (const op of (c.options || [])) o += '<option value="' + this.ffEsc(op) + '"' + (op === val ? ' selected' : '') + '>' + this.ffEsc(op) + '</option>';
+        return '<select class="ff-ctl" data-ref="' + this.ffEsc(ref) + '">' + o + '</select>';
+      }
+      if (c.type === 'picture') {
+        const img = this.formEd.photos[ref] ? '<img src="' + this.ffEsc(this.formEd.photos[ref]) + '">' : '';
+        return '<span class="ff-pic" data-picwrap="' + this.ffEsc(ref) + '">' + img +
+          '<label class="ff-picbtn">📷 Photo<input type="file" accept="image/*" data-picref="' + this.ffEsc(ref) + '" style="display:none"></label></span>';
+      }
+      return '<input class="ff-ctl" type="text" data-ref="' + this.ffEsc(ref) + '" value="' + this.ffEsc(val) + '">';
+    },
+    ffRender() {
+      // token html -> interactive controls
+      this.formEd.renderedHtml = (this.formEd.tokenHtml || '').replace(/@@CTRL:(-?\d+)@@/g, (m, id) => this.ffControlHtml(id));
+      this.$nextTick(() => this.ffBind());
+    },
+    ffBind() {
+      const root = this.$refs.ffCanvas;
+      if (!root) return;
+      root.querySelectorAll('select.ff-ctl,input.ff-ctl').forEach(el => {
+        const ref = el.getAttribute('data-ref');
+        const ev = el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(ev, () => { this.formEd.values[ref] = el.value; });
+      });
+      root.querySelectorAll('input[data-picref]').forEach(el => {
+        el.addEventListener('change', (e) => this.ffPickPhoto(el.getAttribute('data-picref'), e));
+      });
+    },
     async openFormEditor(f) {
-      this.formEd = { open: true, key: f.key, label: f.label, ext: f.ext, groups: [], values: {}, photos: {}, photoBusy: {}, busy: false, busyKind: '' };
+      this.formEd = { open: true, loading: true, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, busy: false, busyKind: '' };
       try {
-        const res = await this.api('/project/clientformschema?key=' + encodeURIComponent(f.key));
+        const res = await this.api('/project/clientformlayout?key=' + encodeURIComponent(f.key));
         if (!res.ok) throw new Error('bad');
         const data = await res.json();
-        this.formEd.groups = (data && data.groups) || [];
-        // seed values with the template defaults (dropdowns keep a sensible start)
-        for (const g of this.formEd.groups) for (const fld of g.fields) {
-          if (fld.type !== 'picture') this.formEd.values[fld.ref] = fld.value || '';
+        this.formEd.tokenHtml = data.html || '';
+        this.formEd.controls = data.controls || {};
+        // seed values from the template's current content
+        for (const ref of Object.keys(this.formEd.controls)) {
+          const c = this.formEd.controls[ref];
+          if (c.type !== 'picture') this.formEd.values[ref] = c.value || '';
         }
+        this.formEd.loading = false;
+        this.ffRender();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not open that form.', 'err');
         this.formEd.open = false;
       }
     },
-    async ffPickPhoto(fld, e) {
+    async ffPickPhoto(ref, e) {
       const file = (e.target.files || [])[0];
       e.target.value = '';
       if (!file) return;
-      this.formEd.photoBusy[fld.ref] = true;
       try {
         const dot = file.name ? file.name.lastIndexOf('.') : -1;
         const ext = dot !== -1 ? file.name.slice(dot).toLowerCase() : '.jpg';
-        const uname = 'form-' + this.formEd.key + '-' + fld.ref.replace(/[^a-zA-Z0-9-]/g, '') + '-' + Date.now() + ext;
+        const uname = 'form-' + this.formEd.key + '-' + String(ref).replace(/[^a-zA-Z0-9-]/g, '') + '-' + Date.now() + ext;
         const fd = new FormData();
         fd.append('picture', file, uname);
         fd.append('containerName', String((this.current && this.current.name) || 'project').replace(/\s+/g, '').toLowerCase());
@@ -1460,10 +1488,13 @@ createApp({
         const j = await res.json();
         const url = j.url || (j.data && j.data.url) || '';
         if (!url) throw new Error('upload');
-        this.formEd.photos[fld.ref] = url;
+        this.formEd.photos[ref] = url;
+        // reflect the new photo in the canvas
+        const wrap = this.$refs.ffCanvas && this.$refs.ffCanvas.querySelector('[data-picwrap="' + (window.CSS && CSS.escape ? CSS.escape(ref) : ref) + '"]');
+        if (wrap) { const ex = wrap.querySelector('img'); if (ex) ex.src = url; else wrap.insertAdjacentHTML('afterbegin', '<img src="' + this.ffEsc(url) + '">'); }
       } catch (e) {
         if (e.message !== 'auth') this.toast('Photo upload failed.', 'err');
-      } finally { this.formEd.photoBusy[fld.ref] = false; }
+      }
     },
     async downloadFilledWord() {
       this.formEd.busy = true; this.formEd.busyKind = 'word';
@@ -1485,31 +1516,19 @@ createApp({
       } finally { this.formEd.busy = false; this.formEd.busyKind = ''; }
     },
     printFilledForm() {
-      const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      // Print the exact form layout with the chosen values shown as text.
       const brand = (this.user && this.user.companyIdentifier) || '';
-      let body = '';
-      for (const g of this.formEd.groups) {
-        if (g.title && g.title !== 'General') body += '<h2>' + esc(g.title) + '</h2>';
-        body += '<table>';
-        for (const f of g.fields) {
-          let v = '';
-          if (f.type === 'picture') v = this.formEd.photos[f.ref] ? '<img src="' + this.formEd.photos[f.ref] + '">' : '';
-          else v = '<span class="val">' + esc(this.formEd.values[f.ref] || '') + '</span>';
-          body += '<tr><td class="lbl">' + esc(f.label) + '</td><td>' + v + '</td></tr>';
-        }
-        body += '</table>';
-      }
-      const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(this.formEd.label) + '</title>' +
-        '<style>body{font-family:Calibri,Arial,sans-serif;color:#1c2733;margin:32px;}' +
-        'h1{font-size:20px;text-align:center;margin:0 0 4px}h2{color:#1f3864;font-size:14px;border-bottom:2px solid #d9e2f3;margin:18px 0 6px;padding-bottom:3px}' +
-        '.sub{text-align:center;color:#666;margin:0 0 18px;font-size:12px}' +
-        'table{width:100%;border-collapse:collapse;margin:6px 0 12px}' +
-        'td{border:1px solid #c9d3df;padding:6px 9px;font-size:13px;vertical-align:top}' +
-        'td.lbl{background:#d9e2f3;font-weight:700;width:38%}.val{color:#c00000;font-weight:700}' +
-        'img{max-width:320px;max-height:240px;border-radius:6px}' +
-        '@media print{body{margin:12mm}}</style></head><body>' +
-        '<h1>' + esc(this.formEd.label) + '</h1><p class="sub">' + esc(brand) + '</p>' + body +
-        '<script>window.onload=function(){setTimeout(function(){window.print();},250);}<\/script></body></html>';
+      const body = (this.formEd.tokenHtml || '').replace(/@@CTRL:(-?\d+)@@/g, (m, id) => {
+        const c = this.formEd.controls[id] || {};
+        if (c.type === 'picture') return this.formEd.photos[id] ? '<img class="pv" src="' + this.ffEsc(this.formEd.photos[id]) + '">' : '';
+        return '<span class="pv">' + this.ffEsc(this.formEd.values[id] || '') + '</span>';
+      });
+      const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + this.ffEsc(this.formEd.label) + '</title>' +
+        '<style>body{font-family:Calibri,Arial,sans-serif;color:#1c2733;margin:14mm;font-size:12px}' +
+        'table{border-collapse:collapse;width:100%;margin:8px 0}td{border:1px solid #b9c4d0;padding:3px 6px;vertical-align:middle;font-size:12px}' +
+        '.pv{color:#c00000;font-weight:700}.pv[src],img.pv{max-width:150px;max-height:110px;border-radius:6px}' +
+        'p{margin:6px 0}</style></head><body>' + body +
+        '<script>window.onload=function(){setTimeout(function(){window.print();},300);}<\/script></body></html>';
       const w = window.open('', '_blank');
       if (!w) { this.toast('Allow pop-ups to print, or use Download Word.', 'err'); return; }
       w.document.open(); w.document.write(html); w.document.close();
