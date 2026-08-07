@@ -765,7 +765,25 @@ router.route('/clientformlayout')
       const engine = require('../service/clientFormEngine');
       const xml = new PizZip(master).file('word/document.xml').asText();
       const layout = engine.buildLayout(xml);
-      return res.status(200).json({ key, label: form.label, ext: form.ext, html: layout.html, controls: layout.controls });
+      // Swap "Deck Inspectors" for this client's company name in the on-screen
+      // form (same substitution applied to the Word output).
+      let companyName = '';
+      try {
+        const tenantsDAO = require('../model/tenantsDAO');
+        const tenant = await tenantsDAO.getTenantByCompanyIdentifier(req.user && req.user.company);
+        companyName = (tenant && tenant.name) || '';
+      } catch (e) { /* leave as-is */ }
+      const html = engine.substituteCompany(layout.html, companyName);
+      // Also swap the name inside dropdown options / values so the editor's
+      // "Performed by" option shows the client name.
+      if (companyName) {
+        for (const ref of Object.keys(layout.controls)) {
+          const c = layout.controls[ref];
+          if (Array.isArray(c.options)) c.options = c.options.map(o => engine.substituteCompany(o, companyName));
+          if (c.value) c.value = engine.substituteCompany(c.value, companyName);
+        }
+      }
+      return res.status(200).json({ key, label: form.label, ext: form.ext, html, controls: layout.controls, rcByRow: layout.rcByRow || {}, company: companyName });
     } catch (err) {
       console.error('Error building client form layout:', err && err.message);
       return res.status(500).json({ message: 'Could not read that form.' });
@@ -792,6 +810,18 @@ router.route('/clientformfill')
 
       // Text / dropdown / combo values.
       xml = engine.fillTextControls(xml, values || {});
+
+      // Green "good condition" fields turn red where the row's Repairs
+      // Completed is NO / IN PROGRESS (David's rule).
+      xml = engine.applyConditionalColors(xml, values || {});
+
+      // "Deck Inspectors" -> this client's company name (body text only;
+      // header/footer branding is applied separately below).
+      try {
+        const tenantsDAO = require('../model/tenantsDAO');
+        const tenant = await tenantsDAO.getTenantByCompanyIdentifier(req.user && req.user.company);
+        if (tenant && tenant.name) xml = engine.substituteCompanyInDoc(xml, tenant.name);
+      } catch (e) { console.error('Client form company substitution failed:', e && e.message); }
 
       // Photos: each is a URL already uploaded via /api/image/upload. Fetch the
       // bytes and embed them into the matching picture content control.
