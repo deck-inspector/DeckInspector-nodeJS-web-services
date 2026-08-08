@@ -1453,9 +1453,23 @@ createApp({
       });
     },
     ffRender() {
-      // token html -> interactive controls
-      this.formEd.renderedHtml = (this.formEd.tokenHtml || '').replace(/@@CTRL:(-?\d+)@@/g, (m, id) => this.ffControlHtml(id));
+      // token html -> interactive controls; also swap the static
+      // "date of original inspection" sample for the Visual report's date.
+      let html = this.ffApplyOrigDate(this.formEd.tokenHtml || '');
+      this.formEd.renderedHtml = html.replace(/@@CTRL:(-?\d+)@@/g, (m, id) => this.ffControlHtml(id));
       this.$nextTick(() => this.ffBind());
+    },
+    // Replace the lone hard-coded original-inspection date (a literal just
+    // after "Original Inspection Report Performed by:") with formEd.origDate.
+    // Leaves the template untouched until the date has been computed.
+    ffApplyOrigDate(html) {
+      const d = this.formEd.origDate;
+      if (d == null) return html;                 // not computed yet
+      const anchor = html.indexOf('Original Inspection Report Performed by');
+      if (anchor === -1) return html;
+      const head = html.slice(0, anchor);
+      const tail = html.slice(anchor).replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, d || '');
+      return head + tail;
     },
     ffBind() {
       const root = this.$refs.ffCanvas;
@@ -1526,7 +1540,10 @@ createApp({
       const today = new Date();
       const fmt = d => (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
       setVal(byAlias('Date') || byContext('date of final'), fmt(today));
-      // Original inspection date = the project's Visual report date
+      // Original inspection date = the project's Visual report date.
+      // Stored on formEd.origDate (NOT a content control in the template - it
+      // is a static literal we swap out on render and on the server).
+      let origDate = '';
       try {
         const res = await this.api('/projectreports/' + encodeURIComponent(this.projectId(this.current)));
         if (res.ok) {
@@ -1535,10 +1552,12 @@ createApp({
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
           if (visuals.length) {
             const d = new Date(visuals[0].timestamp);
-            if (!isNaN(d)) setVal(byContext('original'), fmt(d));
+            if (!isNaN(d)) origDate = fmt(d);
           }
         }
       } catch (e) { /* leave original date blank if none */ }
+      this.formEd.origDate = origDate;
+      this.ffRender();          // re-render so the static original date is swapped
       this.ffApplyColors();
     },
     async openFormEditor(f) {
@@ -1596,7 +1615,7 @@ createApp({
       try {
         const res = await this.api('/project/clientformfill', {
           method: 'POST',
-          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos },
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '' },
         });
         if (!res.ok) throw new Error('bad');
         const blob = await res.blob();
@@ -1623,7 +1642,7 @@ createApp({
     printFilledForm() {
       // Print the exact form layout with the chosen values shown as text,
       // honouring the green/red rule and keeping rows from splitting pages.
-      const body = (this.formEd.tokenHtml || '').replace(/@@CTRL:(-?\d+)@@/g, (m, id) => {
+      const body = this.ffApplyOrigDate(this.formEd.tokenHtml || '').replace(/@@CTRL:(-?\d+)@@/g, (m, id) => {
         const c = this.formEd.controls[id] || {};
         if (c.type === 'picture') return this.formEd.photos[id] ? '<img class="pv" src="' + this.ffEsc(this.formEd.photos[id]) + '">' : '';
         return '<span class="pv" style="color:' + this.ffColorFor(id) + '">' + this.ffEsc(this.formEd.values[id] || '') + '</span>';
