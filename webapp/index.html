@@ -1494,17 +1494,30 @@ createApp({
         }
         return null;
       };
-      // Address split from the project address "Street, City, ST Zip"
-      const addr = (this.current && this.current.address) || '';
-      if (addr) {
-        const parts = addr.split(',').map(s => s.trim());
-        const street = parts[0] || '';
-        const city = parts[1] || '';
-        let state = '', zip = '';
-        const sz = (parts[2] || '').trim().split(/\s+/);
-        if (sz.length >= 2) { state = sz[0]; zip = sz.slice(1).join(' '); }
-        else if (sz.length === 1) { state = sz[0]; }
-        setVal(byAlias('Property Address') || byContext('property address'), street || addr);
+      // Address may be stored with line breaks AND/OR commas, e.g.
+      //   "969 E. Mason Lane\n# 102\nAnaheim, CA 92805"  or
+      //   "25246 Barton Rd., Loma Linda, CA 92354".
+      // Parse from the END: pull ZIP, then STATE, then take the last
+      // remaining comma-segment as CITY and the rest as the street.
+      const rawAddr = (this.current && this.current.address) || '';
+      if (rawAddr) {
+        // treat newlines as commas so we have one delimiter set
+        let s = rawAddr.replace(/\r/g, '').replace(/\n+/g, ', ').replace(/\s+/g, ' ').trim();
+        let state = '', zip = '', city = '', street = s;
+        const zipM = s.match(/(\d{5}(?:-\d{4})?)\s*$/);
+        if (zipM) {
+          zip = zipM[1];
+          s = s.slice(0, zipM.index).replace(/[,\s]+$/, '');
+          const stM = s.match(/(?:^|[,\s])([A-Za-z]{2})$/);
+          if (stM) {
+            state = stM[1].toUpperCase();
+            s = s.slice(0, s.length - stM[1].length).replace(/[,\s]+$/, '');
+          }
+        }
+        const segs = s.split(',').map(x => x.trim()).filter(Boolean);
+        if (segs.length >= 2) { city = segs[segs.length - 1]; street = segs.slice(0, -1).join(' '); }
+        else { street = s; }
+        setVal(byAlias('Property Address') || byContext('property address'), street || rawAddr);
         setVal(byAlias('City'), city);
         setVal(byAlias('State'), state);
         setVal(byAlias('Zip'), zip);
