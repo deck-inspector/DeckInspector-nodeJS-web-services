@@ -249,6 +249,29 @@ function buildSchema(xml) {
 module.exports.buildSchema = buildSchema;
 module.exports.stripText = stripText;
 
+// ---- ORIGINAL-INSPECTION DATE ----
+// The master has the "date of original inspection" as a hard-coded sample
+// literal (e.g. "03/21/2024") sitting right after the
+// "Original Inspection Report Performed by:" line - it is NOT a content
+// control, so it can't be filled the normal way. Replace just that one
+// literal with the supplied date (blank it when no date is available), so a
+// stale sample date never prints. Anchored to the label so it can never touch
+// the "Date of Final Inspection" value that appears earlier in the document.
+function replaceOriginalInspectionDate(xml, dateStr) {
+  const anchor = xml.indexOf('Original Inspection Report Performed by');
+  if (anchor === -1) return xml;                 // no anchor -> do nothing (safe)
+  const head = xml.slice(0, anchor);
+  let tail = xml.slice(anchor);
+  const dateRe = /(<w:t(?:\s[^>]*)?>)([^<]*?)(\d{1,2}\/\d{1,2}\/\d{2,4})([^<]*?)(<\/w:t>)/;
+  const m = tail.match(dateRe);
+  if (m) {
+    const repl = m[1] + m[2] + xmlEscape(dateStr || '') + m[4] + m[5];
+    tail = tail.slice(0, m.index) + repl + tail.slice(m.index + m[0].length);
+  }
+  return head + tail;
+}
+module.exports.replaceOriginalInspectionDate = replaceOriginalInspectionDate;
+
 // ---- FORM LAYOUT (HTML that mirrors the document, with control tokens) ----
 // Renders the body to HTML preserving tables, cell shading, headers and the
 // element rows, replacing each content control with @@CTRL:<id>@@. The client
