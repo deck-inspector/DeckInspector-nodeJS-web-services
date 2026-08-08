@@ -40,7 +40,12 @@ function parseSdtPr(outer) {
   const alias = (pr.match(/<w:alias[^>]*w:val="([^"]*)"/) || [])[1] || '';
   const tag = (pr.match(/<w:tag[^>]*w:val="([^"]*)"/) || [])[1] || '';
   let type = 'text';
-  if (/<w:dropDownList/.test(pr)) type = 'dropdown';
+  // w14:checkbox lives in the sdtPr extension list; detect it FIRST so checkbox
+  // controls render as real clickable checkboxes in the web editor (they used
+  // to fall through to 'text' and show the raw ☒/☐ glyph in a text input -
+  // David, Aug 7: "the check boxes cannot be edited in the URL").
+  if (/<w14:checkbox/.test(pr)) type = 'checkbox';
+  else if (/<w:dropDownList/.test(pr)) type = 'dropdown';
   else if (/<w:comboBox/.test(pr)) type = 'combo';
   else if (/<w:picture\/?>/.test(pr)) type = 'picture';
   else if (/<w:text\b/.test(pr) || /<w:text\/>/.test(pr)) type = 'text';
@@ -81,9 +86,18 @@ function parse(xml) {
     if (pr.type === 'text' && !pr.alias && !/<w:text/.test(outer.slice(0,400))) {
       // block-level rich-text wrapper (the "other" ones) - skip, not a field
     }
+    let value = currentText(outer);
+    if (pr.type === 'checkbox') {
+      // Normalize checkbox state to '1'/'0' (glyph in the run is ground truth,
+      // w14:checked as fallback) so the editor gets a clean boolean.
+      const prSrc = (outer.match(/<w:sdtPr>[\s\S]*?<\/w:sdtPr>/) || [''])[0];
+      value = /[☑☒]/.test(value) ? '1'
+        : (/[☐]/.test(value) ? '0'
+          : (/<w14:checked[^>]*w14:val="(?:1|true)"/.test(prSrc) ? '1' : '0'));
+    }
     controls.push({
       ref: pr.id, type: pr.type, alias: pr.alias, tag: pr.tag,
-      options: pr.options, value: currentText(outer),
+      options: pr.options, value: value,
       context: pr.alias || precedingText(xml, b.start),
       _start: b.start, _end: b.end,
     });
@@ -139,7 +153,17 @@ function fillTextControls(xml, valuesByRef) {
     const pr = parseSdtPr(block);
     if (pr.id && Object.prototype.hasOwnProperty.call(valuesByRef, pr.id) && pr.type !== 'picture') {
       const v = valuesByRef[pr.id];
-      if (v != null && v !== '') block = setSdtText(block, v);
+      if (pr.type === 'checkbox') {
+        // Value arrives as '1'/'0' from the web editor. Write BOTH the visible
+        // glyph run and the control's w14:checked state so Word agrees.
+        if (v != null && v !== '') {
+          const on = v === true || /^(1|true|yes|☒|☑)$/i.test(String(v).trim());
+          block = block.replace(/<w14:checked[^>]*\/>/, '<w14:checked w14:val="' + (on ? '1' : '0') + '"/>');
+          block = setSdtText(block, on ? '☒' : '☐');
+        }
+      } else if (v != null && v !== '') {
+        block = setSdtText(block, v);
+      }
     }
     out += block;
     cursor = b.end;
