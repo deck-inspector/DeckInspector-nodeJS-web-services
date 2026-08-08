@@ -797,7 +797,7 @@ router.route('/clientformlayout')
 router.route('/clientformfill')
   .post(async function (req, res) {
     try {
-      const { key, values, photos } = req.body || {};
+      const { key, values, photos, origDate } = req.body || {};
       const form = CLIENT_FORMS[key];
       if (!form) return res.status(404).json({ message: 'Unknown form.' });
       const master = await getClientFormMaster(form);
@@ -810,6 +810,10 @@ router.route('/clientformfill')
 
       // Text / dropdown / combo values.
       xml = engine.fillTextControls(xml, values || {});
+
+      // "Date of original inspection" (static sample in the master) -> the
+      // Visual report's date. Always run so no stale sample date prints.
+      xml = engine.replaceOriginalInspectionDate(xml, typeof origDate === 'string' ? origDate : '');
 
       // Green "good condition" fields turn red where the row's Repairs
       // Completed is NO / IN PROGRESS (David's rule).
