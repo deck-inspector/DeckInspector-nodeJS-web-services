@@ -186,7 +186,6 @@ input,select{font-family:inherit;font-size:16px}
 .ff-canvas td div{min-height:14px}
 .ff-canvas select.ff-ctl,.ff-canvas input.ff-ctl{width:100%;box-sizing:border-box;border:1px solid #cfd8e3;border-radius:5px;background:#fffef2;color:#c00000;font-weight:700;font-size:12px;font-family:inherit;padding:3px 4px}
 .ff-canvas select.ff-green,.ff-canvas input.ff-green{color:#00B050 !important}
-.ff-canvas input.ff-check{width:17px;height:17px;min-width:17px;accent-color:#292C74;cursor:pointer;vertical-align:middle}
 .ff-canvas select.ff-other,.ff-canvas input.ff-other{color:#393939 !important}
 .ff-canvas select.ff-ctl:focus,.ff-canvas input.ff-ctl:focus{outline:2px solid var(--brand);border-color:var(--brand)}
 .ff-canvas .ff-pic{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -593,11 +592,7 @@ input,select{font-family:inherit;font-size:16px}
             <li v-for="r in sortedReports" :key="r._id">
               <div class="ricon" :style="isFailed(r) ? 'background:var(--danger-soft);color:var(--danger)' : ''" :class="isFailed(r) ? '' : (isFinal(r) ? 'final' : 'word')">{{ isFailed(r) ? '&#9888;' : (isFinal(r) ? '&#11088;' : '&#128196;') }}</div>
               <div class="rinfo">
-                <div class="rname" :style="isFailed(r) ? 'color:var(--danger)' : ''">{{ r.name }}<span class="newflag" v-if="isNew(r)">NEW</span>
-                  <!-- File-type badge: the WORD file is the editable one; a PDF (e.g. an
-                       uploaded completed report) can never be edited in Word. -->
-                  <span class="tag" v-if="!isFailed(r) && fileKind(r)" :class="fileKind(r)==='PDF' ? 'fair' : 'good'" style="margin-left:6px">{{ fileKind(r) }}{{ fileKind(r)==='PDF' ? ' — not editable' : ' — editable' }}</span>
-                </div>
+                <div class="rname" :style="isFailed(r) ? 'color:var(--danger)' : ''">{{ r.name }}<span class="newflag" v-if="isNew(r)">NEW</span></div>
                 <div class="rdate">{{ niceDate(r.timestamp) }} · {{ r.uploader || '' }}<span v-if="isFailed(r)" style="color:var(--danger);font-weight:600"> · This run failed — try again, and tell Claude if it keeps happening.</span></div>
               </div>
               <div class="rbtns">
@@ -1321,14 +1316,6 @@ createApp({
       finally { this.loadingReports = false; }
     },
     isFinal(r) { return /final report/i.test(r.name || ''); },
-    // File type from the stored file's URL/extension so Word docs and PDFs are
-    // clearly distinguishable in the list (a PDF is never editable in Word).
-    fileKind(r) {
-      const u = String(r.url || r.fileName || '').toLowerCase().split('?')[0];
-      if (u.endsWith('.pdf')) return 'PDF';
-      if (u.endsWith('.docx') || u.endsWith('.doc')) return 'WORD';
-      return '';
-    },
     reportDownloadHref(r) {
         // Download via our API so the file is named after the report
         // (e.g. "780 S. Garfield Ave. Apts Jul 21, 2026, 8.25 AM.docx")
@@ -1435,7 +1422,7 @@ createApp({
     // Build the interactive control HTML that replaces each @@CTRL:id@@ token.
     ffControlHtml(ref) {
       const c = this.formEd.controls[ref] || { type: 'text', options: [], value: '', color: 'other', row: null };
-      const val = this.formEd.values[ref] != null ? this.formEd.values[ref] : (c.value || '');
+      const val = this.formEd.values[ref] != null ? this.formEd.values[ref] : '';
       const meta = ' data-ref="' + this.ffEsc(ref) + '" data-color="' + this.ffEsc(c.color || 'other') + '" data-row="' + this.ffEsc(c.row || '') + '"';
       if (c.type === 'dropdown' || (c.type === 'combo' && (c.options || []).length)) {
         let o = '<option value="">—</option>';
@@ -1447,14 +1434,8 @@ createApp({
         return '<span class="ff-pic" data-picwrap="' + this.ffEsc(ref) + '">' + img +
           '<label class="ff-picbtn">📷 Photo<input type="file" accept="image/*" data-picref="' + this.ffEsc(ref) + '" style="display:none"></label></span>';
       }
-      if (c.type === 'checkbox') {
-        // real clickable checkbox (value normalized to '1'/'0' by the engine)
-        const on = this.ffChecked(val);
-        return '<input class="ff-ctl ff-check" type="checkbox"' + meta + (on ? ' checked' : '') + '>';
-      }
       return '<input class="ff-ctl" type="text"' + meta + ' value="' + this.ffEsc(val) + '">';
     },
-    ffChecked(v) { return v === true || /^(1|true|yes|☒|☑)$/i.test(String(v == null ? '' : v).trim()); },
     // Colour each control: green fields stay green unless their row's Repairs
     // Completed is NO / IN PROGRESS (then red); red fields red; others neutral.
     ffApplyColors() {
@@ -1481,12 +1462,8 @@ createApp({
       if (!root) return;
       root.querySelectorAll('select.ff-ctl,input.ff-ctl').forEach(el => {
         const ref = el.getAttribute('data-ref');
-        const isCheck = el.type === 'checkbox';
-        const ev = (el.tagName === 'SELECT' || isCheck) ? 'change' : 'input';
-        el.addEventListener(ev, () => {
-          this.formEd.values[ref] = isCheck ? (el.checked ? '1' : '0') : el.value;
-          this.ffApplyColors();
-        });
+        const ev = el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(ev, () => { this.formEd.values[ref] = el.value; this.ffApplyColors(); });
       });
       root.querySelectorAll('input[data-picref]').forEach(el => {
         el.addEventListener('change', (e) => this.ffPickPhoto(el.getAttribute('data-picref'), e));
@@ -1560,10 +1537,12 @@ createApp({
         this.formEd.tokenHtml = data.html || '';
         this.formEd.controls = data.controls || {};
         this.formEd.rcByRow = data.rcByRow || {};
-        // seed values from the template's current content
+        // start every field BLANK for user input; only the three
+        // auto-populated items (address, this date, original date) are
+        // filled by ffAutofill below. Template sample data is ignored.
         for (const ref of Object.keys(this.formEd.controls)) {
           const c = this.formEd.controls[ref];
-          if (c.type !== 'picture') this.formEd.values[ref] = c.value || '';
+          if (c.type !== 'picture') this.formEd.values[ref] = '';
         }
         this.formEd.loading = false;
         this.ffRender();
@@ -1630,27 +1609,19 @@ createApp({
     },
     printFilledForm() {
       // Print the exact form layout with the chosen values shown as text,
-      // honouring the green/red rule. Print fidelity rules (David, Aug 7):
-      // company logo header at the TOP of page 1, no page break in the middle
-      // of a paragraph or of any table (the pass/fail chart), checkboxes print
-      // as their ☒/☐ state.
+      // honouring the green/red rule and keeping rows from splitting pages.
       const body = (this.formEd.tokenHtml || '').replace(/@@CTRL:(-?\d+)@@/g, (m, id) => {
         const c = this.formEd.controls[id] || {};
         if (c.type === 'picture') return this.formEd.photos[id] ? '<img class="pv" src="' + this.ffEsc(this.formEd.photos[id]) + '">' : '';
-        if (c.type === 'checkbox') return '<span class="pv" style="color:#393939">' + (this.ffChecked(this.formEd.values[id]) ? '&#9746;' : '&#9744;') + '</span>';
         return '<span class="pv" style="color:' + this.ffColorFor(id) + '">' + this.ffEsc(this.formEd.values[id] || '') + '</span>';
       });
-      const logoHdr = this.logo
-        ? '<div style="text-align:center;margin:0 0 10px"><img src="' + this.ffEsc(this.logo) + '" style="max-height:72px;max-width:340px"></div>'
-        : '';
       const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + this.ffEsc(this.formEd.label) + '</title>' +
-        '<style>@page{size:Letter;margin:10mm 14mm 12mm}' +
-        'body{font-family:Calibri,Arial,sans-serif;color:#393939;font-size:12px;margin:0}' +
-        'table{border-collapse:collapse;width:100%;margin:8px 0;page-break-inside:avoid;break-inside:avoid}' +
-        'tr{page-break-inside:avoid;break-inside:avoid}td{border:1px solid #b9c4d0;padding:3px 6px;vertical-align:middle;font-size:12px}' +
+        '<style>@page{size:Letter;margin:14mm}' +
+        'body{font-family:Calibri,Arial,sans-serif;color:#393939;font-size:12px}' +
+        'table{border-collapse:collapse;width:100%;margin:8px 0}' +
+        'tr{page-break-inside:avoid}td{border:1px solid #b9c4d0;padding:3px 6px;vertical-align:middle;font-size:12px}' +
         '.pv{font-weight:700}img.pv{max-width:150px;max-height:110px;border-radius:6px}' +
-        'p{margin:6px 0;page-break-inside:avoid;break-inside:avoid;orphans:3;widows:3}' +
-        'h1,h2,h3,h4{page-break-after:avoid;break-after:avoid}</style></head><body>' + logoHdr + body +
+        'p{margin:6px 0}</style></head><body>' + body +
         '<script>window.onload=function(){setTimeout(function(){window.print();},350);}<\/script></body></html>';
       const w = window.open('', '_blank');
       if (!w) { this.toast('Allow pop-ups to print, or use Download Word.', 'err'); return; }
