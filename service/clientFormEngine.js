@@ -496,7 +496,8 @@ function applyConditionalColors(xml, values){
     const rr=(rrRef?val(rrRef):'').toUpperCase();
     const rc=(rcRef?val(rcRef):'').toUpperCase();
     let lineColor=BLACK, lineBold=false;
-    if(rr==='YES'){ if(rc==='YES'){ lineColor=GREEN; lineBold=true; } else { lineColor=RED; lineBold=false; } }
+    // Repairs required: red. If made -> green bold; if NOT made -> red BOLD.
+    if(rr==='YES'){ if(rc==='YES'){ lineColor=GREEN; lineBold=true; } else { lineColor=RED; lineBold=true; } }
     for(const ref of refs){
       const a=info[ref].alias;
       if(COLS.indexOf(a)===-1) continue;
