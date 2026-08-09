@@ -40,7 +40,8 @@ function parseSdtPr(outer) {
   const alias = (pr.match(/<w:alias[^>]*w:val="([^"]*)"/) || [])[1] || '';
   const tag = (pr.match(/<w:tag[^>]*w:val="([^"]*)"/) || [])[1] || '';
   let type = 'text';
-  if (/<w:dropDownList/.test(pr)) type = 'dropdown';
+  if (/<w14:checkbox|<w:checkbox/.test(pr)) type = 'checkbox';
+  else if (/<w:dropDownList/.test(pr)) type = 'dropdown';
   else if (/<w:comboBox/.test(pr)) type = 'combo';
   else if (/<w:picture\/?>/.test(pr)) type = 'picture';
   else if (/<w:text\b/.test(pr) || /<w:text\/>/.test(pr)) type = 'text';
