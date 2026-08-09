@@ -1835,12 +1835,19 @@ createApp({
       } finally { this.formEd.previewBusy = false; }
     },
     async fcDropdownsToText(buf) {
+      // Flatten ALL content controls for the preview: docx-preview does not
+      // render the value of dropdown / block-level content controls, so strip
+      // just the <w:sdt> wrapper tags (keeping the runs, their text and colour)
+      // and let the content render as normal document text. Download is untouched.
       try {
         if (!window.JSZip) return buf;
         const zip = await window.JSZip.loadAsync(buf);
         let xml = await zip.file('word/document.xml').async('string');
-        xml = xml.replace(/<w:dropDownList[\s\S]*?<\/w:dropDownList>/g, '<w:text/>')
-                 .replace(/<w:comboBox[\s\S]*?<\/w:comboBox>/g, '<w:text/>');
+        xml = xml
+          .replace(/<w:sdtPr>[\s\S]*?<\/w:sdtPr>/g, '')
+          .replace(/<w:sdtEndPr>[\s\S]*?<\/w:sdtEndPr>/g, '')
+          .replace(/<\/?w:sdtContent>/g, '')
+          .replace(/<\/?w:sdt>/g, '');
         zip.file('word/document.xml', xml);
         return await zip.generateAsync({ type: 'arraybuffer' });
       } catch (e) { return buf; }
