@@ -1788,13 +1788,29 @@ createApp({
       // that element's row (Repairs Completed, Condition, Life Expectancy
       // EEE/LBC/AWE). The colour rule then shows the whole row black.
       const c = this.formEd.controls[k] || {};
-      if ((c.alias || '').trim().toLowerCase() === 'repairs required' && String(v).trim().toUpperCase() === 'NA' && c.row) {
+      const changed = (c.alias || '').trim().toLowerCase();
+      if (changed === 'repairs required' && String(v).trim().toUpperCase() === 'NA' && c.row) {
         const cols = ['repairs completed', 'condition', 'eee', 'lbc', 'awe'];
         for (const r of Object.keys(this.formEd.controls)) {
           const cc = this.formEd.controls[r];
           if (cc.row === c.row && cols.indexOf((cc.alias || '').trim().toLowerCase()) !== -1) {
             const naOpt = (cc.options || []).find(o => /^n\/?a$/i.test(String(o).trim())) || 'NA';
             this.formEd.values[r] = naOpt;
+          }
+        }
+      }
+      // Repairs required (YES) but NOT made (Repairs Completed = NO): default
+      // Condition = BAD and Life Expectancy = 0-1 for that category.
+      if (c.row && (changed === 'repairs required' || changed === 'repairs completed')) {
+        const rr = String(this.formEd.values[this.formEd.rrByRow[c.row]] || '').trim().toUpperCase();
+        const rc = String(this.formEd.values[this.formEd.rcByRow[c.row]] || '').trim().toUpperCase();
+        if (rr === 'YES' && rc === 'NO') {
+          for (const r of Object.keys(this.formEd.controls)) {
+            const cc = this.formEd.controls[r];
+            if (cc.row !== c.row) continue;
+            const a = (cc.alias || '').trim().toLowerCase();
+            if (a === 'condition') this.formEd.values[r] = (cc.options || []).find(o => /^bad$/i.test(String(o).trim())) || 'BAD';
+            if (a === 'eee' || a === 'lbc' || a === 'awe') this.formEd.values[r] = (cc.options || []).find(o => /^0-1$/.test(String(o).trim())) || '0-1';
           }
         }
       }
