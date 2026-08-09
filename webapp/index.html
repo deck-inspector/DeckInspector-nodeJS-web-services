@@ -194,7 +194,7 @@ input,select{font-family:inherit;font-size:16px}
 /* ---- Final Upon Completion: side menu + live Word preview (Proposal-style) ---- */
 .fc-wrap{display:flex;gap:16px;align-items:flex-start}
 .fc-side{flex:0 0 340px;max-width:340px;max-height:80vh;overflow-y:auto;padding-right:6px}
-.fc-side h5{margin:16px 0 6px;font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--brand);border-bottom:1.5px solid var(--line);padding-bottom:3px}
+.fc-side h5{margin:16px 0 6px;font-size:13.5px;letter-spacing:.03em;text-transform:uppercase;color:#0b1220;font-weight:800;border-bottom:2px solid #0b1220;padding-bottom:3px}
 .fc-side h5:first-child{margin-top:0}
 .fc-fld{margin-bottom:9px}
 .fc-fld>label{display:block;font-size:11.5px;color:var(--ink-soft);margin-bottom:2px}
@@ -1238,13 +1238,13 @@ const FC_SECTIONS = [
   { title:'Exterior Elevated Elements (check all that apply)', refs:['1307059446','544342136','393247587','-1242096181','-475297778','276918168','1180930113'] },
   { title:'Associated waterproofing (check all that apply)', refs:['1622420216','-651444244','-1965036628','1478801277','1559126958','-981546036'] },
   { title:'Original inspection', refs:['-1323200232','2078868077','639698169'] },
-  { title:'Inspection overview — Building', refs:['177315552','-760135544','1843207541'] },
-  { title:'Inspection overview — Stairs', refs:['1148240114','-872618792','-37282347','451055391','-146211645','704987877'] },
-  { title:'Inspection overview — Walkways', refs:['-2136560448','463707097','1655563785','-990942042','1955438217','-1202313868'] },
-  { title:'Inspection overview — Balconies', refs:['977651381','-517072765','-1285113793','-1898733881','-1677184605','-566186886'] },
-  { title:'Inspection overview — Entry Decks', refs:['194114697','204228865','2135591347','-599711494','-2096232700','40559262'] },
-  { title:'Inspection overview — Railings & Guard Walls', refs:['-2085289098','-1438910558','-1514444527','1210610109','142097213','-1373378262'] },
-  { title:'Inspection overview — Custom row', refs:['-1739015840','1182320226','-1869756987','-160006016','996382105','358856655','809838315'] },
+  { title:'Inspection Overview — BUILDING', refs:['177315552','-760135544','1843207541'] },
+  { title:'STAIRS', refs:['1148240114','-872618792','-37282347','451055391','-146211645','704987877'] },
+  { title:'WALKWAYS', refs:['-2136560448','463707097','1655563785','-990942042','1955438217','-1202313868'] },
+  { title:'BALCONIES', refs:['977651381','-517072765','-1285113793','-1898733881','-1677184605','-566186886'] },
+  { title:'ENTRY DECKS', refs:['194114697','204228865','2135591347','-599711494','-2096232700','40559262'] },
+  { title:'RAILINGS & GUARD WALLS', refs:['-2085289098','-1438910558','-1514444527','1210610109','142097213','-1373378262'] },
+  { title:'CUSTOM ROW', refs:['-1739015840','1182320226','-1869756987','-160006016','996382105','358856655','809838315'] },
   { title:'Repairs summary', refs:['461159518','-1745867827','910589420','1791085416','1565445843','-1371302219','-1995333122','-1048383715','-117534262','2042320262'] },
   { title:'Review of repairs', refs:['-201250732','-568736574','475422819','310833927','309759207','963378808','2118562325','-1586838234','-1820265535','-1992084914','-780952211','-793898210','286707416','-1994633956','-317273267','-1368370219','-1401367351','583425401','980196615'] },
   { title:'Inspections (check all that apply)', refs:['-745572508','1949434343','408352319'] },
@@ -1834,13 +1834,18 @@ createApp({
       const c = this.formEd.controls[k] || {};
       const a = (c.alias || '').trim().toLowerCase();
       const cols = ['repairs required', 'repairs completed', 'condition', 'eee', 'lbc', 'awe'];
-      if (cols.indexOf(a) === -1 || !c.row) return '';
-      if (['eee', 'lbc', 'awe'].indexOf(a) !== -1 && String(this.formEd.values[k] || '').trim() === '0-1') return 'fc-red';
-      const rrRef = this.formEd.rrByRow && this.formEd.rrByRow[c.row];
-      const rcRef = this.formEd.rcByRow && this.formEd.rcByRow[c.row];
-      const rr = rrRef ? String(this.formEd.values[rrRef] || '').trim().toUpperCase() : '';
-      const rc = rcRef ? String(this.formEd.values[rcRef] || '').trim().toUpperCase() : '';
-      if (rr === 'YES') return rc === 'YES' ? 'fc-green' : 'fc-red';
+      if (cols.indexOf(a) !== -1 && c.row) {
+        if (['eee', 'lbc', 'awe'].indexOf(a) !== -1 && String(this.formEd.values[k] || '').trim() === '0-1') return 'fc-red';
+        const rr = String(this.formEd.values[this.formEd.rrByRow && this.formEd.rrByRow[c.row]] || '').trim().toUpperCase();
+        const rc = String(this.formEd.values[this.formEd.rcByRow && this.formEd.rcByRow[c.row]] || '').trim().toUpperCase();
+        if (rr === 'YES') return rc === 'YES' ? 'fc-green' : 'fc-red';
+        return '';
+      }
+      // Any other control: colour by value — PASS/GOOD green, FAIL/BAD red.
+      const v = String(this.formEd.values[k] || '').trim().toUpperCase();
+      if (!v || v === 'NA') return '';
+      if (/^PASS$/.test(v) || /\bGOOD\b/.test(v)) return 'fc-green';
+      if (/^FAIL$/.test(v) || /\bBAD\b/.test(v)) return 'fc-red';
       return '';
     },
     // Debounce edits, then rebuild the live Word preview.
