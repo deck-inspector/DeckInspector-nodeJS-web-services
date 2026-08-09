@@ -191,6 +191,24 @@ input,select{font-family:inherit;font-size:16px}
 .ff-canvas .ff-pic{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
 .ff-canvas .ff-pic img{max-width:150px;max-height:110px;border-radius:6px;border:1px solid #cfd8e3}
 .ff-canvas .ff-picbtn{cursor:pointer;color:var(--brand);font-weight:700;border:1.5px dashed var(--brand);border-radius:6px;padding:4px 8px;font-size:12px}
+/* ---- Final Upon Completion: side menu + live Word preview (Proposal-style) ---- */
+.fc-wrap{display:flex;gap:16px;align-items:flex-start}
+.fc-side{flex:0 0 340px;max-width:340px;max-height:80vh;overflow-y:auto;padding-right:6px}
+.fc-side h5{margin:16px 0 6px;font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--brand);border-bottom:1.5px solid var(--line);padding-bottom:3px}
+.fc-side h5:first-child{margin-top:0}
+.fc-fld{margin-bottom:9px}
+.fc-fld>label{display:block;font-size:11.5px;color:var(--ink-soft);margin-bottom:2px}
+.fc-fld select,.fc-fld input[type=text]{width:100%;box-sizing:border-box;border:1.5px solid var(--line);border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;background:#fff;color:#1c2733}
+.fc-fld select.fc-green{color:#00B050;font-weight:700}
+.fc-fld select.fc-red{color:#c00000;font-weight:700}
+.fc-fld select:focus,.fc-fld input[type=text]:focus{outline:2px solid var(--brand);border-color:var(--brand)}
+.fc-chk{display:flex;align-items:center;gap:8px;font-size:13px;color:#1c2733;margin-bottom:6px;cursor:pointer}
+.fc-chk input{width:17px;height:17px;accent-color:var(--brand);cursor:pointer}
+.fc-doc{flex:1;min-width:0;max-height:80vh;overflow:auto;background:#eceff3;border:1px solid var(--line);border-radius:10px;padding:14px}
+.fc-doc .docx-wrapper{background:transparent!important;padding:0!important}
+.fc-doc .docx-wrapper>section.docx{margin:0 auto 14px;box-shadow:0 2px 10px rgba(0,0,0,.14)}
+.fc-updating{position:sticky;top:0;z-index:3;font-size:12px;color:var(--brand);background:#eef4ff;border:1px solid #cfe0ff;border-radius:8px;padding:5px 10px;margin-bottom:8px;display:inline-block}
+@media(max-width:820px){.fc-wrap{flex-direction:column}.fc-side{flex-basis:auto;max-width:none;width:100%}}
 .unitgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
 .ucard{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:16px 18px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:box-shadow .15s;border:none;text-align:left;font-size:15px}
 .ucard:hover{box-shadow:0 6px 20px rgba(28,39,51,.15)}
@@ -920,14 +938,52 @@ input,select{font-family:inherit;font-size:16px}
 
   <!-- ============ CLIENT FORM ONLINE EDITOR ============ -->
   <div class="overlay" v-if="formEd.open" style="align-items:flex-start">
-    <div class="modal" style="max-width:1000px;width:100%;max-height:94vh;overflow-y:auto;margin:16px auto">
+    <div class="modal" :style="(formEd.mode==='sidedoc' ? 'max-width:1180px' : 'max-width:1000px') + ';width:100%;max-height:94vh;overflow-y:auto;margin:16px auto'">
       <div style="display:flex;align-items:center;gap:10px;position:sticky;top:-28px;background:#fff;padding:6px 0;z-index:2">
         <h3 style="flex:1;margin:0">{{ formEd.label }}</h3>
         <button class="btn-cancel" @click="formEd.open=false">Close</button>
       </div>
-      <div class="hint" style="margin:4px 0 12px">Fill in the form below — it matches your document exactly. Then <b>Download Word</b> for the branded file, or <b>Save / Print PDF</b>. Your logo and footer are added automatically.</div>
-      <div v-if="formEd.loading" class="empty" style="padding:40px 0">Loading the form&hellip;</div>
-      <div v-else class="ff-canvas" ref="ffCanvas" v-html="formEd.renderedHtml"></div>
+
+      <!-- Proposal-style: left side menu edits the fields, right pane shows the
+           real branded Word document (verbatim) and updates as you edit. -->
+      <template v-if="formEd.mode==='sidedoc'">
+        <div class="hint" style="margin:4px 0 12px">Edit the fields on the left — the document on the right is your actual Word file and updates as you type. <b>Download Word</b> gives you that exact file; only the three auto-filled items (address, this-inspection date, original-inspection date) are pre-filled.</div>
+        <div v-if="formEd.loading" class="empty" style="padding:40px 0">Loading the form&hellip;</div>
+        <div v-else class="fc-wrap">
+          <div class="fc-side">
+            <template v-for="grp in fcGroups" :key="grp.title">
+              <h5>{{ grp.title }}</h5>
+              <template v-for="f in grp.fields" :key="f.ref">
+                <label v-if="f.kind==='checkbox'" class="fc-chk">
+                  <input type="checkbox" :checked="fcChecked(f.ref)" @change="fcToggle(f.ref, $event.target.checked)">
+                  <span>{{ f.label }}</span>
+                </label>
+                <div v-else class="fc-fld">
+                  <label>{{ f.label }}</label>
+                  <select v-if="f.kind==='select'" :class="fcSelClass(f.ref)" :value="fcVal(f.ref)" @change="fcSet(f.ref, $event.target.value)">
+                    <option value="">—</option>
+                    <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                  </select>
+                  <input v-else type="text" :value="f.kind==='origdate' ? (formEd.origDate||'') : fcVal(f.ref)" @input="f.kind==='origdate' ? (formEd.origDate=$event.target.value, fcQueue()) : fcSet(f.ref, $event.target.value)" :placeholder="f.placeholder||''">
+                </div>
+              </template>
+            </template>
+          </div>
+          <div class="fc-doc" ref="fcDoc">
+            <span v-if="formEd.previewBusy" class="fc-updating">Updating preview…</span>
+            <div v-if="formEd.previewErr" class="empty" style="padding:20px">{{ formEd.previewErr }}</div>
+            <div ref="fcRender"></div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Generic renderer for the other client forms -->
+      <template v-else>
+        <div class="hint" style="margin:4px 0 12px">Fill in the form below — it matches your document exactly. Then <b>Download Word</b> for the branded file, or <b>Save / Print PDF</b>. Your logo and footer are added automatically.</div>
+        <div v-if="formEd.loading" class="empty" style="padding:40px 0">Loading the form&hellip;</div>
+        <div v-else class="ff-canvas" ref="ffCanvas" v-html="formEd.renderedHtml"></div>
+      </template>
+
       <div class="mrow" style="position:sticky;bottom:0;background:#fff;padding-top:12px;border-top:1px solid var(--line);margin-top:16px;z-index:2">
         <button class="btn-cancel" @click="formEd.open=false">Close</button>
         <button class="btn btn-primary" style="padding:12px 20px" :disabled="formEd.busy" @click="downloadFilledWord">{{ formEd.busy && formEd.busyKind==='word' ? 'Building&hellip;' : '⬇ Download Word' }}</button>
@@ -1134,6 +1190,43 @@ const LOGO = 'https://deckinspectors.com/wp-content/uploads/2025/07/cropped-1-DI
 const LOGO_E3 = 'https://deckinspectorsappdata.blob.core.windows.net/deckinspectorsincondeckinspectorscom/E3%20Logo%20for%20Inspection%20Reporting%20Solutions.jpg';
 const { createApp } = Vue;
 
+// ---- Final Upon Completion: side-menu field labels + section grouping ----
+// Control IDs are stable in the 5.0 master. Labels below make the side menu
+// self-explanatory; anything not listed falls back to nearby document text.
+const FC_LABELS = {
+  '-782496445':'Report title',
+  '-1047449181':'Property address','2078944942':'City','-1183277905':'State','1403021910':'Zip','321476680':'Date of final inspection',
+  '1307059446':'Decks','544342136':'Railings','393247587':'Stairs','-1242096181':'Walkways','-475297778':'Entry Areas','276918168':'Other','1180930113':'Other (description)',
+  '1622420216':'Flashings','-651444244':'Membranes','-1965036628':'Coatings','1478801277':'Sealants','1559126958':'Other','-981546036':'Other (description)',
+  '-1323200232':'Performed by','2078868077':'Inspection type','639698169':'Row label',
+  '177315552':'Building — Repairs Required','-760135544':'Building — Repairs Completed','1843207541':'Building — Condition',
+  '1148240114':'Stairs — Repairs Required','-872618792':'Stairs — Repairs Completed','-37282347':'Stairs — Condition','451055391':'Stairs — Life Exp. EEE','-146211645':'Stairs — Life Exp. LBC','704987877':'Stairs — Life Exp. AWE',
+  '-2136560448':'Walkways — Repairs Required','463707097':'Walkways — Repairs Completed','1655563785':'Walkways — Condition','-990942042':'Walkways — Life Exp. EEE','1955438217':'Walkways — Life Exp. LBC','-1202313868':'Walkways — Life Exp. AWE',
+  '977651381':'Balconies — Repairs Required','-517072765':'Balconies — Repairs Completed','-1285113793':'Balconies — Condition','-1898733881':'Balconies — Life Exp. EEE','-1677184605':'Balconies — Life Exp. LBC','-566186886':'Balconies — Life Exp. AWE',
+  '194114697':'Entry Decks — Repairs Required','204228865':'Entry Decks — Repairs Completed','2135591347':'Entry Decks — Condition','-599711494':'Entry Decks — Life Exp. EEE','-2096232700':'Entry Decks — Life Exp. LBC','40559262':'Entry Decks — Life Exp. AWE',
+  '-2085289098':'Railings & Guard Walls — Repairs Required','-1438910558':'Railings & Guard Walls — Repairs Completed','-1514444527':'Railings & Guard Walls — Condition','1210610109':'Railings & Guard Walls — Life Exp. EEE','142097213':'Railings & Guard Walls — Life Exp. LBC','-1373378262':'Railings & Guard Walls — Life Exp. AWE',
+  '-1739015840':'Custom row — Element','1182320226':'Custom row — Repairs Required','-1869756987':'Custom row — Repairs Completed','-160006016':'Custom row — Condition','996382105':'Custom row — Life Exp. EEE','358856655':'Custom row — Life Exp. LBC','809838315':'Custom row — Life Exp. AWE',
+  '461159518':'Repairs inspected — made by','2042320262':'Additional comments',
+  '-630402088':'Inspector name','420918251':'Qualifying title','-2135779939':'License #'
+};
+const FC_SECTIONS = [
+  { title:'Report header', refs:['-782496445'] },
+  { title:'Subject property', refs:['-1047449181','2078944942','-1183277905','1403021910','321476680'] },
+  { title:'Exterior Elevated Elements (check all that apply)', refs:['1307059446','544342136','393247587','-1242096181','-475297778','276918168','1180930113'] },
+  { title:'Associated waterproofing (check all that apply)', refs:['1622420216','-651444244','-1965036628','1478801277','1559126958','-981546036'] },
+  { title:'Original inspection', refs:['-1323200232','2078868077','639698169'] },
+  { title:'Inspection overview — Building', refs:['177315552','-760135544','1843207541'] },
+  { title:'Inspection overview — Stairs', refs:['1148240114','-872618792','-37282347','451055391','-146211645','704987877'] },
+  { title:'Inspection overview — Walkways', refs:['-2136560448','463707097','1655563785','-990942042','1955438217','-1202313868'] },
+  { title:'Inspection overview — Balconies', refs:['977651381','-517072765','-1285113793','-1898733881','-1677184605','-566186886'] },
+  { title:'Inspection overview — Entry Decks', refs:['194114697','204228865','2135591347','-599711494','-2096232700','40559262'] },
+  { title:'Inspection overview — Railings & Guard Walls', refs:['-2085289098','-1438910558','-1514444527','1210610109','142097213','-1373378262'] },
+  { title:'Inspection overview — Custom row', refs:['-1739015840','1182320226','-1869756987','-160006016','996382105','358856655','809838315'] },
+  { title:'Repairs summary', refs:['461159518','-1745867827','910589420','1791085416','1565445843','-1371302219','-1995333122','-1048383715','-117534262','2042320262'] },
+  { title:'Review of repairs', refs:['-201250732','-568736574','475422819','310833927','309759207','963378808','2118562325','-1586838234','-1820265535','-1992084914','-780952211','-793898210','286707416','-1994633956','-317273267','-1368370219','-1401367351','583425401','980196615'] },
+  { title:'Signature', refs:['-630402088','420918251','-2135779939'] }
+];
+
 createApp({
   data() {
     return {
@@ -1176,6 +1269,29 @@ createApp({
     };
   },
   computed: {
+    // Final Upon Completion side-menu: fields grouped by document section, in
+    // document order, every editable control reachable.
+    fcGroups() {
+      if (!this.formEd || this.formEd.mode !== 'sidedoc') return [];
+      const controls = this.formEd.controls || {};
+      const groups = [];
+      const idx = {};
+      const ensure = (title) => { if (!(title in idx)) { idx[title] = groups.length; groups.push({ title, fields: [] }); } return idx[title]; };
+      for (const s of FC_SECTIONS) ensure(s.title);
+      const secOf = (ref) => { for (const s of FC_SECTIONS) if (s.refs.includes(ref)) return s.title; return 'Other fields'; };
+      const order = [...(this.formEd.tokenHtml || '').matchAll(/@@CTRL:(-?\d+)@@/g)].map(m => m[1]);
+      const seen = new Set();
+      for (const ref of order) {
+        if (seen.has(ref)) continue; seen.add(ref);
+        const c = controls[ref];
+        if (!c || c.type === 'picture') continue;
+        const kind = c.type === 'checkbox' ? 'checkbox' : ((c.options && c.options.length) ? 'select' : 'text');
+        groups[ensure(secOf(ref))].fields.push({ ref, label: this.fcLabelFor(ref), kind, options: c.options || [] });
+      }
+      // virtual field: original-inspection date (a static literal, not a control)
+      if ('Original inspection' in idx) groups[idx['Original inspection']].fields.push({ ref: '__origdate__', label: 'Date of original inspection (from Visual report)', kind: 'origdate', options: [] });
+      return groups.filter(g => g.fields.length);
+    },
     // Visual-inspection photos not yet in the invasive photo list — offered as
     // one-click imports in the Invasive Inspection panel.
     invImportCandidates() {
@@ -1561,7 +1677,10 @@ createApp({
       this.ffApplyColors();
     },
     async openFormEditor(f) {
-      this.formEd = { open: true, loading: true, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, busy: false, busyKind: '' };
+      // 'sidedoc' = Proposal-style (side menu + live Word preview) for the
+      // Final Upon Completion form; 'canvas' = generic renderer for the rest.
+      const mode = f.key === 'finalcompletion' ? 'sidedoc' : 'canvas';
+      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, origDate: '', busy: false, busyKind: '', previewBusy: false, previewErr: '' };
       try {
         const res = await this.api('/project/clientformlayout?key=' + encodeURIComponent(f.key));
         if (!res.ok) throw new Error('bad');
@@ -1572,17 +1691,87 @@ createApp({
         // start every field BLANK for user input; only the three
         // auto-populated items (address, this date, original date) are
         // filled by ffAutofill below. Template sample data is ignored.
+        // Checkboxes can't be blank — default them to unchecked (☐).
         for (const ref of Object.keys(this.formEd.controls)) {
           const c = this.formEd.controls[ref];
-          if (c.type !== 'picture') this.formEd.values[ref] = '';
+          if (c.type === 'picture') continue;
+          this.formEd.values[ref] = c.type === 'checkbox' ? '☐' : '';
         }
         this.formEd.loading = false;
-        this.ffRender();
-        this.$nextTick(() => this.ffAutofill());
+        if (mode === 'sidedoc') {
+          await this.ffAutofill();
+          this.$nextTick(() => this.fcRefreshPreview());
+        } else {
+          this.ffRender();
+          this.$nextTick(() => this.ffAutofill());
+        }
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not open that form.', 'err');
         this.formEd.open = false;
       }
+    },
+    // ---- Final Upon Completion: side-menu helpers + live Word preview ----
+    fcVal(ref) { return this.formEd.values[String(ref)] || ''; },
+    fcSet(ref, v) { this.formEd.values[String(ref)] = v; this.fcQueue(); },
+    fcChecked(ref) { return this.formEd.values[String(ref)] === '☒'; },
+    fcToggle(ref, on) { this.formEd.values[String(ref)] = on ? '☒' : '☐'; this.fcQueue(); },
+    // colour the Repairs/condition/life selects like the doc (green good, red = needs repair)
+    fcSelClass(ref) {
+      const c = this.formEd.controls[String(ref)] || {};
+      if (c.color === 'green') {
+        const rc = this.formEd.rcByRow && this.formEd.rcByRow[c.row];
+        const v = rc ? String(this.formEd.values[rc] || '').trim().toUpperCase() : '';
+        return (v === 'NO' || v === 'IN PROGRESS') ? 'fc-red' : 'fc-green';
+      }
+      if (c.color === 'red') return 'fc-red';
+      return '';
+    },
+    // Debounce edits, then rebuild the live Word preview.
+    fcQueue() {
+      if (this._fcTimer) clearTimeout(this._fcTimer);
+      this._fcTimer = setTimeout(() => this.fcRefreshPreview(), 650);
+    },
+    async fcLoadDocxPreview() {
+      if (window.docx && window.docx.renderAsync) return true;
+      const load = (src) => new Promise((ok, err) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = err; document.head.appendChild(s); });
+      try {
+        if (!window.JSZip) await load('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+        await load('https://cdn.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js');
+        return !!(window.docx && window.docx.renderAsync);
+      } catch (e) { return false; }
+    },
+    async fcRefreshPreview() {
+      if (this.formEd.key !== 'finalcompletion' || !this.formEd.open) return;
+      this.formEd.previewBusy = true; this.formEd.previewErr = '';
+      try {
+        const ok = await this.fcLoadDocxPreview();
+        if (!ok) throw new Error('renderer');
+        const res = await this.api('/project/clientformfill', { method: 'POST', json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '' } });
+        if (!res.ok) throw new Error('build');
+        const buf = await res.arrayBuffer();
+        const host = this.$refs.fcRender;
+        if (!host) return;
+        host.innerHTML = '';
+        await window.docx.renderAsync(new Blob([buf]), host, null, { className: 'docx', inWrapper: true, ignoreWidth: false, ignoreHeight: false, breakPages: true, experimental: true });
+      } catch (e) {
+        if (e && e.message === 'auth') return;
+        this.formEd.previewErr = 'Could not render the live preview. Your Download Word file is still exact — use that button.';
+      } finally { this.formEd.previewBusy = false; }
+    },
+    // Side-menu field groups (document order), with clear labels.
+    fcLabelFor(ref) {
+      if (FC_LABELS[ref]) return FC_LABELS[ref];
+      const c = this.formEd.controls[ref] || {};
+      if (c.alias) return c.alias;
+      // nearest preceding visible text in the token html
+      const html = this.formEd.tokenHtml || '';
+      const i = html.indexOf('@@CTRL:' + ref + '@@');
+      if (i > -1) {
+        const before = html.slice(Math.max(0, i - 600), i).replace(/<[^>]+>/g, ' ').replace(/@@CTRL:-?\d+@@/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+        const words = before.split(' ').filter(Boolean).slice(-7).join(' ');
+        if (words) return words.slice(0, 60);
+      }
+      return (c.context || 'Field').slice(0, 40);
     },
     async ffPickPhoto(ref, e) {
       const file = (e.target.files || [])[0];
@@ -1640,6 +1829,21 @@ createApp({
       return '#393939';
     },
     printFilledForm() {
+      // Final Upon Completion: print the live Word preview (the real document).
+      if (this.formEd.mode === 'sidedoc') {
+        const host = this.$refs.fcRender;
+        if (!host || !host.innerHTML.trim()) { this.toast('Preview not ready yet — try again in a moment, or use Download Word.', 'err'); return; }
+        const w = window.open('', '_blank');
+        if (!w) { this.toast('Allow pop-ups to print, or use Download Word.', 'err'); return; }
+        const styles = [...document.querySelectorAll('style')].map(s => s.outerHTML).join('');
+        w.document.open();
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + this.ffEsc(this.formEd.label) + '</title>' + styles +
+          '<style>body{margin:0;background:#fff}.fc-doc{background:#fff!important;border:0!important;padding:0!important;max-height:none!important;overflow:visible!important}section.docx{box-shadow:none!important;margin:0 auto!important}@page{size:Letter;margin:0}</style></head>' +
+          '<body><div class="fc-doc">' + host.innerHTML + '</div>' +
+          '<script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script></body></html>');
+        w.document.close();
+        return;
+      }
       // Print the exact form layout with the chosen values shown as text,
       // honouring the green/red rule and keeping rows from splitting pages.
       const body = this.ffApplyOrigDate(this.formEd.tokenHtml || '').replace(/@@CTRL:(-?\d+)@@/g, (m, id) => {
