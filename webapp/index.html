@@ -198,6 +198,7 @@ input,select{font-family:inherit;font-size:16px}
 .fc-side h5:first-child{margin-top:0}
 .fc-fld{margin-bottom:9px}
 .fc-fld>label{display:block;font-size:11.5px;color:var(--ink-soft);margin-bottom:2px}
+.fc-side .fc-loc{color:#0b1220!important;font-weight:800}
 .fc-fld select,.fc-fld input[type=text]{width:100%;box-sizing:border-box;border:1.5px solid var(--line);border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;background:#fff;color:#1c2733}
 .fc-fld select.fc-green{color:#00B050;font-weight:700}
 .fc-fld select.fc-red{color:#c00000;font-weight:700}
@@ -956,10 +957,10 @@ input,select{font-family:inherit;font-size:16px}
               <template v-for="f in grp.fields" :key="f.ref">
                 <label v-if="f.kind==='checkbox'" class="fc-chk">
                   <input type="checkbox" :checked="fcChecked(f.ref)" @change="fcToggle(f.ref, $event.target.checked)">
-                  <span>{{ f.label }}</span>
+                  <span :class="{'fc-loc': f.locBold}">{{ f.label }}</span>
                 </label>
                 <div v-else class="fc-fld">
-                  <label>{{ f.label }}</label>
+                  <label :class="{'fc-loc': f.locBold}">{{ f.label }}</label>
                   <div v-if="f.kind==='select'" style="display:flex;gap:6px;align-items:stretch">
                     <select v-if="!formEd.custom[f.ref]" :class="fcSelClass(f.ref)" :value="fcVal(f.ref)" @change="fcSet(f.ref, $event.target.value)" style="flex:1;min-width:0">
                       <option value="">—</option>
@@ -1313,7 +1314,15 @@ createApp({
         const extra = FC_EXTRA_OPTIONS[ref];
         if (extra) for (const o of extra) if (opts.indexOf(o) === -1) opts.push(o);
         const kind = c.type === 'checkbox' ? 'checkbox' : (opts.length ? 'select' : 'text');
-        groups[ensure(secOf(ref))].fields.push({ ref, label: this.fcLabelFor(ref), kind, options: opts });
+        const secTitle = secOf(ref);
+        const label = this.fcLabelFor(ref);
+        // Bold-black the label wherever a LOCATION is identified (Review of
+        // Repairs, EEE, waterproofing, etc.). Skip the matrix location sections
+        // — those already show the location as a bold-black section header.
+        const LOC = /\b(decks?|stairs|walkways?|balcon\w*|entry|railings?|guard\s*walls?|building|wood\s*structure|beams?|rim\s*joists?|flashings?|membranes?|coatings?|sealants?)\b/i;
+        const MATRIX = ['Inspection Overview — BUILDING', 'STAIRS', 'WALKWAYS', 'BALCONIES', 'ENTRY DECKS', 'RAILINGS & GUARD WALLS', 'CUSTOM ROW'];
+        const locBold = LOC.test(label) && MATRIX.indexOf(secTitle) === -1;
+        groups[ensure(secTitle)].fields.push({ ref, label, kind, options: opts, locBold });
       }
       // virtual field: original-inspection date (a static literal, not a control)
       if ('Original inspection' in idx) groups[idx['Original inspection']].fields.push({ ref: '__origdate__', label: 'Date of original inspection (from Visual report)', kind: 'origdate', options: [] });
