@@ -1535,6 +1535,23 @@ createApp({
       } catch (e) { this.clientForms = []; }
     },
     ffEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
+    // Look up City / State / ZIP for an address via ArcGIS (no key, already
+    // used by the satellite-photo feature). Returns {city,state,zip} or null.
+    async geocodeCityZip(q) {
+      if (!q) return null;
+      try {
+        const url = 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&countryCode=USA&outFields=City,RegionAbbr,Region,Postal&maxLocations=1&singleLine=' + encodeURIComponent(q);
+        const r = await fetch(url);
+        if (!r.ok) return null;
+        const j = await r.json();
+        const cand = (j.candidates || [])[0];
+        if (!cand || !cand.attributes) return null;
+        const a = cand.attributes;
+        let state = (a.RegionAbbr || '').trim();
+        if (!state && /^california$/i.test((a.Region || '').trim())) state = 'CA';
+        return { city: (a.City || '').trim(), state, zip: String(a.Postal || '').trim().slice(0, 5) };
+      } catch (e) { return null; }
+    },
     // Build the interactive control HTML that replaces each @@CTRL:id@@ token.
     ffControlHtml(ref) {
       const c = this.formEd.controls[ref] || { type: 'text', options: [], value: '', color: 'other', row: null };
@@ -1647,6 +1664,20 @@ createApp({
         const segs = s.split(',').map(x => x.trim()).filter(Boolean);
         if (segs.length >= 2) { city = segs[segs.length - 1]; street = segs.slice(0, -1).join(' '); }
         else { street = s; }
+        // Look up the correct CITY + ZIP (and state) from the address so a
+        // missing ZIP is filled automatically. Uses the same ArcGIS geocoder
+        // the app already uses for satellite photos.
+        try {
+          const q = [street, city, state].filter(Boolean).join(', ') || rawAddr.replace(/\n+/g, ', ');
+          const geo = await this.geocodeCityZip(q);
+          if (geo) {
+            if (geo.city) city = geo.city;
+            if (geo.state) state = geo.state;
+            if (geo.zip) zip = geo.zip;
+          }
+        } catch (e) { /* fall back to parsed values */ }
+        // Always show a State — default to CA when none was found.
+        if (!state) state = 'CA';
         setVal(byAlias('Property Address') || byContext('property address'), street || rawAddr);
         setVal(byAlias('City'), city);
         setVal(byAlias('State'), state);
