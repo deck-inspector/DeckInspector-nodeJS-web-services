@@ -437,35 +437,74 @@ function substituteCompanyInDoc(xml, name){
   return xml.replace(/(<w:t(?:\s[^>]*)?>)([\s\S]*?)(<\/w:t>)/g, (m,a,txt,z)=> a+substituteCompany(txt,name)+z);
 }
 
-// Apply the green->red rule: for every row whose "Repairs Completed" value
-// (from submitted values, else template) is NO or IN PROGRESS, flip that row's
-// green controls to red (00B050/008000 -> FF0000) inside their sdt blocks.
+// Force every run inside a control's sdtContent to a given colour (6-hex) and
+// bold on/off, preserving everything else. rPr must stay the first child of run.
+function _styleRunRpr(rpr, hex, bold){
+  if(/<w:color\b[^>]*\/>/.test(rpr)) rpr=rpr.replace(/<w:color\b[^>]*\/>/, '<w:color w:val="'+hex+'"/>');
+  else rpr='<w:color w:val="'+hex+'"/>'+rpr;
+  rpr=rpr.replace(/<w:b\/>|<w:b\s[^>]*\/>|<w:b><\/w:b>/g,'');
+  if(bold) rpr='<w:b/>'+rpr;
+  return rpr;
+}
+function setBlockColor(block, hex, bold){
+  const cM=block.match(/<w:sdtContent>([\s\S]*?)<\/w:sdtContent>/);
+  if(!cM) return block;
+  const content=cM[1].replace(/(<w:r(?:\s[^>]*)?>)([\s\S]*?)(<\/w:r>)/g, (m, open, inner, close)=>{
+    const rM=inner.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
+    if(rM) inner=inner.replace(rM[0], '<w:rPr>'+_styleRunRpr(rM[1], hex, bold)+'</w:rPr>');
+    else inner='<w:rPr>'+_styleRunRpr('', hex, bold)+'</w:rPr>'+inner;
+    return open+inner+close;
+  });
+  return block.replace(cM[0], '<w:sdtContent>'+content+'</w:sdtContent>');
+}
+
+// Inspection-overview colour rule (David, Aug 9):
+//  - No repairs required (Repairs Required = NO/NA/blank)   -> line BLACK.
+//  - Repairs required (Repairs Required = YES)              -> line RED.
+//      - and repairs made (Repairs Completed = YES)         -> line GREEN BOLD.
+//  - Any Life Expectancy cell showing "0-1"                 -> RED BOLD (override).
+// Applies per element row (Building, Stairs, Walkways, Balconies, Entry Decks,
+// Railings, custom row) to the Repairs/Condition/EEE/LBC/AWE cells.
 function applyConditionalColors(xml, values){
-  // Group controls by row directly from the blocks (robust across templates).
   const rg=rowGroups(xml);
   const blocks=findSdtBlocks(xml);
-  const rcByRow={}; const greenByRow={}; const valByRef={};
+  const info={};
   for(const b of blocks){
     const outer=xml.slice(b.start,b.end);
-    const pr=parseSdtPr(outer); if(!pr.id) continue;
-    const row=rg.rowByRef[pr.id]; if(!row) continue;
-    if((pr.alias||'').trim().toLowerCase()==='repairs completed'){ rcByRow[row]=pr.id; valByRef[pr.id]=currentText(outer); }
-    if(controlColor(outer)==='green'){ (greenByRow[row]=greenByRow[row]||[]).push(pr.id); }
+    const pr=parseSdtPr(outer); if(pr.id==null) continue;
+    info[pr.id]={ alias:(pr.alias||'').trim().toLowerCase(), row: rg.rowByRef[pr.id]||null, cur: currentText(outer) };
   }
-  const flip=new Set();
-  for(const row of Object.keys(greenByRow)){
-    const rcRef=rcByRow[row]; if(!rcRef) continue;
-    let rc=(values && values[rcRef]!=null && values[rcRef]!=='') ? values[rcRef] : valByRef[rcRef];
-    const s=String(rc||'').trim().toUpperCase();
-    if(s==='NO'||s==='IN PROGRESS'){ for(const gid of greenByRow[row]) flip.add(gid); }
+  const val=(ref)=>{ const v=(values && values[ref]!=null && values[ref]!=='') ? values[ref] : (info[ref]?info[ref].cur:''); return String(v||'').trim(); };
+  const byRow={};
+  for(const ref of Object.keys(info)){ const r=info[ref].row; if(!r) continue; (byRow[r]=byRow[r]||[]).push(ref); }
+  const COLS=['repairs required','repairs completed','condition','eee','lbc','awe'];
+  const LIFE=['eee','lbc','awe'];
+  const RED='FF0000', GREEN='00B050', BLACK='000000';
+  const colorOf={}, boldOf={};
+  for(const r of Object.keys(byRow)){
+    const refs=byRow[r];
+    let rrRef=null, rcRef=null;
+    for(const ref of refs){ const a=info[ref].alias; if(a==='repairs required') rrRef=ref; if(a==='repairs completed') rcRef=ref; }
+    if(!rrRef && !rcRef) continue; // not an inspection-overview row
+    const rr=(rrRef?val(rrRef):'').toUpperCase();
+    const rc=(rcRef?val(rcRef):'').toUpperCase();
+    let lineColor=BLACK, lineBold=false;
+    if(rr==='YES'){ if(rc==='YES'){ lineColor=GREEN; lineBold=true; } else { lineColor=RED; lineBold=false; } }
+    for(const ref of refs){
+      const a=info[ref].alias;
+      if(COLS.indexOf(a)===-1) continue;
+      let col=lineColor, bold=lineBold;
+      if(LIFE.indexOf(a)!==-1 && val(ref)==='0-1'){ col=RED; bold=true; }
+      colorOf[ref]=col; boldOf[ref]=bold;
+    }
   }
-  if(!flip.size) return xml;
+  if(!Object.keys(colorOf).length) return xml;
   let out='', cursor=0;
   for(const b of blocks){
     out+=xml.slice(cursor,b.start);
     let block=xml.slice(b.start,b.end);
     const id=parseSdtPr(block).id;
-    if(id && flip.has(id)) block=block.replace(/w:val="00B050"/g,'w:val="FF0000"').replace(/w:val="008000"/g,'w:val="FF0000"');
+    if(id!=null && colorOf[id]!=null) block=setBlockColor(block, colorOf[id], boldOf[id]);
     out+=block; cursor=b.end;
   }
   out+=xml.slice(cursor);
