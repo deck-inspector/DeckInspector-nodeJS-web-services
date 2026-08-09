@@ -947,7 +947,7 @@ input,select{font-family:inherit;font-size:16px}
       <!-- Proposal-style: left side menu edits the fields, right pane shows the
            real branded Word document (verbatim) and updates as you edit. -->
       <template v-if="formEd.mode==='sidedoc'">
-        <div class="hint" style="margin:4px 0 12px">Edit the fields on the left — the document on the right is your actual Word file and updates as you type. <b>Download Word</b> gives you that exact file; only the three auto-filled items (address, this-inspection date, original-inspection date) are pre-filled.</div>
+        <div class="hint" style="margin:4px 0 12px">Edit the fields on the left — the document on the right is your actual Word file and updates as you type. Your entries <b>auto-save</b> in this browser. <b>Download Word</b> gives you the exact file; <b>Save PDF</b> downloads a PDF (no printing needed).<span v-if="formEd.saved" style="color:#00B050;font-weight:700;margin-left:8px">&#10003; Auto-saved</span></div>
         <div v-if="formEd.loading" class="empty" style="padding:40px 0">Loading the form&hellip;</div>
         <div v-else class="fc-wrap">
           <div class="fc-side">
@@ -991,7 +991,8 @@ input,select{font-family:inherit;font-size:16px}
       <div class="mrow" style="position:sticky;bottom:0;background:#fff;padding-top:12px;border-top:1px solid var(--line);margin-top:16px;z-index:2">
         <button class="btn-cancel" @click="formEd.open=false">Close</button>
         <button class="btn btn-primary" style="padding:12px 20px" :disabled="formEd.busy" @click="downloadFilledWord">{{ formEd.busy && formEd.busyKind==='word' ? 'Building&hellip;' : '⬇ Download Word' }}</button>
-        <button class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="printFilledForm">🖨 Save / Print PDF</button>
+        <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="fcSavePdf">{{ formEd.busy && formEd.busyKind==='pdf' ? 'Saving PDF&hellip;' : '⬇ Save PDF' }}</button>
+        <button v-else class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="printFilledForm">🖨 Save / Print PDF</button>
       </div>
     </div>
   </div>
@@ -1746,7 +1747,7 @@ createApp({
       // 'sidedoc' = Proposal-style (side menu + live Word preview) for the
       // Final Upon Completion form; 'canvas' = generic renderer for the rest.
       const mode = f.key === 'finalcompletion' ? 'sidedoc' : 'canvas';
-      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '' };
+      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '', saved: false };
       try {
         const res = await this.api('/project/clientformlayout?key=' + encodeURIComponent(f.key));
         if (!res.ok) throw new Error('bad');
@@ -1772,6 +1773,7 @@ createApp({
         this.formEd.loading = false;
         if (mode === 'sidedoc') {
           await this.ffAutofill();
+          this.fcRestore();   // bring back any previously auto-saved entries
           this.$nextTick(() => this.fcRefreshPreview());
         } else {
           this.ffRender();
@@ -1843,8 +1845,48 @@ createApp({
     },
     // Debounce edits, then rebuild the live Word preview.
     fcQueue() {
+      this.fcAutoSave();       // persist entries immediately on every change
       if (this._fcTimer) clearTimeout(this._fcTimer);
       this._fcTimer = setTimeout(() => this.fcRefreshPreview(), 650);
+    },
+    // Auto-save the filled entries in this browser, keyed by project + form,
+    // so reopening the form restores everything.
+    fcStoreKey() { try { return 'e3form:' + this.formEd.key + ':' + this.projectId(this.current); } catch (e) { return null; } },
+    fcAutoSave() {
+      try {
+        if (this.formEd.mode !== 'sidedoc' || !this.current) return;
+        const key = this.fcStoreKey(); if (!key) return;
+        localStorage.setItem(key, JSON.stringify({ values: this.formEd.values, origDate: this.formEd.origDate, custom: this.formEd.custom, ts: (new Date()).getTime() }));
+        this.formEd.saved = true;
+      } catch (e) { /* storage unavailable — ignore */ }
+    },
+    fcRestore() {
+      try {
+        const key = this.fcStoreKey(); if (!key) return false;
+        const raw = localStorage.getItem(key); if (!raw) return false;
+        const d = JSON.parse(raw);
+        if (d && d.values) for (const k of Object.keys(d.values)) this.formEd.values[k] = d.values[k];
+        if (d && typeof d.origDate === 'string') this.formEd.origDate = d.origDate;
+        if (d && d.custom) this.formEd.custom = d.custom;
+        this.formEd.saved = true;
+        return true;
+      } catch (e) { return false; }
+    },
+    // Download a PDF of the document directly (no print dialog), rendered from
+    // the live preview via html2pdf.
+    async fcSavePdf() {
+      this.formEd.busy = true; this.formEd.busyKind = 'pdf';
+      try {
+        await this.fcRefreshPreview();
+        const host = this.$refs.fcRender;
+        if (!host || !host.innerHTML.trim()) throw new Error('preview');
+        if (!window.html2pdf) await new Promise((ok, err) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'; s.onload = ok; s.onerror = err; document.head.appendChild(s); });
+        const opt = { margin: 0, filename: (this.formEd.label || 'Final Report') + '.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'], avoid: 'section.docx' } };
+        await window.html2pdf().set(opt).from(host).save();
+        this.toast('PDF saved.');
+      } catch (e) {
+        if (e && e.message !== 'auth') this.toast('Could not build the PDF — use Download Word (then Save as PDF in Word) as a fallback.', 'err');
+      } finally { this.formEd.busy = false; this.formEd.busyKind = ''; }
     },
     async fcLoadDocxPreview() {
       if (window.docx && window.docx.renderAsync) return true;
