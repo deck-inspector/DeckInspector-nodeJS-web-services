@@ -960,10 +960,14 @@ input,select{font-family:inherit;font-size:16px}
                 </label>
                 <div v-else class="fc-fld">
                   <label>{{ f.label }}</label>
-                  <select v-if="f.kind==='select'" :class="fcSelClass(f.ref)" :value="fcVal(f.ref)" @change="fcSet(f.ref, $event.target.value)">
-                    <option value="">—</option>
-                    <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                  </select>
+                  <div v-if="f.kind==='select'" style="display:flex;gap:6px;align-items:stretch">
+                    <select v-if="!formEd.custom[f.ref]" :class="fcSelClass(f.ref)" :value="fcVal(f.ref)" @change="fcSet(f.ref, $event.target.value)" style="flex:1;min-width:0">
+                      <option value="">—</option>
+                      <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                    </select>
+                    <input v-else type="text" :value="fcVal(f.ref)" @input="fcSet(f.ref, $event.target.value)" placeholder="Type a custom value" style="flex:1;min-width:0">
+                    <button type="button" class="btn-edit" style="flex:0 0 auto;padding:6px 9px" :title="formEd.custom[f.ref] ? 'Back to the list choices' : 'Type your own value'" @click="fcToggleCustom(f.ref)">{{ formEd.custom[f.ref] ? '▾' : '✎' }}</button>
+                  </div>
                   <input v-else type="text" :value="f.kind==='origdate' ? (formEd.origDate||'') : fcVal(f.ref)" @input="f.kind==='origdate' ? (formEd.origDate=$event.target.value, fcQueue()) : fcSet(f.ref, $event.target.value)" :placeholder="f.placeholder||''">
                 </div>
               </template>
@@ -1207,7 +1211,20 @@ const FC_LABELS = {
   '-2085289098':'Railings & Guard Walls — Repairs Required','-1438910558':'Railings & Guard Walls — Repairs Completed','-1514444527':'Railings & Guard Walls — Condition','1210610109':'Railings & Guard Walls — Life Exp. EEE','142097213':'Railings & Guard Walls — Life Exp. LBC','-1373378262':'Railings & Guard Walls — Life Exp. AWE',
   '-1739015840':'Custom row — Element','1182320226':'Custom row — Repairs Required','-1869756987':'Custom row — Repairs Completed','-160006016':'Custom row — Condition','996382105':'Custom row — Life Exp. EEE','358856655':'Custom row — Life Exp. LBC','809838315':'Custom row — Life Exp. AWE',
   '461159518':'Repairs inspected — made by','2042320262':'Additional comments',
+  '-1745867827':'Railings — condition statement','910589420':'Railings — review type',
+  '1791085416':'Wood decks — condition statement','1565445843':'Wood decks — review type',
+  '-1371302219':'Decks & railings — area','-1995333122':'Decks & railings — result (PASS/FAIL)','-1048383715':'Decks & railings — performed by','-117534262':'“All repairs in accordance…”',
+  '-201250732':'Review of Repairs (header)','-568736574':'Repairs reviewed via',
+  '475422819':'Client photo submission of repairs','310833927':'Decks — review','309759207':'Decks — checkbox',
+  '963378808':'Walkways — checkbox','2118562325':'Stairs & Assemblies — review','-1586838234':'Walkways — review','-1820265535':'Walkways — checkbox',
+  '-1992084914':'Railings/Guard Walls — checkbox','-780952211':'Railings/Guard Walls — review','-793898210':'Railings/Guard Walls — checkbox','286707416':'Other — review',
+  '-1994633956':'Invasive inspection of repairs','-317273267':'Wood Structure — review','-1368370219':'Beams — review','-1401367351':'Rim Joists — review','583425401':'Beams — checkbox','980196615':'Rim Joists — checkbox',
   '-630402088':'Inspector name','420918251':'Qualifying title','-2135779939':'License #'
+};
+// Extra options to APPEND to certain dropdowns (David, Aug 9).
+const FC_EXTRA_OPTIONS = {
+  '-782496445':['Final Report Upon Corrections'],
+  '2078868077':['Final Inspection Upon Completion']
 };
 const FC_SECTIONS = [
   { title:'Report header', refs:['-782496445'] },
@@ -1285,8 +1302,11 @@ createApp({
         if (seen.has(ref)) continue; seen.add(ref);
         const c = controls[ref];
         if (!c || c.type === 'picture') continue;
-        const kind = c.type === 'checkbox' ? 'checkbox' : ((c.options && c.options.length) ? 'select' : 'text');
-        groups[ensure(secOf(ref))].fields.push({ ref, label: this.fcLabelFor(ref), kind, options: c.options || [] });
+        let opts = (c.options || []).slice();
+        const extra = FC_EXTRA_OPTIONS[ref];
+        if (extra) for (const o of extra) if (opts.indexOf(o) === -1) opts.push(o);
+        const kind = c.type === 'checkbox' ? 'checkbox' : (opts.length ? 'select' : 'text');
+        groups[ensure(secOf(ref))].fields.push({ ref, label: this.fcLabelFor(ref), kind, options: opts });
       }
       // virtual field: original-inspection date (a static literal, not a control)
       if ('Original inspection' in idx) groups[idx['Original inspection']].fields.push({ ref: '__origdate__', label: 'Date of original inspection (from Visual report)', kind: 'origdate', options: [] });
@@ -1664,6 +1684,13 @@ createApp({
         const segs = s.split(',').map(x => x.trim()).filter(Boolean);
         if (segs.length >= 2) { city = segs[segs.length - 1]; street = segs.slice(0, -1).join(' '); }
         else { street = s; }
+        // Never let the STATE or ZIP end up in the City box. If it did, pull
+        // them out and blank the city so the geocoder fills the real one.
+        if (/^[A-Za-z]{2}$/.test(city) || /\d{5}/.test(city) || (state && city.toUpperCase() === state)) {
+          const zm = city.match(/\b(\d{5})\b/); if (zm && !zip) zip = zm[1];
+          const sm = city.match(/^([A-Za-z]{2})\b/); if (sm && !state) state = sm[1].toUpperCase();
+          city = '';
+        }
         // Look up the correct CITY + ZIP (and state) from the address so a
         // missing ZIP is filled automatically. Uses the same ArcGIS geocoder
         // the app already uses for satellite photos.
@@ -1711,7 +1738,7 @@ createApp({
       // 'sidedoc' = Proposal-style (side menu + live Word preview) for the
       // Final Upon Completion form; 'canvas' = generic renderer for the rest.
       const mode = f.key === 'finalcompletion' ? 'sidedoc' : 'canvas';
-      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, origDate: '', busy: false, busyKind: '', previewBusy: false, previewErr: '' };
+      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '' };
       try {
         const res = await this.api('/project/clientformlayout?key=' + encodeURIComponent(f.key));
         if (!res.ok) throw new Error('bad');
@@ -1719,6 +1746,12 @@ createApp({
         this.formEd.tokenHtml = data.html || '';
         this.formEd.controls = data.controls || {};
         this.formEd.rcByRow = data.rcByRow || {};
+        // Repairs-Required control per row (for the matrix colour rule).
+        this.formEd.rrByRow = {};
+        for (const ref of Object.keys(this.formEd.controls)) {
+          const c = this.formEd.controls[ref];
+          if (c.row && (c.alias || '').trim().toLowerCase() === 'repairs required') this.formEd.rrByRow[c.row] = ref;
+        }
         // start every field BLANK for user input; only the three
         // auto-populated items (address, this date, original date) are
         // filled by ffAutofill below. Template sample data is ignored.
@@ -1746,15 +1779,22 @@ createApp({
     fcSet(ref, v) { this.formEd.values[String(ref)] = v; this.fcQueue(); },
     fcChecked(ref) { return this.formEd.values[String(ref)] === '☒'; },
     fcToggle(ref, on) { this.formEd.values[String(ref)] = on ? '☒' : '☐'; this.fcQueue(); },
-    // colour the Repairs/condition/life selects like the doc (green good, red = needs repair)
+    fcToggleCustom(ref) { const k = String(ref); this.formEd.custom[k] = !this.formEd.custom[k]; },
+    // Colour the matrix selects to match the document rule:
+    //  no repairs / NA -> black; repairs required -> red; repairs made -> green
+    //  bold; any life-expectancy of 0-1 -> red bold.
     fcSelClass(ref) {
-      const c = this.formEd.controls[String(ref)] || {};
-      if (c.color === 'green') {
-        const rc = this.formEd.rcByRow && this.formEd.rcByRow[c.row];
-        const v = rc ? String(this.formEd.values[rc] || '').trim().toUpperCase() : '';
-        return (v === 'NO' || v === 'IN PROGRESS') ? 'fc-red' : 'fc-green';
-      }
-      if (c.color === 'red') return 'fc-red';
+      const k = String(ref);
+      const c = this.formEd.controls[k] || {};
+      const a = (c.alias || '').trim().toLowerCase();
+      const cols = ['repairs required', 'repairs completed', 'condition', 'eee', 'lbc', 'awe'];
+      if (cols.indexOf(a) === -1 || !c.row) return '';
+      if (['eee', 'lbc', 'awe'].indexOf(a) !== -1 && String(this.formEd.values[k] || '').trim() === '0-1') return 'fc-red';
+      const rrRef = this.formEd.rrByRow && this.formEd.rrByRow[c.row];
+      const rcRef = this.formEd.rcByRow && this.formEd.rcByRow[c.row];
+      const rr = rrRef ? String(this.formEd.values[rrRef] || '').trim().toUpperCase() : '';
+      const rc = rcRef ? String(this.formEd.values[rcRef] || '').trim().toUpperCase() : '';
+      if (rr === 'YES') return rc === 'YES' ? 'fc-green' : 'fc-red';
       return '';
     },
     // Debounce edits, then rebuild the live Word preview.
@@ -1804,17 +1844,10 @@ createApp({
       if (FC_LABELS[ref]) return FC_LABELS[ref];
       const c = this.formEd.controls[ref] || {};
       if (c.alias) return c.alias;
-      // nearest preceding visible text in the token html (sanitised)
-      const html = this.formEd.tokenHtml || '';
-      const i = html.indexOf('@@CTRL:' + ref + '@@');
-      if (i > -1) {
-        let before = html.slice(Math.max(0, i - 800), i).replace(/<[^>]+>/g, ' ').replace(/@@CTRL:-?\d+@@/g, ' ');
-        before = this.fcClean(before);
-        const words = before.split(' ').filter(Boolean).slice(-8).join(' ');
-        if (words && /[A-Za-z0-9]/.test(words)) return words.slice(0, 60);
-      }
+      // Use the control's CLEAN document context (Word text, no HTML) — never
+      // scrape the rendered token HTML (that produced mangled CSS labels).
       const ctx = this.fcClean(c.context);
-      return (ctx && /[A-Za-z]/.test(ctx)) ? ctx.slice(0, 40) : 'Field';
+      return (ctx && /[A-Za-z]/.test(ctx)) ? ctx.slice(0, 44) : 'Field';
     },
     async ffPickPhoto(ref, e) {
       const file = (e.target.files || [])[0];
