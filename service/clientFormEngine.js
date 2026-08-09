@@ -440,10 +440,17 @@ function substituteCompanyInDoc(xml, name){
 // Force every run inside a control's sdtContent to a given colour (6-hex) and
 // bold on/off, preserving everything else. rPr must stay the first child of run.
 function _styleRunRpr(rpr, hex, bold){
+  // OOXML requires a specific child order in <w:rPr> (rStyle, rFonts, b, ...,
+  // color, ...). Word tolerates a wrong order but strict browser renderers drop
+  // the run, so insert b/color AFTER any leading rStyle/rFonts.
+  const headRe=/^(\s*(?:<w:rStyle\b[^>]*\/>)?\s*(?:<w:rFonts\b[^>]*\/>)?)/;
+  // colour: replace existing, else insert just after rStyle/rFonts
   if(/<w:color\b[^>]*\/>/.test(rpr)) rpr=rpr.replace(/<w:color\b[^>]*\/>/, '<w:color w:val="'+hex+'"/>');
-  else rpr='<w:color w:val="'+hex+'"/>'+rpr;
-  rpr=rpr.replace(/<w:b\/>|<w:b\s[^>]*\/>|<w:b><\/w:b>/g,'');
-  if(bold) rpr='<w:b/>'+rpr;
+  else { const m=rpr.match(headRe); const head=m?m[1]:''; rpr=head+'<w:color w:val="'+hex+'"/>'+rpr.slice(head.length); }
+  // bold: drop existing toggles, then (if bold) insert after rStyle/rFonts so
+  // it precedes colour per schema.
+  rpr=rpr.replace(/<w:b\/>|<w:b\s[^>]*\/>|<w:b><\/w:b>/g,'').replace(/<w:bCs\/>/g,'');
+  if(bold){ const m=rpr.match(headRe); const head=m?m[1]:''; rpr=head+'<w:b/><w:bCs/>'+rpr.slice(head.length); }
   return rpr;
 }
 function setBlockColor(block, hex, bold){
