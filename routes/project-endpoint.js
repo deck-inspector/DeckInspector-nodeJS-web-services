@@ -808,6 +808,12 @@ router.route('/clientformfill')
       const zip = new PizZip(master);
       let xml = zip.file('word/document.xml').asText();
 
+      // Header sits ~1.2in down in the master (w:header="1728") which pushes the
+      // branded logo too far down; match the Visual/Final report header by
+      // moving it near the top. Body top margin (w:top) is left untouched so
+      // pagination stays identical - pages won't run into each other.
+      xml = xml.replace(/(<w:pgMar\b[^>]*?\bw:header=")\d+(")/g, '$118$2');
+
       // Text / dropdown / combo values.
       xml = engine.fillTextControls(xml, values || {});
 
