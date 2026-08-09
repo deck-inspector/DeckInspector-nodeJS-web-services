@@ -1210,7 +1210,8 @@ const FC_LABELS = {
   '194114697':'Entry Decks — Repairs Required','204228865':'Entry Decks — Repairs Completed','2135591347':'Entry Decks — Condition','-599711494':'Entry Decks — Life Exp. EEE','-2096232700':'Entry Decks — Life Exp. LBC','40559262':'Entry Decks — Life Exp. AWE',
   '-2085289098':'Railings & Guard Walls — Repairs Required','-1438910558':'Railings & Guard Walls — Repairs Completed','-1514444527':'Railings & Guard Walls — Condition','1210610109':'Railings & Guard Walls — Life Exp. EEE','142097213':'Railings & Guard Walls — Life Exp. LBC','-1373378262':'Railings & Guard Walls — Life Exp. AWE',
   '-1739015840':'Custom row — Element','1182320226':'Custom row — Repairs Required','-1869756987':'Custom row — Repairs Completed','-160006016':'Custom row — Condition','996382105':'Custom row — Life Exp. EEE','358856655':'Custom row — Life Exp. LBC','809838315':'Custom row — Life Exp. AWE',
-  '461159518':'Repairs inspected — made by','2042320262':'Additional comments',
+  '461159518':'Repairs inspected — made by','2042320262':'All repairs in accordance with… (text)',
+  '-745572508':'Health and Safety Code §17973 (Apartment/ Senior Homes/ Hotel)','1949434343':'California Civil Code §5551 (HOA / Condo/ Time Share)','408352319':'Property has been inspected in conformance with the above laws',
   '-1745867827':'Railings — condition statement','910589420':'Railings — review type',
   '1791085416':'Wood decks — condition statement','1565445843':'Wood decks — review type',
   '-1371302219':'Decks & railings — area','-1995333122':'Decks & railings — result (PASS/FAIL)','-1048383715':'Decks & railings — performed by','-117534262':'“All repairs in accordance…”',
@@ -1224,7 +1225,8 @@ const FC_LABELS = {
 // Extra options to APPEND to certain dropdowns (David, Aug 9).
 const FC_EXTRA_OPTIONS = {
   '-782496445':['FINAL REPORT UPON COMPLETION','FINAL REPORT UPON CORRECTIONS'],
-  '2078868077':['FINAL INSPECTION UPON COMPLETION']
+  '2078868077':['FINAL INSPECTION UPON COMPLETION'],
+  '2042320262':['NA','All repairs are to be in accordance with State and Local Building Codes, and made by a State Licensed Contractor.']
 };
 // Report-header default (this form is the Final Report Upon Completion).
 const FC_REPORT_TITLE_REF = '-782496445';
@@ -1244,6 +1246,7 @@ const FC_SECTIONS = [
   { title:'Inspection overview — Custom row', refs:['-1739015840','1182320226','-1869756987','-160006016','996382105','358856655','809838315'] },
   { title:'Repairs summary', refs:['461159518','-1745867827','910589420','1791085416','1565445843','-1371302219','-1995333122','-1048383715','-117534262','2042320262'] },
   { title:'Review of repairs', refs:['-201250732','-568736574','475422819','310833927','309759207','963378808','2118562325','-1586838234','-1820265535','-1992084914','-780952211','-793898210','286707416','-1994633956','-317273267','-1368370219','-1401367351','583425401','980196615'] },
+  { title:'Inspections (check all that apply)', refs:['-745572508','1949434343','408352319'] },
   { title:'Signature', refs:['-630402088','420918251','-2135779939'] }
 ];
 
@@ -1789,7 +1792,9 @@ createApp({
       // EEE/LBC/AWE). The colour rule then shows the whole row black.
       const c = this.formEd.controls[k] || {};
       const changed = (c.alias || '').trim().toLowerCase();
-      if (changed === 'repairs required' && String(v).trim().toUpperCase() === 'NA' && c.row) {
+      const rv = String(v).trim().toUpperCase();
+      // Repairs Required = NA or NO -> whole category (incl. Life Expectancy) NA.
+      if (changed === 'repairs required' && (rv === 'NA' || rv === 'NO') && c.row) {
         const cols = ['repairs completed', 'condition', 'eee', 'lbc', 'awe'];
         for (const r of Object.keys(this.formEd.controls)) {
           const cc = this.formEd.controls[r];
