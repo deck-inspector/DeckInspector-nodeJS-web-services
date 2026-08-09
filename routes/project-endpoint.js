@@ -808,11 +808,15 @@ router.route('/clientformfill')
       const zip = new PizZip(master);
       let xml = zip.file('word/document.xml').asText();
 
-      // Header sits ~1.2in down in the master (w:header="1728") which pushes the
-      // branded logo too far down; match the Visual/Final report header by
-      // moving it near the top. Body top margin (w:top) is left untouched so
-      // pagination stays identical - pages won't run into each other.
-      xml = xml.replace(/(<w:pgMar\b[^>]*?\bw:header=")\d+(")/g, '$118$2');
+      // Page-edge spacing for the branded header/footer logos. The master's
+      // w:header="1728" pushed the header logo ~1.2in down; header="0/18" jams
+      // it flush to the paper edge (zero top margin). David wants a 1/2in
+      // (720 twips) margin above the header logo and below the footer logo, so
+      // normalise BOTH the header and footer distances to 720. Body margins
+      // (w:top / w:bottom = 1440) are left untouched so pagination stays
+      // identical - pages won't run into each other.
+      xml = xml.replace(/(<w:pgMar\b[^>]*?\bw:header=")\d+(")/g, '$1720$2');
+      xml = xml.replace(/(<w:pgMar\b[^>]*?\bw:footer=")\d+(")/g, '$1720$2');
 
       // Text / dropdown / combo values.
       xml = engine.fillTextControls(xml, values || {});
