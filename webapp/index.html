@@ -1223,9 +1223,12 @@ const FC_LABELS = {
 };
 // Extra options to APPEND to certain dropdowns (David, Aug 9).
 const FC_EXTRA_OPTIONS = {
-  '-782496445':['FINAL REPORT UPON CORRECTIONS'],
+  '-782496445':['FINAL REPORT UPON COMPLETION','FINAL REPORT UPON CORRECTIONS'],
   '2078868077':['FINAL INSPECTION UPON COMPLETION']
 };
+// Report-header default (this form is the Final Report Upon Completion).
+const FC_REPORT_TITLE_REF = '-782496445';
+const FC_REPORT_TITLE_DEFAULT = 'FINAL REPORT UPON COMPLETION';
 const FC_SECTIONS = [
   { title:'Report header', refs:['-782496445'] },
   { title:'Subject property', refs:['-1047449181','2078944942','-1183277905','1403021910','321476680'] },
@@ -1731,6 +1734,8 @@ createApp({
         }
       } catch (e) { /* leave original date blank if none */ }
       this.formEd.origDate = origDate;
+      // Default the report header to "FINAL REPORT UPON COMPLETION".
+      if (this.formEd.controls[FC_REPORT_TITLE_REF]) setVal(FC_REPORT_TITLE_REF, FC_REPORT_TITLE_DEFAULT);
       this.ffRender();          // re-render so the static original date is swapped
       this.ffApplyColors();
     },
@@ -1776,7 +1781,25 @@ createApp({
     },
     // ---- Final Upon Completion: side-menu helpers + live Word preview ----
     fcVal(ref) { return this.formEd.values[String(ref)] || ''; },
-    fcSet(ref, v) { this.formEd.values[String(ref)] = v; this.fcQueue(); },
+    fcSet(ref, v) {
+      const k = String(ref);
+      this.formEd.values[k] = v;
+      // When a row's "Repairs Required" is set to NA, cascade NA to the rest of
+      // that element's row (Repairs Completed, Condition, Life Expectancy
+      // EEE/LBC/AWE). The colour rule then shows the whole row black.
+      const c = this.formEd.controls[k] || {};
+      if ((c.alias || '').trim().toLowerCase() === 'repairs required' && String(v).trim().toUpperCase() === 'NA' && c.row) {
+        const cols = ['repairs completed', 'condition', 'eee', 'lbc', 'awe'];
+        for (const r of Object.keys(this.formEd.controls)) {
+          const cc = this.formEd.controls[r];
+          if (cc.row === c.row && cols.indexOf((cc.alias || '').trim().toLowerCase()) !== -1) {
+            const naOpt = (cc.options || []).find(o => /^n\/?a$/i.test(String(o).trim())) || 'NA';
+            this.formEd.values[r] = naOpt;
+          }
+        }
+      }
+      this.fcQueue();
+    },
     fcChecked(ref) { return this.formEd.values[String(ref)] === '☒'; },
     fcToggle(ref, on) { this.formEd.values[String(ref)] = on ? '☒' : '☐'; this.fcQueue(); },
     fcToggleCustom(ref) { const k = String(ref); this.formEd.custom[k] = !this.formEd.custom[k]; },
