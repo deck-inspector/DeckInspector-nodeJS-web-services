@@ -1759,19 +1759,31 @@ createApp({
       } finally { this.formEd.previewBusy = false; }
     },
     // Side-menu field groups (document order), with clear labels.
+    fcClean(s) {
+      return String(s || '')
+        .replace(/style\s*=\s*"[^"]*"/gi, ' ')
+        .replace(/\b(?:border|padding|vertical-align|width|colspan|rowspan)\s*[:=][^;"\s]*/gi, ' ')
+        .replace(/#[0-9a-fA-F]{3,6}\b/g, ' ')
+        .replace(/[{};|]|\bsolid\b|\bpx\b/gi, ' ')
+        .replace(/[☐☒]/g, ' ')
+        .replace(/&amp;/g, '&').replace(/&sect;/g, '§')
+        .replace(/\s+/g, ' ').trim();
+    },
     fcLabelFor(ref) {
       if (FC_LABELS[ref]) return FC_LABELS[ref];
       const c = this.formEd.controls[ref] || {};
       if (c.alias) return c.alias;
-      // nearest preceding visible text in the token html
+      // nearest preceding visible text in the token html (sanitised)
       const html = this.formEd.tokenHtml || '';
       const i = html.indexOf('@@CTRL:' + ref + '@@');
       if (i > -1) {
-        const before = html.slice(Math.max(0, i - 600), i).replace(/<[^>]+>/g, ' ').replace(/@@CTRL:-?\d+@@/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-        const words = before.split(' ').filter(Boolean).slice(-7).join(' ');
-        if (words) return words.slice(0, 60);
+        let before = html.slice(Math.max(0, i - 800), i).replace(/<[^>]+>/g, ' ').replace(/@@CTRL:-?\d+@@/g, ' ');
+        before = this.fcClean(before);
+        const words = before.split(' ').filter(Boolean).slice(-8).join(' ');
+        if (words && /[A-Za-z0-9]/.test(words)) return words.slice(0, 60);
       }
-      return (c.context || 'Field').slice(0, 40);
+      const ctx = this.fcClean(c.context);
+      return (ctx && /[A-Za-z]/.test(ctx)) ? ctx.slice(0, 40) : 'Field';
     },
     async ffPickPhoto(ref, e) {
       const file = (e.target.files || [])[0];
