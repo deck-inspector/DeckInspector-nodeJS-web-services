@@ -506,6 +506,16 @@ function applyConditionalColors(xml, values){
       colorOf[ref]=col; boldOf[ref]=bold;
     }
   }
+  // Value-based colour for any OTHER control: PASS / GOOD -> green,
+  // FAIL / BAD -> red (e.g. the Decks & Railings PASS/FAIL result and the
+  // "in Good/BAD Condition" statements). Matrix cells already coloured above.
+  for(const ref of Object.keys(info)){
+    if(colorOf[ref]!=null) continue;
+    const v=val(ref).toUpperCase();
+    if(!v || v==='NA') continue;
+    if(/^PASS$/.test(v) || /\bGOOD\b/.test(v)){ colorOf[ref]=GREEN; boldOf[ref]=true; }
+    else if(/^FAIL$/.test(v) || /\bBAD\b/.test(v)){ colorOf[ref]=RED; boldOf[ref]=true; }
+  }
   if(!Object.keys(colorOf).length) return xml;
   let out='', cursor=0;
   for(const b of blocks){
