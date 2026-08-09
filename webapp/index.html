@@ -1822,12 +1822,28 @@ createApp({
         const buf = await res.arrayBuffer();
         const host = this.$refs.fcRender;
         if (!host) return;
+        // docx-preview does not render the SELECTED value of dropdown/combo
+        // content controls — only text ones. For the PREVIEW ONLY, convert
+        // dropdowns to text so the matrix values show. The Download Word file
+        // (separate request) keeps the real dropdowns untouched.
+        const previewBuf = await this.fcDropdownsToText(buf);
         host.innerHTML = '';
-        await window.docx.renderAsync(new Blob([buf]), host, null, { className: 'docx', inWrapper: true, ignoreWidth: false, ignoreHeight: false, breakPages: true, experimental: true });
+        await window.docx.renderAsync(new Blob([previewBuf]), host, null, { className: 'docx', inWrapper: true, ignoreWidth: false, ignoreHeight: false, breakPages: true, experimental: true });
       } catch (e) {
         if (e && e.message === 'auth') return;
         this.formEd.previewErr = 'Could not render the live preview. Your Download Word file is still exact — use that button.';
       } finally { this.formEd.previewBusy = false; }
+    },
+    async fcDropdownsToText(buf) {
+      try {
+        if (!window.JSZip) return buf;
+        const zip = await window.JSZip.loadAsync(buf);
+        let xml = await zip.file('word/document.xml').async('string');
+        xml = xml.replace(/<w:dropDownList[\s\S]*?<\/w:dropDownList>/g, '<w:text/>')
+                 .replace(/<w:comboBox[\s\S]*?<\/w:comboBox>/g, '<w:text/>');
+        zip.file('word/document.xml', xml);
+        return await zip.generateAsync({ type: 'arraybuffer' });
+      } catch (e) { return buf; }
     },
     // Side-menu field groups (document order), with clear labels.
     fcClean(s) {
