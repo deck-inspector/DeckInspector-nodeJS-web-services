@@ -529,6 +529,66 @@ function applyConditionalColors(xml, values){
   return out;
 }
 
+// Client Photo Submission / Invasive "Review of Repairs" checklist colour rule
+// (David, Aug 10). Each checklist row = [checkbox] [location label] [status
+// dropdown]. The master baked inconsistent SAMPLE colours (some rows all red,
+// some all black) that did NOT follow the chosen value. Normalise every such
+// row the same way, form-wide:
+//   - the LOCATION LABEL and the CHECKBOX are always BLACK;
+//   - the STATUS value follows the selection: a submission / review value
+//     ("Photos Submitted", "On Site Visual Review") -> RED; "NA" or blank
+//     -> BLACK.
+// Target rows are found by their status dropdown, which offers a
+// "Photos Submitted" option (8 of them across the whole form).
+function applyReviewRepairColors(xml){
+  const RED='FF0000', BLACK='000000';
+  const isValueDropdown=(sdt)=>{
+    const pr=parseSdtPr(sdt);
+    return pr.type==='dropdown' && pr.options.some(o=>/Photos\s*Submitted/i.test(o.text));
+  };
+  // enclosing <w:tr>..</w:tr> for a position (skip <w:trPr>)
+  function enclosingRow(pos){
+    let i=pos, found=-1;
+    while((i=xml.lastIndexOf('<w:tr', i))!==-1){
+      const nx=xml.charAt(i+5);
+      if(nx==='>' || nx===' '){ found=i; break; }
+      if(i===0) break; i--;
+    }
+    if(found===-1) return null;
+    const end=xml.indexOf('</w:tr>', pos);
+    if(end===-1) return null;
+    return {start:found, end:end+7};
+  }
+  const blocks=findSdtBlocks(xml);
+  const rowStarts=new Map();
+  for(const b of blocks){
+    const outer=xml.slice(b.start,b.end);
+    if(!isValueDropdown(outer)) continue;
+    const row=enclosingRow(b.start);
+    if(!row) continue;
+    rowStarts.set(row.start, row);
+  }
+  if(!rowStarts.size) return xml;
+  // Rebuild each row last-first so earlier offsets stay valid.
+  const rows=[...rowStarts.values()].sort((a,b)=>b.start-a.start);
+  for(const r of rows){
+    let row=xml.slice(r.start, r.end);
+    // 1) neutralise every explicit run/paragraph colour in the row to black
+    row=row.replace(/<w:color\s+w:val="[0-9A-Fa-f]{6}"\s*\/>/g, '<w:color w:val="'+BLACK+'"/>');
+    // 2) re-colour just the status dropdown(s) red when the choice is a
+    //    submission / review value (anything other than NA / blank).
+    row=row.replace(/<w:sdt>[\s\S]*?<\/w:sdt>/g, (sdt)=>{
+      if(!isValueDropdown(sdt)) return sdt;
+      const cur=currentText(sdt).trim().toUpperCase();
+      if(cur!=='' && cur!=='NA') return setBlockColor(sdt, RED, false);
+      return sdt;
+    });
+    xml = xml.slice(0, r.start) + row + xml.slice(r.end);
+  }
+  return xml;
+}
+
+module.exports.applyReviewRepairColors = applyReviewRepairColors;
 module.exports.renderFormHtml = renderFormHtml;
 module.exports.buildLayout = buildLayout;
 module.exports.controlColor = controlColor;
