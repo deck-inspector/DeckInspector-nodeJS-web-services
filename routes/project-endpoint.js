@@ -829,6 +829,11 @@ router.route('/clientformfill')
       // Completed is NO / IN PROGRESS (David's rule).
       xml = engine.applyConditionalColors(xml, values || {});
 
+      // Photo-Submission / Invasive "Review of Repairs" checklist rows: label +
+      // checkbox always BLACK; status value RED when a submission/review value
+      // is chosen, BLACK for NA/blank - consistent form-wide (David, Aug 10).
+      xml = engine.applyReviewRepairColors(xml);
+
       // "Deck Inspectors" -> this client's company name (body text only;
       // header/footer branding is applied separately below).
       try {
