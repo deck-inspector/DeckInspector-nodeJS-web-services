@@ -1133,20 +1133,26 @@ input,select{font-family:inherit;font-size:16px}
       <p style="margin-bottom:14px"><b>{{ docsProject ? docsProject.name : '' }}</b> &mdash; contracts, layouts, and signed reports live here.</p>
       <div class="docdrop" :class="{drag:docDrag}" @click="$refs.docUp.click()"
            @dragover.prevent="docDrag=true" @dragleave.prevent="docDrag=false" @drop.prevent="onDocDrop">
-        <input type="file" ref="docUp" style="display:none" @change="onDocFile">
-        <template v-if="docFile">
-          <div style="font-weight:600">&#128196; {{ docFile.name }}</div>
-          <div style="font-size:12px;color:var(--ink-soft)">Click Upload to add it, or drop / click to pick a different file.</div>
-        </template>
-        <template v-else>
-          <div style="font-size:22px">&#8613;</div>
-          <div><b>Drag &amp; drop</b> a file here, or <span style="text-decoration:underline">click to choose one</span></div>
-          <div style="font-size:12px;color:var(--ink-soft)">PDF, Word, images &mdash; any file type</div>
-        </template>
+        <input type="file" ref="docUp" multiple style="display:none" @change="onDocFile">
+        <div style="font-size:22px">&#8613;</div>
+        <div><b>Drag &amp; drop</b> files here, or <span style="text-decoration:underline">click to choose</span></div>
+        <div style="font-size:12px;color:var(--ink-soft)">PDF, Word, images &mdash; any file type. You can add several at once.</div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-        <button class="btn btn-dl" :disabled="!docFile || uploadingDoc" @click="uploadDoc">{{ uploadingDoc ? 'Uploading&hellip;' : '&#11014; Upload' }}</button>
-        <button class="btn-cancel" v-if="docFile && !uploadingDoc" @click="docFile=null">Clear</button>
+      <ul class="rlist" v-if="docFiles.length" style="margin:12px 0 0">
+        <li v-for="(f,i) in docFiles" :key="i">
+          <div class="ricon word">&#128196;</div>
+          <div class="rinfo">
+            <div class="rname">{{ f.name }}</div>
+            <div class="rdate">{{ (f.size/1024).toFixed(0) }} KB<span v-if="f.status"> &middot; {{ f.status }}</span></div>
+          </div>
+          <div class="rbtns">
+            <button class="btn-del" v-if="!uploadingDoc" @click="docFiles.splice(i,1)">Remove</button>
+          </div>
+        </li>
+      </ul>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0 14px">
+        <button class="btn btn-dl" :disabled="!docFiles.length || uploadingDoc" @click="uploadDocs" v-html="uploadingDoc ? (docProgress || 'Uploading&hellip;') : (docFiles.length ? ('&#11014; Upload ' + docFiles.length + ' file' + (docFiles.length===1?'':'s')) : '&#11014; Upload')"></button>
+        <button class="btn-cancel" v-if="docFiles.length && !uploadingDoc" @click="docFiles=[]">Clear all</button>
       </div>
       <div class="empty" v-if="loadingDocs" style="padding:20px 0">Loading&hellip;</div>
       <div class="empty" v-else-if="!docs.length" style="padding:20px 0">No documents yet &mdash; upload the first one above.</div>
@@ -1286,7 +1292,7 @@ createApp({
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       structTab: 'buildings',
-      docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFile: null, uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
+      docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFiles: [], docProgress: '', uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
       proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
       propCustom: {},
       propBusy: false, propConverting: false, propDeleting: null,
@@ -2764,7 +2770,7 @@ createApp({
     /* ---------- project documents ---------- */
     openDocs(p) {
       this.docsProject = p; this.docsOpen = true;
-      this.docs = []; this.docFile = null;
+      this.docs = []; this.docFiles = []; this.docProgress = '';
       this.loadDocs();
     },
     closeDocs() { this.docsOpen = false; this.docsProject = null; },
@@ -2803,43 +2809,74 @@ createApp({
         this.logo = (t && ((t.icons && t.icons.header) || t.logo)) || '';
       } catch (e) { this.logo = ''; }
     },
+    // Queue every chosen file (multi-select allowed), skipping exact duplicates
+    // already in the queue.
+    queueDocs(fileList) {
+      const files = Array.prototype.slice.call(fileList || []);
+      for (const f of files) {
+        if (this.docFiles.some(x => x.name === f.name && x.size === f.size)) continue;
+        this.docFiles.push({ file: f, name: f.name, size: f.size, status: '' });
+      }
+    },
     onDocFile(e) {
-      this.docFile = (e.target.files && e.target.files[0]) || null;
-      // allow choosing the same file again later
+      this.queueDocs(e.target && e.target.files);
+      // allow choosing the same file(s) again later
       if (e.target) e.target.value = '';
     },
     onDocDrop(e) {
       this.docDrag = false;
-      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (f) this.docFile = f;
+      this.queueDocs(e.dataTransfer && e.dataTransfer.files);
     },
-    async uploadDoc() {
-      if (!this.docFile || !this.docsProject) return;
+    // Upload every queued document, one after another (keeps the blob store and
+    // the documents list consistent). Succeeded files drop out of the queue;
+    // failures stay so the user can retry them.
+    async uploadDocs() {
+      if (!this.docFiles.length || !this.docsProject) return;
       this.uploadingDoc = true;
+      const container = String(this.docsProject.name || 'project').replace(/\s+/g, '').toLowerCase() + 'documents';
+      const entity = this.docsProject.name || 'project';
+      const pid = this.projectId(this.docsProject);
+      const total = this.docFiles.length;
+      let done = 0, failed = 0;
       try {
-        const fd = new FormData();
-        fd.append('picture', this.docFile, this.docFile.name);
-        // Documents live in their own storage folder, separate from the
-        // project's photos: "<projectname>documents" vs "<projectname>".
-        fd.append('containerName', String(this.docsProject.name || 'project').replace(/\s+/g, '').toLowerCase() + 'documents');
-        fd.append('uploader', 'deck');
-        fd.append('entityName', this.docsProject.name || 'project');
-        const up = await this.api('/image/upload', { method: 'POST', body: fd });
-        if (!up.ok) throw new Error('upload');
-        const ud = await up.json();
-        const url = ud.url || (ud.data && ud.data.url) || '';
-        if (!url) throw new Error('upload');
-        const res = await fetch(API + '/projectdocuments/add', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project_id: this.projectId(this.docsProject), name: this.docFile.name, url: url, uploader: this.user.username }),
-        });
-        if (!res.ok) throw new Error('bad');
-        this.docFile = null;
-        this.toast('Document uploaded.');
+        for (let i = 0; i < this.docFiles.length; i++) {
+          const item = this.docFiles[i];
+          if (item.status === 'Done') continue;
+          this.docProgress = 'Uploading ' + (i + 1) + ' of ' + total + '&hellip;';
+          item.status = 'Uploading…';
+          try {
+            const fd = new FormData();
+            fd.append('picture', item.file, item.name);
+            // Documents live in their own storage folder, separate from the
+            // project's photos: "<projectname>documents" vs "<projectname>".
+            fd.append('containerName', container);
+            fd.append('uploader', 'deck');
+            fd.append('entityName', entity);
+            const up = await this.api('/image/upload', { method: 'POST', body: fd });
+            if (!up.ok) throw new Error('upload');
+            const ud = await up.json();
+            const url = ud.url || (ud.data && ud.data.url) || '';
+            if (!url) throw new Error('upload');
+            const res = await fetch(API + '/projectdocuments/add', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ project_id: pid, name: item.name, url: url, uploader: this.user.username }),
+            });
+            if (!res.ok) throw new Error('bad');
+            item.status = 'Done'; done++;
+          } catch (e) {
+            if (e.message === 'auth') throw e;
+            item.status = 'Failed'; failed++;
+          }
+        }
+        // Keep only the ones that failed so they can be retried.
+        this.docFiles = this.docFiles.filter(x => x.status !== 'Done');
+        if (done && !failed) this.toast(done + ' document' + (done === 1 ? '' : 's') + ' uploaded.');
+        else if (done && failed) this.toast(done + ' uploaded, ' + failed + ' failed — the failed file' + (failed === 1 ? '' : 's') + ' stayed in the list to retry.', 'err');
+        else if (failed) this.toast('Could not upload the document' + (failed === 1 ? '' : 's') + '.', 'err');
         this.loadDocs();
       } catch (e) {
-        if (e.message !== 'auth') this.toast('Could not upload the document.', 'err');
-      } finally { this.uploadingDoc = false; }
+        if (e.message !== 'auth') this.toast('Could not upload the documents.', 'err');
+      } finally { this.uploadingDoc = false; this.docProgress = ''; }
     },
     async doDelDoc() {
       const d = this.docDeleting; this.docDeleting = null;
