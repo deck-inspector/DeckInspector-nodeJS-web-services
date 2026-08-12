@@ -1134,9 +1134,13 @@ input,select{font-family:inherit;font-size:16px}
       <div class="docdrop" :class="{drag:docDrag}" @click="$refs.docUp.click()"
            @dragover.prevent="docDrag=true" @dragleave.prevent="docDrag=false" @drop.prevent="onDocDrop">
         <input type="file" ref="docUp" multiple style="display:none" @change="onDocFile">
+        <input type="file" ref="docDir" webkitdirectory directory multiple style="display:none" @change="onDocFolder">
         <div style="font-size:22px">&#8613;</div>
-        <div><b>Drag &amp; drop</b> files here, or <span style="text-decoration:underline">click to choose</span></div>
-        <div style="font-size:12px;color:var(--ink-soft)">PDF, Word, images &mdash; any file type. You can add several at once.</div>
+        <div><b>Drag &amp; drop</b> files or a whole folder here, or <span style="text-decoration:underline">click to choose files</span></div>
+        <div style="font-size:12px;color:var(--ink-soft)">PDF, Word, images &mdash; any file type. Add several at once, or a whole folder of photos.</div>
+      </div>
+      <div style="font-size:12px;margin-top:8px;color:var(--ink-soft)">
+        Have a folder of photos? <a href="#" @click.prevent.stop="$refs.docDir.click()" style="text-decoration:underline;color:var(--brand)">Choose a folder&hellip;</a>
       </div>
       <ul class="rlist" v-if="docFiles.length" style="margin:12px 0 0">
         <li v-for="(f,i) in docFiles" :key="i">
@@ -2809,11 +2813,14 @@ createApp({
         this.logo = (t && ((t.icons && t.icons.header) || t.logo)) || '';
       } catch (e) { this.logo = ''; }
     },
-    // Queue every chosen file (multi-select allowed), skipping exact duplicates
-    // already in the queue.
+    // Queue every chosen file (multi-select / whole-folder allowed), skipping
+    // OS junk (hidden files, .DS_Store, Thumbs.db) and exact duplicates already
+    // queued.
     queueDocs(fileList) {
       const files = Array.prototype.slice.call(fileList || []);
       for (const f of files) {
+        if (!f || !f.name) continue;
+        if (f.name.charAt(0) === '.' || /^(thumbs\.db|desktop\.ini)$/i.test(f.name)) continue;
         if (this.docFiles.some(x => x.name === f.name && x.size === f.size)) continue;
         this.docFiles.push({ file: f, name: f.name, size: f.size, status: '' });
       }
@@ -2823,9 +2830,61 @@ createApp({
       // allow choosing the same file(s) again later
       if (e.target) e.target.value = '';
     },
-    onDocDrop(e) {
+    // A folder chosen via the "Choose a folder" picker (webkitdirectory): the
+    // input's .files is already a flat list of every file inside it.
+    onDocFolder(e) {
+      this.queueDocs(e.target && e.target.files);
+      if (e.target) e.target.value = '';
+    },
+    async onDocDrop(e) {
       this.docDrag = false;
-      this.queueDocs(e.dataTransfer && e.dataTransfer.files);
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      // If the browser exposes directory entries, walk them so a whole folder
+      // (or several files/folders together) can be dropped at once; otherwise
+      // fall back to the flat file list.
+      const items = dt.items;
+      if (items && items.length && items[0] && items[0].webkitGetAsEntry) {
+        const entries = [];
+        for (let i = 0; i < items.length; i++) {
+          const en = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+          if (en) entries.push(en);
+        }
+        if (entries.length) {
+          const out = [];
+          for (const en of entries) { await this.walkDropEntry(en, out); }
+          if (out.length) { this.queueDocs(out); return; }
+        }
+      }
+      this.queueDocs(dt.files);
+    },
+    // Recursively collect File objects from a dropped file/folder entry.
+    walkDropEntry(entry, out) {
+      const self = this;
+      return new Promise(function (resolve) {
+        if (!entry) return resolve();
+        if (entry.isFile) {
+          entry.file(function (f) { out.push(f); resolve(); }, function () { resolve(); });
+          return;
+        }
+        if (entry.isDirectory) {
+          const reader = entry.createReader();
+          const kids = [];
+          const read = function () {
+            reader.readEntries(function (batch) {
+              if (!batch || !batch.length) {
+                (async function () { for (const c of kids) { await self.walkDropEntry(c, out); } resolve(); })();
+                return;
+              }
+              for (let i = 0; i < batch.length; i++) kids.push(batch[i]);
+              read(); // readEntries returns in chunks - keep going until empty
+            }, function () { resolve(); });
+          };
+          read();
+          return;
+        }
+        resolve();
+      });
     },
     // Upload every queued document, one after another (keeps the blob store and
     // the documents list consistent). Succeeded files drop out of the queue;
