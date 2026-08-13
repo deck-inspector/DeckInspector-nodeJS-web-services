@@ -647,7 +647,11 @@ function applyPageBreaks(xml){
     const rm = inner.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
     let body = rm ? rm[1] : '';
     body = body.replace(/<w:color\b[^>]*\/>/g,'');
-    const head = (body.match(/^(\s*(?:<w:rStyle\b[^>]*\/>)?\s*(?:<w:rFonts\b[^>]*\/>)?)/)||['',''])[1];
+    // Insert <w:color> in the schema-correct slot: AFTER every rPr child that
+    // must precede color (rStyle, rFonts, b, i, caps, strike, etc.) and BEFORE
+    // spacing/sz/u. Word silently drops a mis-ordered color (e.g. rFonts->color->b),
+    // which is why the heading rendered black even though the run carried FF0000.
+    const head = (body.match(/^((?:\s*<w:(?:rStyle|rFonts|b|bCs|i|iCs|caps|smallCaps|strike|dstrike|outline|shadow|emboss|imprint|noProof|snapToGrid|vanish|webHidden)\b[^>]*\/>)*\s*)/)||['',''])[1];
     body = head + '<w:color w:val="'+RED+'"/>' + body.slice(head.length);
     const newRpr = '<w:rPr>'+body+'</w:rPr>';
     inner = rm ? inner.replace(rm[0], newRpr) : newRpr+inner;
