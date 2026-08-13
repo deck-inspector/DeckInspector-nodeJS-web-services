@@ -152,8 +152,9 @@ function fillTextControls(xml, valuesByRef) {
       // value is chosen, keep the template's baked default so the heading always
       // prints (still reddened + page-broken downstream). The user's own pick
       // (non-blank) always overrides.
-      const isInspectionHeading = pr.type === 'combo'
-        && pr.options.some(o => /(VISUAL|FINAL|INVASIVE)\s+INSPECTION/i.test(o.text || ''));
+      const isInspectionHeading = (pr.type === 'combo' || pr.type === 'dropdown')
+        && pr.options.some(o => /(VISUAL|FINAL|INVASIVE)\s+INSPECTION/i.test(o.text || '')
+                             || /FINAL\s+REPORT/i.test(o.text || ''));
       if (!(isBlank && isInspectionHeading)) {
         block = setSdtText(block, v == null ? '' : String(v));
       }
