@@ -794,14 +794,15 @@ router.route('/clientformlayout')
 // values + photo URLs. The real template is filled in place, so the output is
 // pixel-identical to the template (fonts, cell shading, colors) and, for the
 // .docm, keeps its macros/dropdowns.
-router.route('/clientformfill')
-  .post(async function (req, res) {
-    try {
+// Build the completed, branded Word buffer from the submitted field values.
+// Shared by /clientformfill (Word download) and /clientformpdf (server-side
+// PDF). Returns { outBuf, form } or throws {status, message}.
+async function buildFilledClientForm(req) {
       const { key, values, photos, origDate } = req.body || {};
       const form = CLIENT_FORMS[key];
-      if (!form) return res.status(404).json({ message: 'Unknown form.' });
+      if (!form) throw { status: 404, message: 'Unknown form.' };
       const master = await getClientFormMaster(form);
-      if (!master) return res.status(404).json({ message: 'That form has not been set up yet.' });
+      if (!master) throw { status: 404, message: 'That form has not been set up yet.' };
 
       const PizZip = require('pizzip');
       const engine = require('../service/clientFormEngine');
@@ -875,12 +876,59 @@ router.route('/clientformfill')
       }
 
       const outBuf = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+      return { outBuf, form };
+}
+
+// Convert a Word buffer to PDF using the self-hosted converter (Gotenberg /
+// LibreOffice on the VM). This is the ONLY faithful way to match Word - the
+// browser preview (html2pdf) reflowed pages and broke the layout.
+async function convertDocxToPdf(buf, filename) {
+  const base = (process.env.CONVERT_URL || '').replace(/\/+$/, '');
+  if (!base) throw new Error('CONVERT_URL not configured');
+  const token = process.env.CONVERT_TOKEN || '';
+  const fd = new FormData();
+  fd.append('files', new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), filename);
+  const headers = token ? { 'X-Convert-Token': token } : {};
+  const resp = await fetch(base + '/forms/libreoffice/convert', { method: 'POST', headers, body: fd });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '');
+    throw new Error('converter ' + resp.status + ' ' + t.slice(0, 200));
+  }
+  return Buffer.from(await resp.arrayBuffer());
+}
+
+// On-site FILL: build a completed, branded Word file (download).
+router.route('/clientformfill')
+  .post(async function (req, res) {
+    try {
+      const { outBuf, form } = await buildFilledClientForm(req);
       res.setHeader('Content-Type', form.contentType);
       res.setHeader('Content-Disposition', `attachment; filename="${form.label} - completed.${form.ext}"`);
       return res.send(outBuf);
     } catch (err) {
+      if (err && err.status) return res.status(err.status).json({ message: err.message });
       console.error('Error filling client form:', err && err.message);
       return res.status(500).json({ message: 'Could not build the completed form.' });
+    }
+  });
+
+// Save PDF: same filled Word file, converted to PDF by the self-hosted Word
+// engine so the PDF is IDENTICAL to the Word document (correct header,
+// pagination, tables and colours).
+router.route('/clientformpdf')
+  .post(async function (req, res) {
+    try {
+      const { outBuf, form } = await buildFilledClientForm(req);
+      // Name it .docx for the converter (LibreOffice reads the bytes either way;
+      // macros are irrelevant to rendering).
+      const pdf = await convertDocxToPdf(outBuf, (form.label || 'Final Report') + '.docx');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${form.label} - completed.pdf"`);
+      return res.send(pdf);
+    } catch (err) {
+      if (err && err.status) return res.status(err.status).json({ message: err.message });
+      console.error('Error building client form PDF:', err && err.message);
+      return res.status(500).json({ message: 'Could not build the PDF.' });
     }
   });
 
