@@ -870,17 +870,135 @@ async function buildFilledClientForm(req) {
       }
       zip.file('word/document.xml', xml);
 
-      // Brand with this tenant's header logo + footer (same as the download).
+      // Brand with this tenant's header logo + footer - VERBATIM-SAFE version.
+      // The old inline injection (FinalReportGenerator.injectTenantLogo/Footer)
+      // PREPENDED a 0.75in logo paragraph into the header: with this master's
+      // 1728-twip header distance the body top dropped by ~1in on EVERY page,
+      // each page held a few lines less, the loss accumulated and by page 9 the
+      // signature block spilled onto page 10 with a stray gap (David, Aug 13 pm).
+      // brandClientFormVerbatim() instead ANCHORS the images as floating
+      // (wrapNone) drawings inside the master's existing empty header/footer
+      // paragraphs - header/footer heights stay exactly what the empty master
+      // renders, so the body area and the master's pagination are untouched.
       try {
         const companyIdentifier = req.user && req.user.company;
-        await FinalReportGenerator.injectTenantLogo(zip, companyIdentifier);
-        await FinalReportGenerator.injectTenantFooter(zip, companyIdentifier);
+        await brandClientFormVerbatim(zip, companyIdentifier);
       } catch (brandErr) {
         console.error('Client form fill branding failed (continuing):', brandErr && brandErr.message);
       }
 
       const outBuf = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
       return { outBuf, form };
+}
+
+// Floating-anchor branding for the client blank forms. The images are anchored
+// to the page (wrapNone) from within the EXISTING empty header/footer
+// paragraphs, so they render on every page WITHOUT adding any inline height:
+// body top stays max(w:top, w:header + empty-para height) exactly as the
+// uploaded master renders, preserving its pagination verbatim.
+async function brandClientFormVerbatim(zip, companyIdentifier) {
+  if (!companyIdentifier) return;
+  const tenantsDAO = require('../model/tenantsDAO');
+  const axios = require('axios');
+  const tenant = await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier);
+  if (!tenant) return;
+  const EMU = 914400;
+
+  const anchoredImageRun = (rid, cx, cy, id, name, vOffEmu) =>
+    '<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="' + id + '" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">'
+    + '<wp:simplePos x="0" y="0"/>'
+    + '<wp:positionH relativeFrom="page"><wp:align>center</wp:align></wp:positionH>'
+    + '<wp:positionV relativeFrom="page"><wp:posOffset>' + vOffEmu + '</wp:posOffset></wp:positionV>'
+    + '<wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+    + '<wp:wrapNone/>'
+    + '<wp:docPr id="' + id + '" name="' + name + '"/>'
+    + '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    + '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+    + '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+    + '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+    + '<pic:nvPicPr><pic:cNvPr id="' + id + '" name="' + name + '"/><pic:cNvPicPr/></pic:nvPicPr>'
+    + '<pic:blipFill><a:blip r:embed="' + rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>'
+    + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+    + '</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>';
+
+  // Insert runs at the end of the FIRST paragraph of a header/footer part
+  // (creating a minimal paragraph only if the part has none).
+  const insertIntoFirstPara = (partXml, runs, rootTag) => {
+    if (/<w:p[ >]/.test(partXml)) return partXml.replace(/<\/w:p>/, runs + '</w:p>');
+    return partXml.replace(new RegExp('(<' + rootTag + '[^>]*>)'), '$1<w:p>' + runs + '</w:p>');
+  };
+
+  const fetchImage = async (url) => {
+    const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
+    const buf = Buffer.from(resp.data);
+    const extMatch = String(url).split('?')[0].toLowerCase().match(/\.(png|jpe?g)$/);
+    const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'png';
+    return { buf, ext, dims: FinalReportGenerator.getImageDims(buf, ext) };
+  };
+
+  // HEADER: logo floats 0.5in from the page top, centred - it lives in the
+  // top margin band (master body top is ~1.37in) and never pushes the body.
+  const logoUrl = tenant.icons && tenant.icons.header;
+  if (logoUrl) {
+    try {
+      const img = await fetchImage(logoUrl);
+      const cy = Math.round(0.75 * EMU);
+      const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
+      zip.file('word/media/tenantlogo.' + img.ext, img.buf);
+      FinalReportGenerator.ensureContentType(zip, img.ext);
+      const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + img.ext + '"/>';
+      const run = anchoredImageRun('rIdTenantLogo', cx, cy, 990001, 'TenantLogo', Math.round(0.5 * EMU));
+      for (const name of Object.keys(zip.files)) {
+        const hm = name.match(/^word\/(header\d+)\.xml$/);
+        if (!hm) continue;
+        zip.file(name, insertIntoFirstPara(zip.file(name).asText(), run, 'w:hdr'));
+        FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + hm[1] + '.xml.rels', rel, 'rIdTenantLogo');
+      }
+    } catch (e) { console.error('Client form header logo failed (continuing):', e && e.message); }
+  }
+
+  // FOOTER: badge floats in the bottom margin band (top edge 9.3in on the
+  // 11in page - just above the footer text line at ~9.8in); the footer TEXT
+  // rides inline in the existing empty footer paragraph (8pt text does not
+  // grow the paragraph's line), centred.
+  const showLogo = tenant.showFooterlogo !== false;
+  const footImgUrl = (showLogo && tenant.icons && tenant.icons.footer) || '';
+  const ftext = String(tenant.footerText || '').trim()
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  if (footImgUrl || ftext) {
+    let runs = '';
+    if (footImgUrl) {
+      try {
+        const img = await fetchImage(footImgUrl);
+        const cy = Math.round(0.5 * EMU);
+        const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
+        zip.file('word/media/tenantfooter.' + img.ext, img.buf);
+        FinalReportGenerator.ensureContentType(zip, img.ext);
+        const frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + img.ext + '"/>';
+        runs += anchoredImageRun('rIdTenantFooter', cx, cy, 990002, 'TenantFooter', Math.round(9.3 * EMU));
+        for (const name of Object.keys(zip.files)) {
+          const fm = name.match(/^word\/(footer\d+)\.xml$/);
+          if (!fm) continue;
+          FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + fm[1] + '.xml.rels', frel, 'rIdTenantFooter');
+        }
+      } catch (e) { console.error('Client form footer image failed (continuing):', e && e.message); }
+    }
+    if (ftext) {
+      runs += '<w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + ftext + '</w:t></w:r>';
+    }
+    if (runs) {
+      for (const name of Object.keys(zip.files)) {
+        if (!/^word\/footer\d+\.xml$/.test(name)) continue;
+        let footer = insertIntoFirstPara(zip.file(name).asText(), runs, 'w:ftr');
+        // centre the footer text line (alignment does not change line height)
+        if (ftext && !/<w:jc\b/.test(footer)) {
+          footer = footer.replace(/(<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*?)(<\/w:pPr>)/, '$1<w:jc w:val="center"/>$2');
+        }
+        zip.file(name, footer);
+      }
+    }
+  }
 }
 
 // Convert a Word buffer to PDF using the self-hosted converter (Gotenberg /
