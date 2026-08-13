@@ -699,10 +699,32 @@ var updateProjectChildrenWithRemove = async function(projectId, childrenId) {
     }
 }
 
-
+// Assignment acceptance (Aug 13): an assigned inspector accepts or declines
+// their assignment; the state is visible to all users. Stored on the project as
+// assignmentStatus: { [username]: 'accepted' | 'declined' } (absent = not yet
+// responded). N1QL only — this cluster's KV data service is degraded.
+var setAssignmentStatus = async function (id, username, status) {
+    const bucket = process.env.DB_BUCKET_NAME;
+    const scope = process.env.DB_SCOPE_NAME || "inventory";
+    const ks = `\`${bucket}\`.\`${scope}\`.\`Project\``;
+    const rows = await executeQuery(
+        `SELECT p.assignmentStatus FROM ${ks} AS p USE KEYS $1`, [id]);
+    if (!rows.length) {
+        return { error: { code: 404, message: "No project found." } };
+    }
+    const map = (rows[0] && rows[0].assignmentStatus) || {};
+    if (status === 'none') delete map[username]; else map[username] = status;
+    // Only the status map changes — editedat/lasteditedby are left alone so an
+    // acceptance click doesn't alter the project's "last edited" display.
+    await executeQuery(
+        `UPDATE ${ks} AS p USE KEYS $1 SET p.assignmentStatus = $2`,
+        [id, map]);
+    return { data: { code: 201, message: "Assignment status saved.", assignmentStatus: map } };
+}
 
 module.exports = {
     addProject,
+    setAssignmentStatus,
     updateProjectOfflineAvailabilityStatus,
     updateProjectVisibilityStatus,
     deleteProjectPermanently,
