@@ -1901,15 +1901,42 @@ createApp({
     async fcSavePdf() {
       this.formEd.busy = true; this.formEd.busyKind = 'pdf';
       try {
-        await this.fcRefreshPreview();
-        const host = this.$refs.fcRender;
-        if (!host || !host.innerHTML.trim()) throw new Error('preview');
-        if (!window.html2pdf) await new Promise((ok, err) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'; s.onload = ok; s.onerror = err; document.head.appendChild(s); });
-        const opt = { margin: 0, filename: (this.formEd.label || 'Final Report') + '.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'], avoid: 'section.docx' } };
-        await window.html2pdf().set(opt).from(host).save();
-        this.toast('PDF saved.');
+        // Build the PDF on the server from the REAL Word file (a true Word
+        // engine), so the PDF matches the Word document exactly - correct
+        // header, pagination, tables and colours. The old browser-screenshot
+        // method (html2pdf) reflowed pages and is kept only as a fallback.
+        const res = await this.api('/project/clientformpdf', {
+          method: 'POST',
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '' },
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob && blob.type && blob.type.indexOf('pdf') !== -1 && blob.size > 1000) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = (this.formEd.label || 'Final Report') + '.pdf';
+            document.body.appendChild(a); a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+            this.toast('PDF saved.');
+            return;
+          }
+        }
+        throw new Error('server-pdf');
       } catch (e) {
-        if (e && e.message !== 'auth') this.toast('Could not build the PDF — use Download Word (then Save as PDF in Word) as a fallback.', 'err');
+        if (e && e.message === 'auth') return;
+        // Fallback: the browser-render PDF (lower fidelity) if the server
+        // converter is unreachable.
+        try {
+          await this.fcRefreshPreview();
+          const host = this.$refs.fcRender;
+          if (!host || !host.innerHTML.trim()) throw new Error('preview');
+          if (!window.html2pdf) await new Promise((ok, err) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'; s.onload = ok; s.onerror = err; document.head.appendChild(s); });
+          const opt = { margin: 0, filename: (this.formEd.label || 'Final Report') + '.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'], avoid: 'section.docx' } };
+          await window.html2pdf().set(opt).from(host).save();
+          this.toast('PDF saved (fallback render).');
+        } catch (e2) {
+          this.toast('Could not build the PDF — use Download Word (then Save as PDF in Word) as a fallback.', 'err');
+        }
       } finally { this.formEd.busy = false; this.formEd.busyKind = ''; }
     },
     async fcLoadDocxPreview() {
