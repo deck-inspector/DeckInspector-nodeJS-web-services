@@ -374,7 +374,10 @@ input,select{font-family:inherit;font-size:16px}
                 <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ p.editedat ? niceDate(p.editedat) : shortDate(p.createdat) }}</span>
               </div>
               <div class="assignrow">
-                <span class="tag" v-for="u in assignedOf(p)" :key="u">&#128100; {{ u }} <a @click.stop="unassignFrom(p, u)">&#215;</a></span>
+                <!-- tag colour = the inspector's response: green ✓ accepted, red ✗ declined,
+                     no colour = not yet responded. The inspector clicks THEIR OWN name to
+                     set it; everyone else just sees the state. -->
+                <span class="tag" v-for="u in assignedOf(p)" :key="u" :class="acceptClass(p,u)" :title="acceptTitle(p,u)" :style="isMe(u) ? 'cursor:pointer' : ''" @click.stop="clickAssignee(p,u)">&#128100; {{ u }}{{ acceptMark(p,u) }} <a @click.stop="unassignFrom(p, u)">&#215;</a></span>
                 <select @change="assignFrom(p, $event)">
                   <option value="" selected>&#65291; Assign inspector&#8230;</option>
                   <option v-for="u in users" :key="u.username" :value="u.username">{{ u.first_name }} {{ u.last_name }}</option>
@@ -559,7 +562,7 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:4px">
             <span style="font-size:14px;color:var(--ink-soft);font-weight:600">Assigned:</span>
-            <span class="tag" v-for="u in assignedList" :key="u">{{ u }} <a style="cursor:pointer;color:var(--danger);font-weight:800;margin-left:4px" @click="unassignUser(u)">&#215;</a></span>
+            <span class="tag" v-for="u in assignedList" :key="u" :class="acceptClass(current,u)" :title="acceptTitle(current,u)" :style="isMe(u) ? 'cursor:pointer' : ''" @click="clickAssignee(current,u)">{{ u }}{{ acceptMark(current,u) }} <a style="cursor:pointer;color:var(--danger);font-weight:800;margin-left:4px" @click.stop="unassignUser(u)">&#215;</a></span>
             <span style="font-size:13px;color:var(--ink-soft)" v-if="!assignedList.length">no one yet</span>
             <select v-model="assignPick" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:14px">
               <option value="" disabled>Add inspector…</option>
@@ -2976,6 +2979,45 @@ createApp({
         this.toast('Document deleted.');
       } catch (e) {
         this.toast('Could not delete the document.', 'err');
+      }
+    },
+
+    /* ---------- assignment acceptance (visible to all users) ---------- */
+    isMe(u) { return !!this.user && u === this.user.username; },
+    acceptStatus(p, u) { return ((p && p.assignmentStatus) || {})[u] || ''; },
+    acceptClass(p, u) {
+      const s = this.acceptStatus(p, u);
+      return s === 'accepted' ? 'good' : (s === 'declined' ? 'bad' : '');
+    },
+    acceptMark(p, u) {
+      const s = this.acceptStatus(p, u);
+      return s === 'accepted' ? ' ✓' : (s === 'declined' ? ' ✗' : '');
+    },
+    acceptTitle(p, u) {
+      const s = this.acceptStatus(p, u);
+      const base = s === 'accepted' ? (u + ' ACCEPTED this assignment')
+        : (s === 'declined' ? (u + ' DECLINED this assignment')
+        : (u + ' has not responded to this assignment yet'));
+      return this.isMe(u) ? base + ' — click your name to change (no response → accept → decline)' : base;
+    },
+    // The inspector clicks their OWN name: cycles no-response → accepted (green)
+    // → declined (red) → no-response. Saved server-side so every user sees it.
+    async clickAssignee(p, u) {
+      if (!this.isMe(u)) return;
+      const cur = this.acceptStatus(p, u);
+      const next = cur === '' ? 'accepted' : (cur === 'accepted' ? 'declined' : 'none');
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/assignmentstatus', {
+          method: 'POST', json: { username: u, status: next },
+        });
+        if (!res.ok) throw new Error('bad');
+        if (!p.assignmentStatus || typeof p.assignmentStatus !== 'object') p.assignmentStatus = {};
+        if (next === 'none') delete p.assignmentStatus[u]; else p.assignmentStatus[u] = next;
+        this.toast(next === 'accepted' ? 'Assignment accepted — shown green to everyone.'
+          : next === 'declined' ? 'Assignment declined — shown red to everyone.'
+          : 'Assignment response cleared.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save your response.', 'err');
       }
     },
 
