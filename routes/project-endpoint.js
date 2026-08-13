@@ -225,6 +225,24 @@ router.route('/:id/assign')
       }
     });
 
+// Inspector accepts/declines their assignment (visible to all users).
+// body: { username, status: 'accepted' | 'declined' | 'none' }
+router.route('/:id/assignmentstatus')
+    .post(async function (req, res) {
+      try {
+        const projectId = req.params.id;
+        const { username, status } = req.body || {};
+        if (!username || !['accepted', 'declined', 'none'].includes(status)) {
+          return res.status(400).json({ message: "username and status ('accepted'|'declined'|'none') are required" });
+        }
+        const result = await projects.setAssignmentStatus(projectId, username, status);
+        if (result.error) return res.status(result.error.code).json(result);
+        return res.status(201).json(result);
+      } catch (exception) {
+        return res.status(500).json(new newErrorResponse(500, false, exception));
+      }
+    });
+
 
 
 router.route('/:id/unassign')
