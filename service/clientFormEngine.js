@@ -588,6 +588,93 @@ function applyReviewRepairColors(xml){
   return xml;
 }
 
+// Force each major section onto a fresh page (David, Aug 13). The template has
+// NO page breaks - pagination is purely content-height driven, so section
+// headings orphan at the bottom of a page and the matrix table splits, and
+// David has had to nudge text up/down by hand. Add <w:pageBreakBefore/> to each
+// major section heading paragraph so every section starts at the top of a page,
+// regardless of how much content precedes it. Rules:
+//   - Title-styled ALL-CAPS heading lines (report title, the inspection-type
+//     heading) get a break, EXCEPT the 2nd line of a two-line heading (i.e. when
+//     the previous paragraph is itself such a heading) so the two lines stay
+//     together.
+//   - The body-text section headings (COMMENTS - RECOMMENDATIONS / matrix,
+//     REVIEW OF REPAIRS, INVASIVE INSPECTION OF REPAIRS) get a break by name.
+function applyPageBreaks(xml){
+  const BREAK='<w:pageBreakBefore/>';
+  const paraText = (p)=> (p.match(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)||[])
+    .map(t=>t.replace(/<[^>]+>/g,'')).join('')
+    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim();
+  // A Title-styled ALL-CAPS heading line (has real letters, none lower-case).
+  const isCapsTitle = (p)=>{
+    if(!/<w:pStyle w:val="Title"\/>/.test(p)) return false;
+    const t = paraText(p);
+    if(t.length < 3 || t.length > 70) return false;
+    const letters = t.replace(/[^A-Za-z]/g,'');
+    return letters.length >= 3 && t === t.toUpperCase();
+  };
+  const isNamedHeading = (p)=>{
+    const t = paraText(p).toUpperCase();
+    return /COMMENTS\s*-\s*RECOMMENDATIONS/.test(t)
+        || /^REVIEW OF REPAIRS/.test(t)
+        || /INVASIVE INSPECTION OF REPAIRS/.test(t);
+  };
+  // A truly blank spacer paragraph (no text, no field/image/table/bookmark).
+  // NOTE: only paragraphs that are NOT structurally required (i.e. not the
+  // paragraph that must follow a table) are collapsed - we do that by giving
+  // the blank an "empty line" look via a tiny line height rather than deleting
+  // it, so table separators are never removed.
+  const isBlank = (p)=> paraText(p)==='' && !/<w:sdt\b/.test(p) && !/<w:drawing\b/.test(p)
+    && !/<w:pict\b/.test(p) && !/<w:tbl\b/.test(p) && !/<w:bookmarkStart\b/.test(p);
+  const addBreak = (p)=>{
+    if(/<w:pageBreakBefore/.test(p)) return p;               // already has one
+    if(/<w:pStyle\b[^>]*\/>/.test(p))
+      return p.replace(/(<w:pPr>\s*<w:pStyle\b[^>]*\/>)/, '$1'+BREAK);
+    if(/<w:pPr>/.test(p)) return p.replace(/<w:pPr>/, '<w:pPr>'+BREAK);
+    return p.replace(/(<w:p\b[^>]*>)/, '$1<w:pPr>'+BREAK+'</w:pPr>');
+  };
+  // Collapse a blank spacer to ~0 height (keep the paragraph so table structure
+  // stays valid, but stop it from spilling onto a page of its own before a
+  // forced page break). Sets an exact 1-twip line height + no spacing.
+  const collapse = (p)=>{
+    if(/COLLAPSED_SPACER/.test(p)) return p;
+    const spc='<w:spacing w:before="0" w:after="0" w:line="1" w:lineRule="exact"/><!--COLLAPSED_SPACER-->';
+    if(/<w:pPr>/.test(p)){
+      // remove any existing spacing then add ours right after pStyle (or at start)
+      let q=p.replace(/<w:spacing\b[^>]*\/>/g,'');
+      if(/<w:pStyle\b[^>]*\/>/.test(q)) return q.replace(/(<w:pPr>\s*<w:pStyle\b[^>]*\/>)/, '$1'+spc);
+      return q.replace(/<w:pPr>/, '<w:pPr>'+spc);
+    }
+    return p.replace(/(<w:p\b[^>]*>)/, '$1<w:pPr>'+spc+'</w:pPr>');
+  };
+  const matches = [...xml.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+  if(!matches.length) return xml;
+  const caps = matches.map(m=>isCapsTitle(m[0]));
+  const breakIdx = new Set(), collapseIdx = new Set();
+  matches.forEach((m,i)=>{
+    const p = m[0];
+    const brk = isNamedHeading(p) || (caps[i] && !caps[i-1]); // not the 2nd heading line
+    if(brk){
+      breakIdx.add(i);
+      // Collapse (don't delete) the blank spacers right before the break so they
+      // can't spill onto a blank page - the break itself separates the sections.
+      let j = i-1;
+      while(j>=0 && isBlank(matches[j][0])){ collapseIdx.add(j); j--; }
+    }
+  });
+  if(!breakIdx.size) return xml;
+  let out='', cursor=0;
+  matches.forEach((m,i)=>{
+    out += xml.slice(cursor, m.index);
+    if(breakIdx.has(i)) out += addBreak(m[0]);
+    else if(collapseIdx.has(i)) out += collapse(m[0]);
+    else out += m[0];
+    cursor = m.index + m[0].length;
+  });
+  return out + xml.slice(cursor);
+}
+
+module.exports.applyPageBreaks = applyPageBreaks;
 module.exports.applyReviewRepairColors = applyReviewRepairColors;
 module.exports.renderFormHtml = renderFormHtml;
 module.exports.buildLayout = buildLayout;
