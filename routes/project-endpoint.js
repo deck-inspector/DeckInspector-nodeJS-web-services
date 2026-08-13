@@ -840,6 +840,10 @@ async function buildFilledClientForm(req) {
       // clean pagination without hand-nudging text (David, Aug 13).
       xml = engine.applyPageBreaks(xml);
 
+      // Halve the oversized (2.5in) blank Invasive "Repair documentation" cell
+      // so it fits nicely (David, Aug 13).
+      xml = engine.tightenTallCells(xml);
+
       // "Deck Inspectors" -> this client's company name (body text only;
       // header/footer branding is applied separately below).
       try {
