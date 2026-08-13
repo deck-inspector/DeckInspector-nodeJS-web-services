@@ -835,6 +835,11 @@ async function buildFilledClientForm(req) {
       // is chosen, BLACK for NA/blank - consistent form-wide (David, Aug 10).
       xml = engine.applyReviewRepairColors(xml);
 
+      // Force each major section onto a fresh page so headings never orphan at
+      // the bottom of a page and the Inspection Overview matrix never splits -
+      // clean pagination without hand-nudging text (David, Aug 13).
+      xml = engine.applyPageBreaks(xml);
+
       // "Deck Inspectors" -> this client's company name (body text only;
       // header/footer branding is applied separately below).
       try {
