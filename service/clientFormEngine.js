@@ -143,7 +143,20 @@ function fillTextControls(xml, valuesByRef) {
       // blank. Clearing (rather than skipping) wipes any sample/placeholder text
       // baked into the template so blank fields print truly empty.
       const v = valuesByRef[pr.id];
-      block = setSdtText(block, v == null ? '' : String(v));
+      const isBlank = (v == null || String(v).trim() === '');
+      // EXCEPTION: the inspection-type SECTION HEADING (a combo offering
+      // VISUAL/FINAL/INVASIVE INSPECTION). The web form initialises every field
+      // to blank, so if the user doesn't pick a type the heading would be cleared
+      // to nothing and the whole "VISUAL INSPECTION" heading vanishes from the
+      // report (David, Aug 13). A section heading must never be blank — when no
+      // value is chosen, keep the template's baked default so the heading always
+      // prints (still reddened + page-broken downstream). The user's own pick
+      // (non-blank) always overrides.
+      const isInspectionHeading = pr.type === 'combo'
+        && pr.options.some(o => /(VISUAL|FINAL|INVASIVE)\s+INSPECTION/i.test(o.text || ''));
+      if (!(isBlank && isInspectionHeading)) {
+        block = setSdtText(block, v == null ? '' : String(v));
+      }
     }
     out += block;
     cursor = b.end;
