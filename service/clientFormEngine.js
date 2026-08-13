@@ -721,6 +721,20 @@ function applyPageBreaks(xml){
   return out + xml.slice(cursor);
 }
 
+// The Invasive "Repair documentation, invoices and photos..." cell is locked to
+// an exact 2.5in (3600-twip) row height, leaving a big blank area above the one
+// line of text. Halve that row's fixed height so it fits nicely (David, Aug 13).
+// Targets ONLY that row (found by its text), never the other fixed-height cells.
+function tightenTallCells(xml){
+  return xml.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g, (row)=>{
+    const flat = row.replace(/<[^>]+>/g,'').replace(/\s+/g,' ');
+    if(!/invoices/i.test(flat) && !/repair documentation/i.test(flat)) return row;
+    return row.replace(/(<w:trHeight\b[^>]*\bw:val=")(\d+)(")/g,
+      (m,a,v,b)=> a + Math.max(720, Math.round(parseInt(v,10)/2)) + b);
+  });
+}
+
+module.exports.tightenTallCells = tightenTallCells;
 module.exports.applyPageBreaks = applyPageBreaks;
 module.exports.applyReviewRepairColors = applyReviewRepairColors;
 module.exports.renderFormHtml = renderFormHtml;
