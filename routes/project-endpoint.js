@@ -809,15 +809,13 @@ async function buildFilledClientForm(req) {
       const zip = new PizZip(master);
       let xml = zip.file('word/document.xml').asText();
 
-      // Page-edge spacing for the branded header/footer logos. The master's
-      // w:header="1728" pushed the header logo ~1.2in down; header="0/18" jams
-      // it flush to the paper edge (zero top margin). David wants a 1/2in
-      // (720 twips) margin above the header logo and below the footer logo, so
-      // normalise BOTH the header and footer distances to 720. Body margins
-      // (w:top / w:bottom = 1440) are left untouched so pagination stays
-      // identical - pages won't run into each other.
-      xml = xml.replace(/(<w:pgMar\b[^>]*?\bw:header=")\d+(")/g, '$1720$2');
-      xml = xml.replace(/(<w:pgMar\b[^>]*?\bw:footer=")\d+(")/g, '$1720$2');
+      // LAYOUT RULE (David, Aug 13): the output MUST replicate the uploaded
+      // master VERBATIM - alignments, spacing, formatting and page breaks all
+      // come from the master document itself. Do NOT rewrite margins or inject
+      // page breaks here: rewriting w:header/w:footer distances shifted the
+      // body and cascaded EVERY page break from page 2 onward, which is exactly
+      // the drift David reported. The pipeline only fills values, applies the
+      // colour rules, and brands the header/footer.
 
       // Text / dropdown / combo values.
       xml = engine.fillTextControls(xml, values || {});
@@ -835,14 +833,11 @@ async function buildFilledClientForm(req) {
       // is chosen, BLACK for NA/blank - consistent form-wide (David, Aug 10).
       xml = engine.applyReviewRepairColors(xml);
 
-      // Force each major section onto a fresh page so headings never orphan at
-      // the bottom of a page and the Inspection Overview matrix never splits -
-      // clean pagination without hand-nudging text (David, Aug 13).
-      xml = engine.applyPageBreaks(xml);
-
-      // Halve the oversized (2.5in) blank Invasive "Repair documentation" cell
-      // so it fits nicely (David, Aug 13).
-      xml = engine.tightenTallCells(xml);
+      // NOTE: applyPageBreaks / tightenTallCells were REMOVED from this
+      // pipeline (David, Aug 13 pm). They were built for the older repo
+      // template; the current 5.0 master paginates itself, and mutating its
+      // layout at runtime broke the verbatim-match requirement. The master's
+      // own breaks and row heights are authoritative.
 
       // "Deck Inspectors" -> this client's company name (body text only;
       // header/footer branding is applied separately below).
