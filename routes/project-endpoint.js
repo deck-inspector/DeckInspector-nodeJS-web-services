@@ -928,9 +928,21 @@ router.route('/clientformpdf')
   .post(async function (req, res) {
     try {
       const { outBuf, form } = await buildFilledClientForm(req);
+      // LibreOffice (the converter) renders content-control TEXT but drops the
+      // run COLOUR inside a <w:sdt>, so the whole colour scheme (green repair
+      // rows, red PASS/FAIL, the red VISUAL INSPECTION heading) printed black in
+      // the PDF. Flatten the controls to plain runs for the PDF ONLY so the
+      // colours render; the Word download above keeps real editable controls.
+      const PizZip = require('pizzip');
+      const engine = require('../service/clientFormEngine');
+      const pdfZip = new PizZip(outBuf);
+      let pdfXml = pdfZip.file('word/document.xml').asText();
+      pdfXml = engine.flattenContentControls(pdfXml);
+      pdfZip.file('word/document.xml', pdfXml);
+      const flatBuf = pdfZip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
       // Name it .docx for the converter (LibreOffice reads the bytes either way;
       // macros are irrelevant to rendering).
-      const pdf = await convertDocxToPdf(outBuf, (form.label || 'Final Report') + '.docx');
+      const pdf = await convertDocxToPdf(flatBuf, (form.label || 'Final Report') + '.docx');
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${form.label} - completed.pdf"`);
       return res.send(pdf);
