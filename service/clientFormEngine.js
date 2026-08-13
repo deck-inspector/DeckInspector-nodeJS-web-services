@@ -738,6 +738,28 @@ function tightenTallCells(xml){
   });
 }
 
+// Flatten every content control (<w:sdt>) to its inner content, for the PDF
+// path ONLY. LibreOffice (the Gotenberg PDF engine) renders the TEXT of a
+// content control but DROPS the run colour inside it - so the whole colour
+// scheme (green "repairs made" rows, red PASS/FAIL, the red VISUAL INSPECTION
+// heading) came out black in the PDF even though it is correct in the Word
+// download. Stripping the <w:sdt>/<w:sdtPr>/<w:sdtEndPr>/<w:sdtContent> wrapper
+// and keeping the runs (text + colour + checkbox glyph) makes LibreOffice
+// honour the colours. Iterative so nested controls collapse innermost-first.
+// The Word download keeps real editable controls (this is not called there).
+function flattenContentControls(xml){
+  let prev;
+  do {
+    prev = xml;
+    xml = xml.replace(/<w:sdt>(?:(?!<w:sdt>)[\s\S])*?<\/w:sdt>/g, (sdt)=>{
+      const m = sdt.match(/<w:sdtContent>([\s\S]*)<\/w:sdtContent>/);
+      return m ? m[1] : sdt;
+    });
+  } while (xml !== prev);
+  return xml;
+}
+
+module.exports.flattenContentControls = flattenContentControls;
 module.exports.tightenTallCells = tightenTallCells;
 module.exports.applyPageBreaks = applyPageBreaks;
 module.exports.applyReviewRepairColors = applyReviewRepairColors;
