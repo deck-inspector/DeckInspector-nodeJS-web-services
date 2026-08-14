@@ -14,6 +14,7 @@ var tenantRouter = require("./routes/tenants-endpoint");
 var loginRouter = require("./routes/login-endpoint");
 var locationFormRouter = require("./routes/locationform-endpoint");
 var migrateRouter = require("./routes/migrate-endpoint");
+var qboRouter = require("./routes/qbo-endpoint");
 const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
 
@@ -34,6 +35,8 @@ module.exports = function (app) {
   app.use("/api/login", loginRouter);
   app.use("/api/locationforms", locationFormRouter);
   app.use("/api/migrate", migrateRouter);
+  // PUBLIC QuickBooks OAuth callback (state-signed; see routes/qbo-endpoint.js)
+  app.use("/api/qbo", qboRouter);
 };
 
 function authenticateToken(req, res, next) {
