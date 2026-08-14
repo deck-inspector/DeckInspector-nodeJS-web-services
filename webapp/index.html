@@ -459,6 +459,7 @@ input,select{font-family:inherit;font-size:16px}
               <button class="btn btn-inspect" style="flex:1" :disabled="propBusy || !prop.form.property" @click="saveProposal(false)">{{ propBusy ? 'Saving…' : '💾 Save' }}</button>
               <button class="btn btn-dl" style="flex:1" :disabled="propBusy || !prop.form.property" @click="downloadPropWord">&#11015; Word</button>
               <button class="btn btn-dl" style="flex:1" @click="printProposal">&#128424; Print / PDF</button>
+              <button class="btn btn-dl" style="flex:1" title="Open a ready-to-send email in Outlook — attach the downloaded proposal before sending" @click="emailProposal">&#9993; Email (Outlook)</button>
               <button class="btn btn-reports" style="flex:1 1 100%" v-if="prop.status!=='accepted'" :disabled="propConverting || !prop.form.property" @click="acceptProposal(null)">{{ propConverting ? 'Converting…' : '✓ Accepted → Convert to Project' }}</button>
             </div>
           </div>
@@ -2847,6 +2848,36 @@ createApp({
     // The header logo is the signed-in tenant's own logo from the admin
     // panel (Report Header image, or the tenant logo field). No logo set =
     // no logo shown; NEVER another company's branding.
+    // Open Outlook Desktop with a proposal cover email pre-written and
+    // pre-addressed to the proposal's contact (David, Aug 14 - workflow step 1).
+    // mailto: cannot attach files - the user attaches the downloaded Word/PDF.
+    emailProposal() {
+      const f = (this.prop && this.prop.form) || {};
+      const to = (f.contactEmail || '').trim();
+      const propName = f.property || [f.addressStreet, f.addressCity].filter(Boolean).join(', ') || '[Property]';
+      const addr = [f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ') || propName;
+      const who = (f.ownerMgr || '').trim() || '[First Name]';
+      const b = (this.propBranding && this.propBranding.name) ? this.propBranding : (this.brandInfo || {});
+      const co = b.name || 'Deck Inspectors, Inc.';
+      const phone = b.phone || '888-224-0489';
+      const site = (b.website || 'deckinspectors.com').replace(/^https?:\/\//, '');
+      const subject = 'E-3 Inspection Proposal \u2014 ' + propName;
+      const lines = [
+        'Hi ' + who + ',', '',
+        'Thank you for speaking with us about ' + addr + '. Your E-3 inspection proposal is attached.', '',
+        'It covers the scope of the inspection, the elements included, the price, and the timeline \u2014 everything you need to review in one page. The inspection satisfies California\u2019s balcony-and-elevated-elements law (SB 721 for apartments, Civil Code \u00a7 5551 for condos and HOAs), and the report we deliver is formatted for lenders, insurers, and building departments.', '',
+        'To move forward, simply sign the proposal and send it back \u2014 reply to this email with the signed copy and we will get your inspection on the calendar right away.', '',
+        'If you have any questions at all, reply here or call me directly at ' + phone + '. I am happy to walk through it.', '',
+        'Thank you,', '',
+        '[Your Name]',
+        co + ' \u2014 The Original Deck Inspectors\u2122',
+        'E-3 Certified Since 2017 | 18,000+ Inspections Completed',
+        phone + ' | ' + site
+      ];
+      const href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\r\n'));
+      window.location.href = href;
+      this.toast(to ? 'Opening Outlook \u2014 attach the proposal file before sending.' : 'Opening Outlook \u2014 add the client\u2019s email address and attach the proposal.');
+    },
     // Open Outlook Desktop with the review-request email pre-written (David,
     // Aug 14). Templates A-E from the approved "Google Review Request" doc;
     // property address, inspection interval, company name/phone auto-filled.
