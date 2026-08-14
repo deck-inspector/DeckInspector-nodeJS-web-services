@@ -616,6 +616,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="hint">QuickBooks isn&rsquo;t configured on the server yet &mdash; the Intuit app keys need to be added. Ask your administrator.</div>
             </template>
             <template v-else-if="!qbo.connected">
+              <div v-if="qbo.message" class="hint" style="color:#B00020;font-weight:600">{{ qbo.message }}</div>
               <div class="hint">Connect your QuickBooks Online company once, then invoice any inspection from here. QuickBooks emails the invoice with a Pay&nbsp;Now link and this page shows you when it&rsquo;s paid.</div>
               <button class="btn-dl" @click="qboConnect">&#128279; Connect QuickBooks</button>
             </template>
@@ -1326,7 +1327,7 @@ createApp({
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {},
-      qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '' },
+      qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' },
@@ -2892,6 +2893,7 @@ createApp({
         this.qbo.configured = !!j.configured;
         this.qbo.connected = !!j.connected;
         this.qbo.qboCompanyName = j.qboCompanyName || '';
+        this.qbo.message = j.message || '';
         this.qbo.invoice = j.invoice || null;
         const d = j.defaults || {};
         if (!this.qbo.invoice) {
