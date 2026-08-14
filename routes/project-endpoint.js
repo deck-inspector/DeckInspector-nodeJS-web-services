@@ -665,13 +665,16 @@ router.route('/clientform')
 
       const companyIdentifier = req.user && req.user.company;
       let outBuf = master;
-      // Brand with the verbatim-safe helper: floating-anchor images that never
-      // shift the body, and NOTHING is added to a header/footer the master
-      // already fills (the current master carries its own logo + phone +
-      // website line - stamping on top produced doubled branding, David Aug 13).
+      // Visual-Report presentation for the blank too: 0.25in header/footer
+      // clearances + the tenant's admin logo/footer replacing whatever the
+      // master carries (David, Aug 14).
       try {
         const PizZip = require('pizzip');
         const zip = new PizZip(master);
+        let dxml = zip.file('word/document.xml').asText();
+        dxml = dxml.replace(/(<w:pgMar[^>]*?\bw:header=")\d+(")/g, '$1360$2');
+        dxml = dxml.replace(/(<w:pgMar[^>]*?\bw:footer=")\d+(")/g, '$1360$2');
+        zip.file('word/document.xml', dxml);
         await brandClientFormVerbatim(zip, companyIdentifier);
         outBuf = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
       } catch (brandErr) {
@@ -808,13 +811,14 @@ async function buildFilledClientForm(req) {
       const zip = new PizZip(master);
       let xml = zip.file('word/document.xml').asText();
 
-      // LAYOUT RULE (David, Aug 13): the output MUST replicate the uploaded
-      // master VERBATIM - alignments, spacing, formatting and page breaks all
-      // come from the master document itself. Do NOT rewrite margins or inject
-      // page breaks here: rewriting w:header/w:footer distances shifted the
-      // body and cascaded EVERY page break from page 2 onward, which is exactly
-      // the drift David reported. The pipeline only fills values, applies the
-      // colour rules, and brands the header/footer.
+      // PRESENTATION RULE (David, Aug 14, definitive): the report must look
+      // like the VISUAL REPORT the system already makes - centred admin logo
+      // header, admin badge + Footer Text footer, same 0.25in header/footer
+      // clearances - with each SECTION starting at the top of its page. The
+      // master supplies the content/tables; the system supplies the Visual
+      // presentation.
+      xml = xml.replace(/(<w:pgMar[^>]*?\bw:header=")\d+(")/g, '$1360$2');
+      xml = xml.replace(/(<w:pgMar[^>]*?\bw:footer=")\d+(")/g, '$1360$2');
 
       // Text / dropdown / combo values.
       xml = engine.fillTextControls(xml, values || {});
@@ -832,11 +836,15 @@ async function buildFilledClientForm(req) {
       // is chosen, BLACK for NA/blank - consistent form-wide (David, Aug 10).
       xml = engine.applyReviewRepairColors(xml);
 
-      // NOTE: applyPageBreaks / tightenTallCells were REMOVED from this
-      // pipeline (David, Aug 13 pm). They were built for the older repo
-      // template; the current 5.0 master paginates itself, and mutating its
-      // layout at runtime broke the verbatim-match requirement. The master's
-      // own breaks and row heights are authoritative.
+      // Pagination hygiene for the Visual-style geometry: the master paginates
+      // with blank spacer paragraphs tuned to ITS OWN margins, so under the
+      // Visual clearances the sections would drift mid-page. applyPageBreaks
+      // puts each major section at the top of its page (VISUAL INSPECTION
+      // heading red), collapses redundant spacer runs, and keeps the signature
+      // block with its page; tightenTallCells halves the oversized blank
+      // "Repair documentation" cell (David's Aug 13 morning asks).
+      xml = engine.applyPageBreaks(xml);
+      xml = engine.tightenTallCells(xml);
 
       // "Deck Inspectors" -> this client's company name (body text only;
       // header/footer branding is applied separately below).
@@ -906,54 +914,28 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   if (!tenant) return;
   const EMU = 914400;
 
-  // PER-CLIENT BRANDING, always (David, Aug 14: "Each of the Clients has their
-  // own logo and footer. Stop using the wrong Logo header and footer.").
-  // Two cases per header/footer part:
-  //   - Part already DESIGNED in the master (has an image / text - e.g. the
-  //     master's own anchored logo + phone + website line): keep the DESIGN
-  //     exactly (positions, sizes, spacing - so pagination cannot move) but
-  //     SUBSTITUTE the client's identity in place: the image bytes are
-  //     retargeted to the tenant's admin Report Header logo (width re-scaled to
-  //     the tenant logo's aspect at the design's fixed height), the master's
-  //     placeholder phone becomes the tenant's phone, and the master's website
-  //     line becomes the tenant's Footer Text. The master's OLD baked-in logo
-  //     never prints.
-  //   - Part EMPTY: stamp the tenant logo/footer as floating anchors (below).
-  const partHasContent = (xml) =>
-    /<a:blip|<w:drawing|<w:pict\b|<v:imagedata/.test(xml)
-    || xml.replace(/<[^>]+>/g, '').trim().length > 0;
-  const headerNames = Object.keys(zip.files).filter(n => /^word\/header\d+\.xml$/.test(n));
-  const footerNames = Object.keys(zip.files).filter(n => /^word\/footer\d+\.xml$/.test(n));
-  const emptyHeaders = headerNames.filter(n => !partHasContent(zip.file(n).asText()));
-  const emptyFooters = footerNames.filter(n => !partHasContent(zip.file(n).asText()));
-  const designedHeaders = headerNames.filter(n => !emptyHeaders.includes(n));
-  const designedFooters = footerNames.filter(n => !emptyFooters.includes(n));
-
-  const anchoredImageRun = (rid, cx, cy, id, name, vOffEmu) =>
-    '<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="' + id + '" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">'
-    + '<wp:simplePos x="0" y="0"/>'
-    + '<wp:positionH relativeFrom="page"><wp:align>center</wp:align></wp:positionH>'
-    + '<wp:positionV relativeFrom="page"><wp:posOffset>' + vOffEmu + '</wp:posOffset></wp:positionV>'
-    + '<wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
-    + '<wp:wrapNone/>'
-    + '<wp:docPr id="' + id + '" name="' + name + '"/>'
-    + '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
-    + '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
-    + '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
-    + '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
-    + '<pic:nvPicPr><pic:cNvPr id="' + id + '" name="' + name + '"/><pic:cNvPicPr/></pic:nvPicPr>'
-    + '<pic:blipFill><a:blip r:embed="' + rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
-    + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>'
-    + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
-    + '</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>';
-
-  // Insert runs at the end of the FIRST paragraph of a header/footer part
-  // (creating a minimal paragraph only if the part has none).
-  const insertIntoFirstPara = (partXml, runs, rootTag) => {
-    if (/<w:p[ >]/.test(partXml)) return partXml.replace(/<\/w:p>/, runs + '</w:p>');
-    return partXml.replace(new RegExp('(<' + rootTag + '[^>]*>)'), '$1<w:p>' + runs + '</w:p>');
+  // VISUAL-REPORT STYLE BRANDING (David, Aug 14: "The attached [Visual Report]
+  // is the correct logo header and footer... This is what must occur on the
+  // Final Inspection Upon Completion"). The master supplies the CONTENT; the
+  // header/footer presentation is ALWAYS the Visual Report's:
+  //   header = the tenant's admin Report Header logo, 0.75in tall, centred -
+  //            nothing else (no phone, no baked master art);
+  //   footer = the tenant's admin Report Footer image (0.5in, centred) with
+  //            the admin Footer Text under it - same as every Visual Report.
+  // Every header/footer part is REPLACED outright, so whatever art the master
+  // carries can never print. Missing admin assets leave that part empty.
+  const replaceParts = (rootTag, partRe, content) => {
+    for (const name of Object.keys(zip.files)) {
+      const m = name.match(partRe);
+      if (!m) continue;
+      let x = zip.file(name).asText();
+      const rootM = x.match(new RegExp('<' + rootTag + '[^>]*>'));
+      const endI = x.lastIndexOf('</' + rootTag + '>');
+      if (!rootM || endI === -1) continue;
+      x = x.slice(0, rootM.index + rootM[0].length) + content + x.slice(endI);
+      zip.file(name, x);
+    }
   };
-
   const fetchImage = async (url) => {
     const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
     const buf = Buffer.from(resp.data);
@@ -961,104 +943,36 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
     const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'png';
     return { buf, ext, dims: FinalReportGenerator.getImageDims(buf, ext) };
   };
+  const imgPara = (rid, cx, cy, id, name) =>
+    '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>'
+    + FinalReportGenerator.inlineImageXml(rid, cx, cy, id, name) + '</w:p>';
 
-  const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // HEADER - tenant logo, always the ADMIN one.
+  // HEADER: admin logo only, centred (identical geometry to the Visual Report).
   const logoUrl = tenant.icons && tenant.icons.header;
-  let logoImg = null;
   if (logoUrl) {
-    try { logoImg = await fetchImage(logoUrl); } catch (e) { console.error('Client form header logo fetch failed:', e && e.message); }
-  }
-  if (logoImg) {
-    zip.file('word/media/tenantlogo.' + logoImg.ext, logoImg.buf);
-    FinalReportGenerator.ensureContentType(zip, logoImg.ext);
-    const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + logoImg.ext + '"/>';
-
-    // (a) DESIGNED headers: retarget every image in the part to the tenant
-    // logo, keeping the design's own position and HEIGHT (cy) - only the width
-    // is rescaled to the tenant logo's aspect so it is not distorted.
-    for (const name of designedHeaders) {
-      try {
-        const hm = name.match(/^word\/(header\d+)\.xml$/);
-        let hx = zip.file(name).asText();
-        const embeds = [...new Set([...hx.matchAll(/<a:blip r:embed="([^"]+)"/g)].map(m => m[1]))];
-        if (embeds.length) {
-          const relPath = 'word/_rels/' + hm[1] + '.xml.rels';
-          FinalReportGenerator.ensureImageRel(zip, relPath, rel, 'rIdTenantLogo');
-          for (const rid of embeds) hx = hx.split('r:embed="' + rid + '"').join('r:embed="rIdTenantLogo"');
-          // rescale widths at the design's fixed heights (both extent tags)
-          hx = hx.replace(/(<wp:extent cx=")(\d+)(" cy=")(\d+)(")/g, (m, a, cxOld, b, cyv, c) =>
-            a + Math.max(1, Math.round(parseInt(cyv, 10) * logoImg.dims.w / Math.max(1, logoImg.dims.h))) + b + cyv + c);
-          hx = hx.replace(/(<a:ext cx=")(\d+)(" cy=")(\d+)(")/g, (m, a, cxOld, b, cyv, c) =>
-            a + Math.max(1, Math.round(parseInt(cyv, 10) * logoImg.dims.w / Math.max(1, logoImg.dims.h))) + b + cyv + c);
-        }
-        // the design's placeholder phone -> this tenant's phone
-        if (tenant.phone) hx = hx.split('888-224-0489').join(xmlEsc(tenant.phone));
-        zip.file(name, hx);
-      } catch (e) { console.error('Client form header substitution failed for', name, e && e.message); }
-    }
-
-    // (b) EMPTY headers: stamp the tenant logo as a floating anchor (0.5in from
-    // the page top, centred - lives in the top margin band, never pushes the body).
-    if (emptyHeaders.length) {
+    try {
+      const img = await fetchImage(logoUrl);
       const cy = Math.round(0.75 * EMU);
-      const cx = Math.max(1, Math.round(cy * logoImg.dims.w / Math.max(1, logoImg.dims.h)));
-      const run = anchoredImageRun('rIdTenantLogo', cx, cy, 990001, 'TenantLogo', Math.round(0.5 * EMU));
-      for (const name of emptyHeaders) {
+      const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
+      zip.file('word/media/tenantlogo.' + img.ext, img.buf);
+      FinalReportGenerator.ensureContentType(zip, img.ext);
+      const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + img.ext + '"/>';
+      replaceParts('w:hdr', /^word\/(header\d+)\.xml$/, imgPara('rIdTenantLogo', cx, cy, 990001, 'TenantLogo'));
+      for (const name of Object.keys(zip.files)) {
         const hm = name.match(/^word\/(header\d+)\.xml$/);
-        zip.file(name, insertIntoFirstPara(zip.file(name).asText(), run, 'w:hdr'));
-        FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + hm[1] + '.xml.rels', rel, 'rIdTenantLogo');
+        if (hm) FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + hm[1] + '.xml.rels', rel, 'rIdTenantLogo');
       }
-    }
+    } catch (e) { console.error('Client form header logo failed (continuing):', e && e.message); }
   }
 
-  // FOOTER - tenant footer, always the ADMIN one.
+  // FOOTER: admin footer image + Footer Text, centred (Visual Report rules).
   const showLogo = tenant.showFooterlogo !== false;
   const footImgUrl = (showLogo && tenant.icons && tenant.icons.footer) || '';
   const ftext = String(tenant.footerText || '').trim()
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // (a) DESIGNED footers: swap the design's website/footer line for this
-  // tenant's Footer Text in place (same paragraphs, same spacing - pagination
-  // cannot move), and retarget any images to the tenant's footer image.
-  if (designedFooters.length && (ftext || footImgUrl)) {
-    let footImg = null;
-    if (footImgUrl) { try { footImg = await fetchImage(footImgUrl); } catch (e) { console.error('Client form footer image fetch failed:', e && e.message); } }
-    if (footImg) {
-      zip.file('word/media/tenantfooter.' + footImg.ext, footImg.buf);
-      FinalReportGenerator.ensureContentType(zip, footImg.ext);
-    }
-    for (const name of designedFooters) {
-      try {
-        const fm = name.match(/^word\/(footer\d+)\.xml$/);
-        let fx = zip.file(name).asText();
-        if (footImg) {
-          const embeds = [...new Set([...fx.matchAll(/<a:blip r:embed="([^"]+)"/g)].map(m => m[1]))];
-          if (embeds.length) {
-            const frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + footImg.ext + '"/>';
-            FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + fm[1] + '.xml.rels', frel, 'rIdTenantFooter');
-            for (const rid of embeds) fx = fx.split('r:embed="' + rid + '"').join('r:embed="rIdTenantFooter"');
-            fx = fx.replace(/(<wp:extent cx=")(\d+)(" cy=")(\d+)(")/g, (m, a, cxOld, b, cyv, c) =>
-              a + Math.max(1, Math.round(parseInt(cyv, 10) * footImg.dims.w / Math.max(1, footImg.dims.h))) + b + cyv + c);
-            fx = fx.replace(/(<a:ext cx=")(\d+)(" cy=")(\d+)(")/g, (m, a, cxOld, b, cyv, c) =>
-              a + Math.max(1, Math.round(parseInt(cyv, 10) * footImg.dims.w / Math.max(1, footImg.dims.h))) + b + cyv + c);
-          }
-        }
-        if (ftext) {
-          // the master's own site line(s) -> tenant Footer Text (both casings)
-          fx = fx.replace(/>((?:[^<]*?)(?:www\.)?deckinspectors\.com[^<]*)</gi, '>' + ftext + '<');
-        }
-        if (tenant.phone) fx = fx.split('888-224-0489').join(xmlEsc(tenant.phone));
-        zip.file(name, fx);
-      } catch (e) { console.error('Client form footer substitution failed for', name, e && e.message); }
-    }
-  }
-
-  // (b) EMPTY footers: badge floats in the bottom margin band; the footer TEXT
-  // rides inline in the existing empty footer paragraph, centred.
-  if (emptyFooters.length && (footImgUrl || ftext)) {
-    let runs = '';
+  if (footImgUrl || ftext) {
+    let content = '';
+    let frel = '';
     if (footImgUrl) {
       try {
         const img = await fetchImage(footImgUrl);
@@ -1066,25 +980,20 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
         const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
         zip.file('word/media/tenantfooter.' + img.ext, img.buf);
         FinalReportGenerator.ensureContentType(zip, img.ext);
-        const frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + img.ext + '"/>';
-        runs += anchoredImageRun('rIdTenantFooter', cx, cy, 990002, 'TenantFooter', Math.round(9.3 * EMU));
-        for (const name of emptyFooters) {
-          const fm = name.match(/^word\/(footer\d+)\.xml$/);
-          FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + fm[1] + '.xml.rels', frel, 'rIdTenantFooter');
-        }
+        frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + img.ext + '"/>';
+        content += imgPara('rIdTenantFooter', cx, cy, 990002, 'TenantFooter');
       } catch (e) { console.error('Client form footer image failed (continuing):', e && e.message); }
     }
     if (ftext) {
-      runs += '<w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + ftext + '</w:t></w:r>';
+      content += '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + ftext + '</w:t></w:r></w:p>';
     }
-    if (runs) {
-      for (const name of emptyFooters) {
-        let footer = insertIntoFirstPara(zip.file(name).asText(), runs, 'w:ftr');
-        // centre the footer text line (alignment does not change line height)
-        if (ftext && !/<w:jc\b/.test(footer)) {
-          footer = footer.replace(/(<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*?)(<\/w:pPr>)/, '$1<w:jc w:val="center"/>$2');
+    if (content) {
+      replaceParts('w:ftr', /^word\/(footer\d+)\.xml$/, content);
+      if (frel) {
+        for (const name of Object.keys(zip.files)) {
+          const fm = name.match(/^word\/(footer\d+)\.xml$/);
+          if (fm) FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + fm[1] + '.xml.rels', frel, 'rIdTenantFooter');
         }
-        zip.file(name, footer);
       }
     }
   }
