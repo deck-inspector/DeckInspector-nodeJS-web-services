@@ -609,6 +609,37 @@ input,select{font-family:inherit;font-size:16px}
               <button class="btn-dl" @click="emailClient">&#9993; Open in Outlook</button>
             </div>
           </div>
+          <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
+            <h3 style="margin:0 0 4px">Invoicing (QuickBooks)</h3>
+            <div v-if="qbo.loading" class="hint">Checking QuickBooks&hellip;</div>
+            <template v-else-if="!qbo.configured">
+              <div class="hint">QuickBooks isn&rsquo;t configured on the server yet &mdash; the Intuit app keys need to be added. Ask your administrator.</div>
+            </template>
+            <template v-else-if="!qbo.connected">
+              <div class="hint">Connect your QuickBooks Online company once, then invoice any inspection from here. QuickBooks emails the invoice with a Pay&nbsp;Now link and this page shows you when it&rsquo;s paid.</div>
+              <button class="btn-dl" @click="qboConnect">&#128279; Connect QuickBooks</button>
+            </template>
+            <template v-else-if="qbo.invoice">
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0">
+                <span>Invoice <b>#{{ qbo.invoice.docNumber || qbo.invoice.invoiceId }}</b> &mdash; ${{ qbo.invoice.total }}</span>
+                <span v-if="qbo.invoice.paid" style="background:#1F7A33;color:#fff;padding:4px 12px;border-radius:14px;font-weight:700">PAID &#10003;</span>
+                <span v-else style="background:#B7791F;color:#fff;padding:4px 12px;border-radius:14px;font-weight:700">UNPAID</span>
+                <button class="btn-dl" @click="loadQbo">&#8635; Refresh</button>
+              </div>
+              <div v-if="qbo.invoice.paid" class="hint" style="color:#1F7A33;font-weight:600">Client has paid &mdash; use &ldquo;Email the Client (Outlook)&rdquo; above to send the report.</div>
+              <div v-else class="hint">QuickBooks {{ qbo.invoice.emailStatus === 'EmailSent' ? 'emailed the invoice to the client' : 'has the invoice' }} &mdash; refresh after payment to see it flip to PAID.</div>
+            </template>
+            <template v-else>
+              <div class="hint">Creates the invoice in QuickBooks ({{ qbo.qboCompanyName || 'connected' }}) and QuickBooks emails it to the client with a Pay&nbsp;Now link. Amount and email are pre-filled from the accepted proposal &mdash; check them, then send.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+                <div><label style="font-size:11px">Amount ($)</label><input v-model.trim="qbo.amount" style="width:110px" placeholder="1500.00"></div>
+                <div style="flex:1;min-width:200px"><label style="font-size:11px">Client email</label><input v-model.trim="qbo.email" placeholder="client@email.com"></div>
+                <div style="flex:1;min-width:180px"><label style="font-size:11px">Bill to (customer)</label><input v-model.trim="qbo.customerName" placeholder="Property / client name"></div>
+                <button class="btn-dl" :disabled="qbo.creating || !qbo.amount" @click="qboCreateInvoice" style="align-self:flex-end">{{ qbo.creating ? 'Sending&hellip;' : '&#128181; Create &amp; Send Invoice' }}</button>
+              </div>
+              <div v-if="qbo.error" class="hint" style="color:#B00020">{{ qbo.error }}</div>
+            </template>
+          </div>
           <div v-if="clientForms.length" style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
             <h3 style="margin:0 0 4px">Forms</h3>
             <div class="hint">Fill these in online with your company branding, then download as Word or save/print as PDF — or download a blank copy to complete in Microsoft Word.</div>
@@ -1295,6 +1326,7 @@ createApp({
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {},
+      qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' },
@@ -1486,6 +1518,7 @@ createApp({
       this.loadReports();
       if (!this.users.length) this.loadUsers();
       if (!this.clientForms.length) this.loadClientForms();
+      this.loadQbo();
     },
     projectId(p) { return p.id || p._id; },
     async loadReports() {
@@ -2848,6 +2881,54 @@ createApp({
     // The header logo is the signed-in tenant's own logo from the admin
     // panel (Report Header image, or the tenant logo field). No logo set =
     // no logo shown; NEVER another company's branding.
+    // ---- QuickBooks Online (David, Aug 14) ----
+    async loadQbo() {
+      this.qbo.loading = true; this.qbo.error = '';
+      try {
+        const pid = this.projectId(this.current || {});
+        const res = await this.api('/project/qbo/summary?projectId=' + encodeURIComponent(pid || ''));
+        if (!res.ok) throw new Error('bad');
+        const j = await res.json();
+        this.qbo.configured = !!j.configured;
+        this.qbo.connected = !!j.connected;
+        this.qbo.qboCompanyName = j.qboCompanyName || '';
+        this.qbo.invoice = j.invoice || null;
+        const d = j.defaults || {};
+        if (!this.qbo.invoice) {
+          this.qbo.amount = d.amount != null ? String(d.amount) : '';
+          this.qbo.email = d.email || '';
+          this.qbo.customerName = d.customerName || (this.current && this.current.name) || '';
+          this.qbo.description = d.description || '';
+        }
+      } catch (e) {
+        this.qbo.configured = false;
+      } finally { this.qbo.loading = false; }
+    },
+    async qboConnect() {
+      try {
+        const res = await this.api('/project/qbo/connecturl');
+        const j = await res.json();
+        if (!res.ok || !j.url) { this.toast(j.message || 'Could not start the QuickBooks connection.', 'err'); return; }
+        window.open(j.url, '_blank');
+        this.toast('Approve the connection in the QuickBooks tab, then come back and hit \u21bb Refresh.');
+      } catch (e) { this.toast('Could not start the QuickBooks connection.', 'err'); }
+    },
+    async qboCreateInvoice() {
+      this.qbo.creating = true; this.qbo.error = '';
+      try {
+        const res = await this.api('/project/qbo/invoice', { method: 'POST', json: {
+          projectId: this.projectId(this.current || {}),
+          amount: this.qbo.amount, email: this.qbo.email,
+          customerName: this.qbo.customerName, description: this.qbo.description,
+        }});
+        const j = await res.json();
+        if (!res.ok) { this.qbo.error = j.message || 'Could not create the invoice.'; return; }
+        this.toast('Invoice #' + (j.docNumber || j.invoiceId) + (j.emailed ? ' created and emailed by QuickBooks.' : ' created in QuickBooks.'));
+        await this.loadQbo();
+      } catch (e) {
+        this.qbo.error = 'Could not create the invoice.';
+      } finally { this.qbo.creating = false; }
+    },
     // Open Outlook Desktop with a proposal cover email pre-written and
     // pre-addressed to the proposal's contact (David, Aug 14 - workflow step 1).
     // mailto: cannot attach files - the user attaches the downloaded Word/PDF.
