@@ -844,6 +844,9 @@ async function buildFilledClientForm(req) {
         const tenantsDAO = require('../model/tenantsDAO');
         const tenant = await tenantsDAO.getTenantByCompanyIdentifier(req.user && req.user.company);
         if (tenant && tenant.name) xml = engine.substituteCompanyInDoc(xml, tenant.name);
+        // body placeholder phone -> tenant phone (Proposal rule; the letter
+        // page prints the master's phone otherwise)
+        if (tenant && tenant.phone) xml = xml.split('888-224-0489').join(String(tenant.phone).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
       } catch (e) { console.error('Client form company substitution failed:', e && e.message); }
 
       // Photos: each is a URL already uploaded via /api/image/upload. Fetch the
@@ -903,12 +906,19 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   if (!tenant) return;
   const EMU = 914400;
 
-  // VERBATIM GUARD: if the master already fills its header (or footer) with its
-  // own branding - images, logo, phone, website line - ADD NOTHING there. The
-  // current 5.0 master carries its own anchored logo + phone in the header and
-  // the website line in the footer; stamping the tenant logo/badge on top
-  // produced doubled logos and overlapping footer text (David, Aug 13 pm).
-  // A part counts as "filled" if it contains any image/drawing or visible text.
+  // PER-CLIENT BRANDING, always (David, Aug 14: "Each of the Clients has their
+  // own logo and footer. Stop using the wrong Logo header and footer.").
+  // Two cases per header/footer part:
+  //   - Part already DESIGNED in the master (has an image / text - e.g. the
+  //     master's own anchored logo + phone + website line): keep the DESIGN
+  //     exactly (positions, sizes, spacing - so pagination cannot move) but
+  //     SUBSTITUTE the client's identity in place: the image bytes are
+  //     retargeted to the tenant's admin Report Header logo (width re-scaled to
+  //     the tenant logo's aspect at the design's fixed height), the master's
+  //     placeholder phone becomes the tenant's phone, and the master's website
+  //     line becomes the tenant's Footer Text. The master's OLD baked-in logo
+  //     never prints.
+  //   - Part EMPTY: stamp the tenant logo/footer as floating anchors (below).
   const partHasContent = (xml) =>
     /<a:blip|<w:drawing|<w:pict\b|<v:imagedata/.test(xml)
     || xml.replace(/<[^>]+>/g, '').trim().length > 0;
@@ -916,7 +926,8 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   const footerNames = Object.keys(zip.files).filter(n => /^word\/footer\d+\.xml$/.test(n));
   const emptyHeaders = headerNames.filter(n => !partHasContent(zip.file(n).asText()));
   const emptyFooters = footerNames.filter(n => !partHasContent(zip.file(n).asText()));
-  if (!emptyHeaders.length && !emptyFooters.length) return;   // master brands itself - nothing to do
+  const designedHeaders = headerNames.filter(n => !emptyHeaders.includes(n));
+  const designedFooters = footerNames.filter(n => !emptyFooters.includes(n));
 
   const anchoredImageRun = (rid, cx, cy, id, name, vOffEmu) =>
     '<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="' + id + '" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">'
@@ -951,35 +962,102 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
     return { buf, ext, dims: FinalReportGenerator.getImageDims(buf, ext) };
   };
 
-  // HEADER: logo floats 0.5in from the page top, centred - it lives in the
-  // top margin band (master body top is ~1.37in) and never pushes the body.
+  const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // HEADER - tenant logo, always the ADMIN one.
   const logoUrl = tenant.icons && tenant.icons.header;
+  let logoImg = null;
   if (logoUrl) {
-    try {
-      const img = await fetchImage(logoUrl);
+    try { logoImg = await fetchImage(logoUrl); } catch (e) { console.error('Client form header logo fetch failed:', e && e.message); }
+  }
+  if (logoImg) {
+    zip.file('word/media/tenantlogo.' + logoImg.ext, logoImg.buf);
+    FinalReportGenerator.ensureContentType(zip, logoImg.ext);
+    const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + logoImg.ext + '"/>';
+
+    // (a) DESIGNED headers: retarget every image in the part to the tenant
+    // logo, keeping the design's own position and HEIGHT (cy) - only the width
+    // is rescaled to the tenant logo's aspect so it is not distorted.
+    for (const name of designedHeaders) {
+      try {
+        const hm = name.match(/^word\/(header\d+)\.xml$/);
+        let hx = zip.file(name).asText();
+        const embeds = [...new Set([...hx.matchAll(/<a:blip r:embed="([^"]+)"/g)].map(m => m[1]))];
+        if (embeds.length) {
+          const relPath = 'word/_rels/' + hm[1] + '.xml.rels';
+          FinalReportGenerator.ensureImageRel(zip, relPath, rel, 'rIdTenantLogo');
+          for (const rid of embeds) hx = hx.split('r:embed="' + rid + '"').join('r:embed="rIdTenantLogo"');
+          // rescale widths at the design's fixed heights (both extent tags)
+          hx = hx.replace(/(<wp:extent cx=")(\d+)(" cy=")(\d+)(")/g, (m, a, cxOld, b, cyv, c) =>
+            a + Math.max(1, Math.round(parseInt(cyv, 10) * logoImg.dims.w / Math.max(1, logoImg.dims.h))) + b + cyv + c);
+          hx = hx.replace(/(<a:ext cx=")(\d+)(" cy=")(\d+)(")/g, (m, a, cxOld, b, cyv, c) =>
+            a + Math.max(1, Math.round(parseInt(cyv, 10) * logoImg.dims.w / Math.max(1, logoImg.dims.h))) + b + cyv + c);
+        }
+        // the design's placeholder phone -> this tenant's phone
+        if (tenant.phone) hx = hx.split('888-224-0489').join(xmlEsc(tenant.phone));
+        zip.file(name, hx);
+      } catch (e) { console.error('Client form header substitution failed for', name, e && e.message); }
+    }
+
+    // (b) EMPTY headers: stamp the tenant logo as a floating anchor (0.5in from
+    // the page top, centred - lives in the top margin band, never pushes the body).
+    if (emptyHeaders.length) {
       const cy = Math.round(0.75 * EMU);
-      const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
-      zip.file('word/media/tenantlogo.' + img.ext, img.buf);
-      FinalReportGenerator.ensureContentType(zip, img.ext);
-      const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + img.ext + '"/>';
+      const cx = Math.max(1, Math.round(cy * logoImg.dims.w / Math.max(1, logoImg.dims.h)));
       const run = anchoredImageRun('rIdTenantLogo', cx, cy, 990001, 'TenantLogo', Math.round(0.5 * EMU));
       for (const name of emptyHeaders) {
         const hm = name.match(/^word\/(header\d+)\.xml$/);
         zip.file(name, insertIntoFirstPara(zip.file(name).asText(), run, 'w:hdr'));
         FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + hm[1] + '.xml.rels', rel, 'rIdTenantLogo');
       }
-    } catch (e) { console.error('Client form header logo failed (continuing):', e && e.message); }
+    }
   }
 
-  // FOOTER: badge floats in the bottom margin band (top edge 9.3in on the
-  // 11in page - just above the footer text line at ~9.8in); the footer TEXT
-  // rides inline in the existing empty footer paragraph (8pt text does not
-  // grow the paragraph's line), centred.
+  // FOOTER - tenant footer, always the ADMIN one.
   const showLogo = tenant.showFooterlogo !== false;
   const footImgUrl = (showLogo && tenant.icons && tenant.icons.footer) || '';
   const ftext = String(tenant.footerText || '').trim()
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  if (footImgUrl || ftext) {
+
+  // (a) DESIGNED footers: swap the design's website/footer line for this
+  // tenant's Footer Text in place (same paragraphs, same spacing - pagination
+  // cannot move), and retarget any images to the tenant's footer image.
+  if (designedFooters.length && (ftext || footImgUrl)) {
+    let footImg = null;
+    if (footImgUrl) { try { footImg = await fetchImage(footImgUrl); } catch (e) { console.error('Client form footer image fetch failed:', e && e.message); } }
+    if (footImg) {
+      zip.file('word/media/tenantfooter.' + footImg.ext, footImg.buf);
+      FinalReportGenerator.ensureContentType(zip, footImg.ext);
+    }
+    for (const name of designedFooters) {
+      try {
+        const fm = name.match(/^word\/(footer\d+)\.xml$/);
+        let fx = zip.file(name).asText();
+        if (footImg) {
+          const embeds = [...new Set([...fx.matchAll(/<a:blip r:embed="([^"]+)"/g)].map(m => m[1]))];
+          if (embeds.length) {
+            const frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + footImg.ext + '"/>';
+            FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + fm[1] + '.xml.rels', frel, 'rIdTenantFooter');
+            for (const rid of embeds) fx = fx.split('r:embed="' + rid + '"').join('r:embed="rIdTenantFooter"');
+            fx = fx.replace(/(<wp:extent cx=")(\d+)(" cy=")(\d+)(")/g, (m, a, cxOld, b, cyv, c) =>
+              a + Math.max(1, Math.round(parseInt(cyv, 10) * footImg.dims.w / Math.max(1, footImg.dims.h))) + b + cyv + c);
+            fx = fx.replace(/(<a:ext cx=")(\d+)(" cy=")(\d+)(")/g, (m, a, cxOld, b, cyv, c) =>
+              a + Math.max(1, Math.round(parseInt(cyv, 10) * footImg.dims.w / Math.max(1, footImg.dims.h))) + b + cyv + c);
+          }
+        }
+        if (ftext) {
+          // the master's own site line(s) -> tenant Footer Text (both casings)
+          fx = fx.replace(/>((?:[^<]*?)(?:www\.)?deckinspectors\.com[^<]*)</gi, '>' + ftext + '<');
+        }
+        if (tenant.phone) fx = fx.split('888-224-0489').join(xmlEsc(tenant.phone));
+        zip.file(name, fx);
+      } catch (e) { console.error('Client form footer substitution failed for', name, e && e.message); }
+    }
+  }
+
+  // (b) EMPTY footers: badge floats in the bottom margin band; the footer TEXT
+  // rides inline in the existing empty footer paragraph, centred.
+  if (emptyFooters.length && (footImgUrl || ftext)) {
     let runs = '';
     if (footImgUrl) {
       try {
