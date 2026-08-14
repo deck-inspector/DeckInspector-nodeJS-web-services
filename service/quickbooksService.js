@@ -25,6 +25,28 @@ function basicAuth() {
   return "Basic " + Buffer.from(process.env.QBO_CLIENT_ID + ":" + process.env.QBO_CLIENT_SECRET).toString("base64");
 }
 
+// ---- Token security (Intuit payment-processing security rules) ----
+// ACCESS tokens live in VOLATILE MEMORY ONLY (this process Map) - they are
+// never written to the database. REFRESH tokens are ENCRYPTED (AES-256-GCM,
+// key derived from the app's client secret) before being stored.
+const TOKEN_MEM = new Map();   // companyIdentifier -> { accessToken, accessExpiresAt }
+
+function encKey() {
+  return crypto.createHash("sha256").update("qbo-token-v1:" + process.env.QBO_CLIENT_SECRET).digest();
+}
+function encryptToken(s) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", encKey(), iv);
+  const ct = Buffer.concat([c.update(String(s), "utf8"), c.final()]);
+  return Buffer.concat([iv, c.getAuthTag(), ct]).toString("base64");
+}
+function decryptToken(b64) {
+  const b = Buffer.from(b64, "base64");
+  const d = crypto.createDecipheriv("aes-256-gcm", encKey(), b.subarray(0, 12));
+  d.setAuthTag(b.subarray(12, 28));
+  return Buffer.concat([d.update(b.subarray(28)), d.final()]).toString("utf8");
+}
+
 // State ties the OAuth callback (which arrives with no JWT) to the tenant that
 // started it, signed so it cannot be forged.
 function signState(companyIdentifier) {
@@ -68,39 +90,47 @@ async function tokenRequest(params) {
 async function completeConnect(companyIdentifier, code, realmId) {
   const tok = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: process.env.QBO_REDIRECT_URI });
   const now = Date.now();
+  // access token: VOLATILE MEMORY ONLY - never persisted
+  TOKEN_MEM.set(companyIdentifier, { accessToken: tok.access_token, accessExpiresAt: now + (tok.expires_in || 3600) * 1000 });
   const conn = {
     realmId,
-    accessToken: tok.access_token,
-    refreshToken: tok.refresh_token,
-    accessExpiresAt: now + (tok.expires_in || 3600) * 1000,
+    refreshTokenEnc: encryptToken(tok.refresh_token),   // encrypted at rest
     refreshExpiresAt: now + (tok.x_refresh_token_expires_in || 8640000) * 1000,
   };
   // grab the QBO company name for the status display (best effort)
   try {
     const r = await fetch(apiBase() + "/v3/company/" + realmId + "/companyinfo/" + realmId + "?minorversion=75",
-      { headers: { Authorization: "Bearer " + conn.accessToken, Accept: "application/json" } });
+      { headers: { Authorization: "Bearer " + tok.access_token, Accept: "application/json" } });
     if (r.ok) { const j = await r.json(); conn.qboCompanyName = j.CompanyInfo && j.CompanyInfo.CompanyName; }
   } catch (e) { /* non-fatal */ }
   await qboDAO.upsertConnection(companyIdentifier, conn);
-  return conn;
+  return { realmId, accessToken: tok.access_token, qboCompanyName: conn.qboCompanyName };
 }
 
-// Fresh access token, refreshing (and persisting the ROTATED refresh token)
-// when it is inside 5 minutes of expiry.
+// Fresh access token: served from VOLATILE MEMORY when still valid; otherwise
+// the encrypted refresh token is decrypted, exchanged, and the ROTATED refresh
+// token is re-encrypted and persisted. Access tokens never touch the database.
 async function freshConnection(companyIdentifier) {
   const conn = await qboDAO.getConnection(companyIdentifier);
   if (!conn) return null;
-  if (Date.now() < (conn.accessExpiresAt || 0) - 5 * 60 * 1000) return conn;
-  const tok = await tokenRequest({ grant_type: "refresh_token", refresh_token: conn.refreshToken });
+  const mem = TOKEN_MEM.get(companyIdentifier);
+  if (mem && Date.now() < (mem.accessExpiresAt || 0) - 5 * 60 * 1000) {
+    return { realmId: conn.realmId, accessToken: mem.accessToken, qboCompanyName: conn.qboCompanyName };
+  }
+  // legacy plaintext field (pre-encryption docs) is honoured once, then upgraded
+  const storedRefresh = conn.refreshTokenEnc ? decryptToken(conn.refreshTokenEnc) : conn.refreshToken;
+  if (!storedRefresh) return null;
+  const tok = await tokenRequest({ grant_type: "refresh_token", refresh_token: storedRefresh });
   const now = Date.now();
-  const updated = Object.assign({}, conn, {
-    accessToken: tok.access_token,
-    refreshToken: tok.refresh_token || conn.refreshToken,
-    accessExpiresAt: now + (tok.expires_in || 3600) * 1000,
+  TOKEN_MEM.set(companyIdentifier, { accessToken: tok.access_token, accessExpiresAt: now + (tok.expires_in || 3600) * 1000 });
+  await qboDAO.upsertConnection(companyIdentifier, {
+    realmId: conn.realmId,
+    qboCompanyName: conn.qboCompanyName,
+    refreshTokenEnc: encryptToken(tok.refresh_token || storedRefresh),
     refreshExpiresAt: now + (tok.x_refresh_token_expires_in || 8640000) * 1000,
+    accessToken: undefined, refreshToken: undefined,   // scrub any legacy plaintext
   });
-  await qboDAO.upsertConnection(companyIdentifier, updated);
-  return updated;
+  return { realmId: conn.realmId, accessToken: tok.accessToken || tok.access_token, qboCompanyName: conn.qboCompanyName };
 }
 
 async function qapi(conn, method, path, body) {
