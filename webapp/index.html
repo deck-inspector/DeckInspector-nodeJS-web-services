@@ -2941,7 +2941,6 @@ createApp({
       const b = (this.propBranding && this.propBranding.name) ? this.propBranding : (this.brandInfo || {});
       const co = b.name || 'Deck Inspectors, Inc.';
       const phone = b.phone || '888-224-0489';
-      const site = (b.website || 'deckinspectors.com').replace(/^https?:\/\//, '');
       const subject = 'E-3 Inspection Proposal \u2014 ' + propName;
       const lines = [
         'Hi ' + who + ',', '',
@@ -2949,12 +2948,8 @@ createApp({
         'It covers the scope of the inspection, the elements included, the price, and the timeline \u2014 everything you need to review in one page. The inspection satisfies California\u2019s balcony-and-elevated-elements law (SB 721 for apartments, Civil Code \u00a7 5551 for condos and HOAs), and the report we deliver is formatted for lenders, insurers, and building departments.', '',
         'To move forward, simply sign the proposal and send it back \u2014 reply to this email with the signed copy and we will get your inspection on the calendar right away.', '',
         'If you have any questions at all, reply here or call me directly at ' + phone + '. I am happy to walk through it.', '',
-        'Thank you,', '',
-        '[Your Name]',
-        co + ' \u2014 The Original Deck Inspectors\u2122',
-        'E-3 Certified Since 2017 | 18,000+ Inspections Completed',
-        phone + ' | ' + site
-      ];
+        'Thank you,'
+      ];   // no signature block - Outlook appends the user's own signature
       const href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\r\n'));
       window.location.href = href;
       this.toast(to ? 'Opening Outlook \u2014 attach the proposal file before sending.' : 'Opening Outlook \u2014 add the client\u2019s email address and attach the proposal.');
@@ -2972,9 +2967,8 @@ createApp({
       const b = this.brandInfo || {};
       const co = b.name || 'Deck Inspectors, Inc.';
       const phone = b.phone || '888-224-0489';
-      const site = (b.website || 'deckinspectors.com').replace(/^https?:\/\//, '');
       const REVIEW = 'https://g.page/r/CRnBHbgS7E2bEBM/review';
-      const sig = ['[Your Name]', co + ' \u2014 The Original Deck Inspectors\u2122', 'E-3 Certified Since 2017 | 18,000+ Inspections Completed', phone + ' | ' + site];
+      // No signature block: Outlook appends the user's own signature (David, Aug 14).
       let subject = '', lines = [];
       if (this.emailTpl === 'A') {
         subject = 'Your E-3 inspection report for ' + addr;
@@ -2984,14 +2978,14 @@ createApp({
           'If anything in the report raises a question, reply here or call me directly at ' + phone + '.', '',
           'One small favor. If we made this straightforward for you, would you take thirty seconds to leave a Google review? Most owners find us by searching, and an honest word from someone who has actually used us is the single biggest reason the next one calls a certified E-3 inspector instead of taking their chances.', '',
           'Leave a review here:', REVIEW, '',
-          'Thank you for trusting us with your property.', ''].concat(sig);
+          'Thank you for trusting us with your property.'];
       } else if (this.emailTpl === 'B') {
         subject = 'Your E-3 inspection report for ' + addr + ' \u2014 findings and next steps';
         lines = ['Hi [First Name],', '',
           'Your completed E-3 Visual Inspection Report for ' + addr + ' is attached. We did identify conditions that need attention, and I want to make sure you know exactly what they mean before you read through it.', '',
           'Every finding in the report is ranked by urgency. [Items marked immediate need to be addressed promptly / Nothing we found is an immediate life-safety hazard], and the remainder go into a documented repair timeline rather than needing action this week. Finding these now is the point of the inspection \u2014 the same damage discovered during an escrow or after a failure is dramatically more expensive and far less within your control.', '',
           'Here is what happens next. Once repairs are complete, we return and issue a Final Report confirming the work. That is the document your lender, insurer, or city will want, and it is what closes out your compliance obligation.', '',
-          'I would rather walk you through the findings than have you interpret them alone. Reply here or call me at ' + phone + ' and we will go through it together \u2014 there is no charge for that conversation.', ''].concat(sig);
+          'I would rather walk you through the findings than have you interpret them alone. Reply here or call me at ' + phone + ' and we will go through it together \u2014 there is no charge for that conversation.'];
       } else if (this.emailTpl === 'D') {
         subject = 'E-3 inspection report \u2014 ' + assoc;
         lines = ['Hi [First Name],', '',
@@ -2999,14 +2993,13 @@ createApp({
           'A note the board may find useful: this statute permits only licensed architects and licensed structural engineers to perform and stamp condo and HOA inspections. Contractors and certified building inspectors are not eligible, even though they qualify for apartment buildings under SB 721. Our inspections are performed by our licensed structural engineers, which is why this report will hold up if it is ever questioned during a sale, a claim, or a code review.', '',
           'If the board would like us to walk through the findings at a meeting, we are glad to do that at no charge \u2014 it usually takes fifteen minutes and saves a lot of back-and-forth.', '',
           'If our work made this requirement easier for you to manage, a short Google review would help other associations facing the same question find a firm that is actually eligible to do their inspection:', REVIEW, '',
-          'Best regards,', ''].concat(sig);
+          'Best regards,'];
       } else if (this.emailTpl === 'E') {
         subject = 'Quick favor, [First Name]?';
         lines = ['Hi [First Name],', '',
           'Just checking that the E-3 report for ' + addr + ' covered everything you needed. If anything is unclear, reply here and I will sort it out.', '',
           'If it was helpful, a quick Google review would mean a lot \u2014 it is how most of our clients find us:', REVIEW, '',
           'Thanks again,', '',
-          '[Your Name] | ' + co + ' | ' + phone, '',
           co + ', [street address], [city], CA [ZIP]',
           'Prefer not to receive follow-ups like this? Reply with \u201cno thanks\u201d and we will not send another.'];
       } else {
@@ -3017,7 +3010,7 @@ createApp({
           'Thank you for seeing this through. Plenty of owners let a findings report sit in a drawer; you dealt with it, and your building is genuinely safer for it.', '',
           'If we made a confusing state requirement manageable, would you take thirty seconds to leave us a Google review? Owners and HOA boards facing this same deadline are searching right now, and most of them cannot tell a certified E-3 inspector from someone who is not legally eligible to do the work. A sentence from you is worth more than anything we could say about ourselves.', '',
           'Leave a review here:', REVIEW, '',
-          'It is genuinely appreciated.', ''].concat(sig);
+          'It is genuinely appreciated.'];
       }
       const href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\r\n'));
       window.location.href = href;
