@@ -1122,6 +1122,89 @@ router.route('/proposals')
       }
     })
 
+// ---------------- QuickBooks Online (David, Aug 14) ----------------
+// Per-tenant connection; invoice created from the accepted proposal's price;
+// QBO emails the invoice; the app shows a Paid badge from the live balance.
+const qboService = require('../service/quickbooksService');
+const qboDAO = require('../model/qboDAO');
+
+function parseMoney(v) {
+  const m = String(v == null ? '' : v).replace(/,/g, '').match(/\$?\s*(\d+(?:\.\d{1,2})?)/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+// Connection status + a ready-to-confirm invoice picture for one project.
+router.route('/qbo/summary')
+  .get(async function (req, res) {
+    try {
+      const cid = req.user && req.user.company;
+      const out = { configured: qboService.configured(), connected: false };
+      if (!out.configured) return res.status(200).json(out);
+      const conn = await qboDAO.getConnection(cid);
+      if (conn) { out.connected = true; out.qboCompanyName = conn.qboCompanyName || ''; }
+      const projectId = (req.query.projectId || '').toString();
+      if (projectId) {
+        const ref = await qboDAO.getInvoiceRef(projectId);
+        if (ref && ref.invoiceId && out.connected) {
+          try { out.invoice = await qboService.invoiceStatus(cid, ref.invoiceId); }
+          catch (e) { out.invoice = { invoiceId: ref.invoiceId, error: 'Could not reach QuickBooks: ' + e.message }; }
+        }
+        // defaults from the accepted proposal that became this project
+        const prop = await qboDAO.getProposalByProjectId(projectId);
+        if (prop && prop.form) {
+          const f = prop.form;
+          out.defaults = {
+            customerName: f.property || prop.name || '',
+            email: f.contactEmail || '',
+            amount: parseMoney(f.values && (f.values[10] != null ? f.values[10] : f.values['10'])),
+            description: 'E-3 Inspection \u2014 ' + ([f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ') || f.property || ''),
+          };
+        }
+      }
+      return res.status(200).json(out);
+    } catch (err) {
+      console.error('QBO summary failed:', err && err.message);
+      return res.status(500).json({ message: 'Could not read QuickBooks status.' });
+    }
+  });
+
+// Start the connect flow: hand the app the Intuit authorize URL.
+router.route('/qbo/connecturl')
+  .get(async function (req, res) {
+    try {
+      if (!qboService.configured()) return res.status(400).json({ message: 'QuickBooks keys are not configured on the server yet.' });
+      return res.status(200).json({ url: qboService.authorizeUrl(req.user && req.user.company) });
+    } catch (err) {
+      return res.status(500).json({ message: 'Could not start the QuickBooks connection.' });
+    }
+  });
+
+// Create the invoice in QBO and have QBO email it to the client.
+router.route('/qbo/invoice')
+  .post(async function (req, res) {
+    try {
+      const cid = req.user && req.user.company;
+      const { projectId, amount, email, customerName, description } = req.body || {};
+      if (!projectId) return res.status(400).json({ message: 'projectId is required.' });
+      const amt = parseMoney(amount);
+      if (!amt || amt <= 0) return res.status(400).json({ message: 'A valid invoice amount is required.' });
+      const existing = await qboDAO.getInvoiceRef(projectId);
+      if (existing && existing.invoiceId) return res.status(409).json({ message: 'An invoice already exists for this project (#' + (existing.docNumber || existing.invoiceId) + ').' });
+      const result = await qboService.createAndSendInvoice(cid, {
+        customerName: customerName || 'Client', email: (email || '').trim(),
+        amount: amt, description: description || 'E-3 Inspection',
+      });
+      await qboDAO.upsertInvoiceRef(projectId, {
+        companyIdentifier: cid, invoiceId: result.invoiceId,
+        docNumber: result.docNumber, total: result.total, emailed: result.emailed,
+      });
+      return res.status(200).json(result);
+    } catch (err) {
+      console.error('QBO invoice failed:', err && err.message);
+      return res.status(500).json({ message: 'Could not create the invoice: ' + (err && err.message) });
+    }
+  });
+
 router.route('/proposals/save')
     .post(async function (req, res){
       try{
