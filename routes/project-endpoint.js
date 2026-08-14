@@ -1140,7 +1140,19 @@ router.route('/qbo/summary')
       const cid = req.user && req.user.company;
       const out = { configured: qboService.configured(), connected: false };
       if (!out.configured) return res.status(200).json(out);
-      const conn = await qboDAO.getConnection(cid);
+      // Validate the connection by actually refreshing the token when needed.
+      // If Intuit rejects the refresh (expired/revoked after 100 days of
+      // disuse, or access revoked in QBO), tell the app to ask the customer to
+      // RECONNECT rather than silently failing (Intuit questionnaire Q4).
+      let conn = null;
+      try { conn = await qboService.freshConnection(cid); }
+      catch (tokenErr) {
+        console.error('QBO token refresh failed - asking user to reconnect:', tokenErr && tokenErr.message);
+        out.connected = false;
+        out.reconnect = true;
+        out.message = 'Your QuickBooks connection has expired or was revoked - please reconnect.';
+        return res.status(200).json(out);
+      }
       if (conn) { out.connected = true; out.qboCompanyName = conn.qboCompanyName || ''; }
       const projectId = (req.query.projectId || '').toString();
       if (projectId) {
