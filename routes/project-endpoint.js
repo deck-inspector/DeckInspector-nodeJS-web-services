@@ -225,24 +225,6 @@ router.route('/:id/assign')
       }
     });
 
-// Inspector accepts/declines their assignment (visible to all users).
-// body: { username, status: 'accepted' | 'declined' | 'none' }
-router.route('/:id/assignmentstatus')
-    .post(async function (req, res) {
-      try {
-        const projectId = req.params.id;
-        const { username, status } = req.body || {};
-        if (!username || !['accepted', 'declined', 'none'].includes(status)) {
-          return res.status(400).json({ message: "username and status ('accepted'|'declined'|'none') are required" });
-        }
-        const result = await projects.setAssignmentStatus(projectId, username, status);
-        if (result.error) return res.status(result.error.code).json(result);
-        return res.status(201).json(result);
-      } catch (exception) {
-        return res.status(500).json(new newErrorResponse(500, false, exception));
-      }
-    });
-
 
 
 router.route('/:id/unassign')
@@ -683,15 +665,14 @@ router.route('/clientform')
 
       const companyIdentifier = req.user && req.user.company;
       let outBuf = master;
-      // Stamp the tenant's admin Report Header logo + Report Footer - the SAME
-      // functions the Final Report uses. They only rewrite header/footer XML,
-      // so dropdowns, content controls and (for the .docm) macros survive. Any
-      // failure falls back to the un-branded master rather than blocking.
+      // Brand with the verbatim-safe helper: floating-anchor images that never
+      // shift the body, and NOTHING is added to a header/footer the master
+      // already fills (the current master carries its own logo + phone +
+      // website line - stamping on top produced doubled branding, David Aug 13).
       try {
         const PizZip = require('pizzip');
         const zip = new PizZip(master);
-        await FinalReportGenerator.injectTenantLogo(zip, companyIdentifier);
-        await FinalReportGenerator.injectTenantFooter(zip, companyIdentifier);
+        await brandClientFormVerbatim(zip, companyIdentifier);
         outBuf = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
       } catch (brandErr) {
         console.error('Client form branding failed, sending un-branded master:', brandErr && brandErr.message);
@@ -922,6 +903,21 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   if (!tenant) return;
   const EMU = 914400;
 
+  // VERBATIM GUARD: if the master already fills its header (or footer) with its
+  // own branding - images, logo, phone, website line - ADD NOTHING there. The
+  // current 5.0 master carries its own anchored logo + phone in the header and
+  // the website line in the footer; stamping the tenant logo/badge on top
+  // produced doubled logos and overlapping footer text (David, Aug 13 pm).
+  // A part counts as "filled" if it contains any image/drawing or visible text.
+  const partHasContent = (xml) =>
+    /<a:blip|<w:drawing|<w:pict\b|<v:imagedata/.test(xml)
+    || xml.replace(/<[^>]+>/g, '').trim().length > 0;
+  const headerNames = Object.keys(zip.files).filter(n => /^word\/header\d+\.xml$/.test(n));
+  const footerNames = Object.keys(zip.files).filter(n => /^word\/footer\d+\.xml$/.test(n));
+  const emptyHeaders = headerNames.filter(n => !partHasContent(zip.file(n).asText()));
+  const emptyFooters = footerNames.filter(n => !partHasContent(zip.file(n).asText()));
+  if (!emptyHeaders.length && !emptyFooters.length) return;   // master brands itself - nothing to do
+
   const anchoredImageRun = (rid, cx, cy, id, name, vOffEmu) =>
     '<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="' + id + '" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">'
     + '<wp:simplePos x="0" y="0"/>'
@@ -967,9 +963,8 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
       FinalReportGenerator.ensureContentType(zip, img.ext);
       const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + img.ext + '"/>';
       const run = anchoredImageRun('rIdTenantLogo', cx, cy, 990001, 'TenantLogo', Math.round(0.5 * EMU));
-      for (const name of Object.keys(zip.files)) {
+      for (const name of emptyHeaders) {
         const hm = name.match(/^word\/(header\d+)\.xml$/);
-        if (!hm) continue;
         zip.file(name, insertIntoFirstPara(zip.file(name).asText(), run, 'w:hdr'));
         FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + hm[1] + '.xml.rels', rel, 'rIdTenantLogo');
       }
@@ -995,9 +990,8 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
         FinalReportGenerator.ensureContentType(zip, img.ext);
         const frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + img.ext + '"/>';
         runs += anchoredImageRun('rIdTenantFooter', cx, cy, 990002, 'TenantFooter', Math.round(9.3 * EMU));
-        for (const name of Object.keys(zip.files)) {
+        for (const name of emptyFooters) {
           const fm = name.match(/^word\/(footer\d+)\.xml$/);
-          if (!fm) continue;
           FinalReportGenerator.ensureImageRel(zip, 'word/_rels/' + fm[1] + '.xml.rels', frel, 'rIdTenantFooter');
         }
       } catch (e) { console.error('Client form footer image failed (continuing):', e && e.message); }
@@ -1006,8 +1000,7 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
       runs += '<w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + ftext + '</w:t></w:r>';
     }
     if (runs) {
-      for (const name of Object.keys(zip.files)) {
-        if (!/^word\/footer\d+\.xml$/.test(name)) continue;
+      for (const name of emptyFooters) {
         let footer = insertIntoFirstPara(zip.file(name).asText(), runs, 'w:ftr');
         // centre the footer text line (alignment does not change line height)
         if (ftext && !/<w:jc\b/.test(footer)) {
