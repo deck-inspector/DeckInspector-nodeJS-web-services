@@ -83,7 +83,10 @@ async function tokenRequest(params) {
     headers: { Authorization: basicAuth(), "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams(params).toString(),
   });
-  if (!resp.ok) throw new Error("QBO token request failed: " + resp.status + " " + (await resp.text()).slice(0, 300));
+  if (!resp.ok) {
+    const tid = resp.headers.get("intuit_tid") || "n/a";
+    throw new Error("QBO token request failed: " + resp.status + " intuit_tid=" + tid + " " + (await resp.text()).slice(0, 300));
+  }
   return resp.json();
 }
 
@@ -140,7 +143,11 @@ async function qapi(conn, method, path, body) {
     headers: { Authorization: "Bearer " + conn.accessToken, Accept: "application/json", "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!resp.ok) throw new Error("QBO " + method + " " + path + " -> " + resp.status + " " + (await resp.text()).slice(0, 400));
+  // intuit_tid: Intuit's per-request trace id - captured on every call and
+  // included in logs/errors so Intuit support can trace issues (questionnaire).
+  const tid = resp.headers.get("intuit_tid") || "n/a";
+  if (!resp.ok) throw new Error("QBO " + method + " " + path + " -> " + resp.status + " intuit_tid=" + tid + " " + (await resp.text()).slice(0, 400));
+  if (method !== "GET") console.log("QBO " + method + " " + path.split("?")[0] + " ok intuit_tid=" + tid);
   return resp.json();
 }
 
