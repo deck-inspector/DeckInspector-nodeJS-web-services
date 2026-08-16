@@ -59,6 +59,8 @@ input,select{font-family:inherit;font-size:16px}
 .search .icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ink-soft)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
 .pcard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .15s}
+.pcard.upcoming{background:#F1FAF1;border:2px solid #2E9E4F;box-shadow:0 2px 10px rgba(46,158,79,.18)}
+.pcard.upcoming .meta .chip.open{background:#DCF3E1;color:#176A33}
 .pcard:hover{box-shadow:0 6px 22px rgba(28,39,51,.14)}
 .pcard .thumb{height:150px;background:#e7edf2 center/cover no-repeat;position:relative}
 .pcard .thumb .noimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#a9b8c4;font-size:40px}
@@ -363,7 +365,7 @@ input,select{font-family:inherit;font-size:16px}
         <div class="empty" v-if="loadingProjects">Loading projects…</div>
         <div class="empty" v-else-if="filteredProjects.length===0">No projects match.</div>
         <div class="grid" v-else>
-          <div class="pcard" v-for="p in filteredProjects" :key="p.id">
+          <div class="pcard" :class="{upcoming: isUpcoming(p)}" v-for="p in filteredProjects" :key="p.id">
             <div class="thumb" :style="thumbStyle(p)">
               <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
             </div>
@@ -1415,7 +1417,16 @@ createApp({
       if (this.filterMode === 'active') list = list.filter(p => !p.iscomplete);
       if (this.filterMode === 'done') list = list.filter(p => p.iscomplete);
       if (q) list = list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q));
-      return [...list].sort((x, y) => new Date(y.createdat || 0) - new Date(x.createdat || 0));
+      // Scheduling order (David, Aug 15): the work IN FRONT of us first -
+      // projects whose inspection date (editedat) hasn't arrived yet, furthest
+      // out at the top, descending to today; THEN past inspections, most
+      // recent first. No mixing. Projects without a date sink to the bottom.
+      const t = new Date(); t.setHours(0, 0, 0, 0);
+      const today = t.getTime();
+      const when = (p) => p.editedat ? new Date(p.editedat).getTime() : -Infinity;
+      const upcoming = list.filter(p => when(p) >= today).sort((x, y) => when(y) - when(x));
+      const past = list.filter(p => when(p) < today).sort((x, y) => when(y) - when(x));
+      return upcoming.concat(past);
     },
     projectCounts() {
       return { active: this.projects.filter(p => !p.iscomplete).length, done: this.projects.filter(p => p.iscomplete).length };
@@ -1523,6 +1534,13 @@ createApp({
       this.loadQbo();
     },
     projectId(p) { return p.id || p._id; },
+    // Green = not inspected yet: inspection date is today or later and the
+    // project isn't complete (David, Aug 15).
+    isUpcoming(p) {
+      if (!p || !p.editedat || p.iscomplete) return false;
+      const t = new Date(); t.setHours(0, 0, 0, 0);
+      return new Date(p.editedat).getTime() >= t.getTime();
+    },
     async loadReports() {
       this.loadingReports = true;
       try {
