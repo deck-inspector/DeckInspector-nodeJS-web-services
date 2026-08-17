@@ -605,9 +605,25 @@ input,select{font-family:inherit;font-size:16px}
             <div>Building your report — usually 1–3 minutes. The list below updates automatically; you can keep working.</div>
           </div>
           <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
+            <h3 style="margin:0 0 4px">Proposal</h3>
+            <template v-if="reportProp">
+              <div class="hint">The accepted proposal for <b>{{ (reportProp.form && reportProp.form.property) || current.name }}</b> — download it, email it, or open it for edits without leaving this page.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+                <button class="btn-dl" :disabled="downloadingProp" @click="downloadReportProposal">&#11015; {{ downloadingProp ? 'Preparing&hellip;' : 'Download Proposal (Word)' }}</button>
+                <button class="btn-dl" @click="emailProposal(reportProp)">&#9993; Email Proposal (Outlook)</button>
+                <button class="btn-dl" @click="openReportProposal">&#9998; Open in Proposals</button>
+              </div>
+            </template>
+            <div v-else class="hint">No proposal is linked to this project yet — proposals accepted under the <b>Proposals</b> button link here automatically.</div>
+          </div>
+          <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
             <h3 style="margin:0 0 4px">Email the Client (Outlook)</h3>
-            <div class="hint">Opens a ready-to-send email in Outlook — thank-you note, property address and your Google review link already written. Attach the report file you downloaded, fill in the client’s name, and hit Send.</div>
+            <div class="hint">Pick the report to send — including a signed report you uploaded — and the email style. Outlook opens pre-addressed to the client with their name in the greeting and your signature written in; the chosen report downloads so it&rsquo;s ready to attach from your Downloads folder.</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+              <select v-model="emailReportPick" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;max-width:420px">
+                <option value="">No report — write the email only</option>
+                <option v-for="(r,i) in emailableReports()" :key="(r.url||'')+i" :value="r.url">{{ r.name }} &mdash; {{ shortDate(r.timestamp) }}</option>
+              </select>
               <select v-model="emailTpl" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;max-width:420px">
                 <option value="C">C — Final Report after repairs · asks for review (best moment)</option>
                 <option value="A">A — Visual Report, clean · asks for review</option>
@@ -1336,6 +1352,7 @@ createApp({
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {},
+      emailReportPick: '', reportProp: null, downloadingProp: false,
       finalByPid: {}, dataByPid: {},
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
@@ -1535,8 +1552,9 @@ createApp({
       history.pushState({ v: 'reports', pid: this.projectId(p) }, '');
       this.current = p; this.view = 'reports'; this.reports = [];
       this.generating = false; this.generateStartedAt = null;
-      this.assignPick = '';
+      this.assignPick = ''; this.emailReportPick = ''; this.reportProp = null;
       this.loadReports();
+      this.loadReportProposal();
       if (!this.users.length) this.loadUsers();
       if (!this.clientForms.length) this.loadClientForms();
       this.loadQbo();
@@ -1592,8 +1610,62 @@ createApp({
       try {
         const res = await this.api('/projectreports/' + encodeURIComponent(this.projectId(this.current)));
         this.reports = res.ok ? (await res.json() || []) : [];
+        this.defaultEmailReportPick();
       } catch (e) { /* list may just be empty */ }
       finally { this.loadingReports = false; }
+    },
+    // Reports offered in the "Email the Client" picker: everything on the
+    // project (generated AND uploaded signed/completed reports - David,
+    // Aug 17), newest first, failed builds excluded.
+    emailableReports() {
+      return this.reports.filter(r => !this.isFailed(r))
+        .slice().sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+    },
+    defaultEmailReportPick() {
+      const list = this.emailableReports();
+      if (this.emailReportPick && list.some(r => r.url === this.emailReportPick)) return;
+      // prefer the uploaded signed/completed report, else the newest report
+      const signed = list.find(r => /\(completed\)/i.test(r.name || ''));
+      this.emailReportPick = (signed || list[0] || {}).url || '';
+    },
+    // The proposal that was accepted into this project - shown in the Reports
+    // view for easy access (David, Aug 17).
+    async loadReportProposal() {
+      this.reportProp = null;
+      try {
+        const res = await this.api('/project/proposals');
+        if (!res.ok) return;
+        const list = await res.json() || [];
+        const pid = this.projectId(this.current || {});
+        this.reportProp = list.find(pr => pr && pr.linkedProjectId === pid) || null;
+      } catch (e) { /* section simply hides */ }
+    },
+    async downloadReportProposal() {
+      const pr = this.reportProp; if (!pr) return;
+      this.downloadingProp = true;
+      try {
+        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: pr.form || {} } });
+        if (!res.ok) throw new Error('bad');
+        const blob = await res.blob();
+        const f = pr.form || {};
+        let base = f.addressStreet ? [f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ')
+                                   : String(f.property || 'Proposal').trim();
+        base = base.replace(/\./g, '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 150) || 'Proposal';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = base + ' Proposal.docx';
+        document.body.appendChild(a); a.click(); a.remove();
+        this.toast('Proposal Word document downloaded.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not generate the proposal document.', 'err');
+      } finally { this.downloadingProp = false; }
+    },
+    openReportProposal() {
+      const pr = this.reportProp; if (!pr) return;
+      history.pushState({ v: 'proposals' }, '');
+      this.view = 'proposals'; this.prop = null;
+      this.loadProposals();
+      this.editProposal(pr);
     },
     isFinal(r) { return /final report/i.test(r.name || ''); },
     reportDownloadHref(r) {
@@ -2999,8 +3071,23 @@ createApp({
     // Open Outlook Desktop with a proposal cover email pre-written and
     // pre-addressed to the proposal's contact (David, Aug 14 - workflow step 1).
     // mailto: cannot attach files - the user attaches the downloaded Word/PDF.
-    emailProposal() {
-      const f = (this.prop && this.prop.form) || {};
+    // Signature block written into the email body: Outlook does not append
+    // the saved signature to mailto: drafts, so the draft ended up unsigned
+    // (David, Aug 17 - "we also need our signature line").
+    sigLines() {
+      const u = this.user || {};
+      const b = this.brandInfo || {};
+      const out = [];
+      const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+      if (name) out.push(name);
+      out.push(b.name || 'Deck Inspectors, Inc.');
+      out.push(b.phone || '888-224-0489');
+      if (u.email) out.push(u.email);
+      return out;
+    },
+    emailProposal(prArg) {
+      const src = (prArg && prArg.form) ? prArg : this.prop;
+      const f = (src && src.form) || {};
       const to = (f.contactEmail || '').trim();
       const propName = f.property || [f.addressStreet, f.addressCity].filter(Boolean).join(', ') || '[Property]';
       const addr = [f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ') || propName;
@@ -3015,8 +3102,8 @@ createApp({
         'It covers the scope of the inspection, the elements included, the price, and the timeline \u2014 everything you need to review in one page. The inspection satisfies California\u2019s balcony-and-elevated-elements law (SB 721 for apartments, Civil Code \u00a7 5551 for condos and HOAs), and the report we deliver is formatted for lenders, insurers, and building departments.', '',
         'To move forward, simply sign the proposal and send it back \u2014 reply to this email with the signed copy and we will get your inspection on the calendar right away.', '',
         'If you have any questions at all, reply here or call me directly at ' + phone + '. I am happy to walk through it.', '',
-        'Thank you,'
-      ];   // no signature block - Outlook appends the user's own signature
+        'Thank you,', ''
+      ].concat(this.sigLines());   // signature written in - Outlook skips the saved signature on mailto: drafts
       const href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\r\n'));
       window.location.href = href;
       this.toast(to ? 'Opening Outlook \u2014 attach the proposal file before sending.' : 'Opening Outlook \u2014 add the client\u2019s email address and attach the proposal.');
@@ -3035,53 +3122,71 @@ createApp({
       const co = b.name || 'Deck Inspectors, Inc.';
       const phone = b.phone || '888-224-0489';
       const REVIEW = 'https://g.page/r/CRnBHbgS7E2bEBM/review';
-      // No signature block: Outlook appends the user's own signature (David, Aug 14).
+      // Client contact from the accepted proposal: TO pre-addressed, first
+      // name in the salutation (David, Aug 17).
+      const pf = (this.reportProp && this.reportProp.form) || {};
+      const to = (pf.contactEmail || this.qbo.email || '').trim();
+      const contact = (pf.ownerMgr || '').trim();
+      const first = (contact.split(/\s+/)[0] || '').trim() || '[First Name]';
+      const hi = 'Hi ' + first + ',';
+      const sig = [''].concat(this.sigLines());
       let subject = '', lines = [];
       if (this.emailTpl === 'A') {
         subject = 'Your E-3 inspection report for ' + addr;
-        lines = ['Hi [First Name],', '',
+        lines = [hi, '',
           'Your completed E-3 Visual Inspection Report for ' + addr + ' is attached. The good news first: we found no conditions requiring immediate repair.', '',
           'The report documents every exterior elevated element we inspected \u2014 balconies, decks, walkways, stairways, and railings \u2014 along with its condition and any minor observations worth monitoring. It is formatted for lender, insurer, and building-department review, so you can forward it exactly as it is. Your next inspection is due in ' + interval + '.', '',
           'If anything in the report raises a question, reply here or call me directly at ' + phone + '.', '',
           'One small favor. If we made this straightforward for you, would you take thirty seconds to leave a Google review? Most owners find us by searching, and an honest word from someone who has actually used us is the single biggest reason the next one calls a certified E-3 inspector instead of taking their chances.', '',
           'Leave a review here:', REVIEW, '',
-          'Thank you for trusting us with your property.'];
+          'Thank you for trusting us with your property.'].concat(sig);
       } else if (this.emailTpl === 'B') {
         subject = 'Your E-3 inspection report for ' + addr + ' \u2014 findings and next steps';
-        lines = ['Hi [First Name],', '',
+        lines = [hi, '',
           'Your completed E-3 Visual Inspection Report for ' + addr + ' is attached. We did identify conditions that need attention, and I want to make sure you know exactly what they mean before you read through it.', '',
           'Every finding in the report is ranked by urgency. [Items marked immediate need to be addressed promptly / Nothing we found is an immediate life-safety hazard], and the remainder go into a documented repair timeline rather than needing action this week. Finding these now is the point of the inspection \u2014 the same damage discovered during an escrow or after a failure is dramatically more expensive and far less within your control.', '',
           'Here is what happens next. Once repairs are complete, we return and issue a Final Report confirming the work. That is the document your lender, insurer, or city will want, and it is what closes out your compliance obligation.', '',
-          'I would rather walk you through the findings than have you interpret them alone. Reply here or call me at ' + phone + ' and we will go through it together \u2014 there is no charge for that conversation.'];
+          'I would rather walk you through the findings than have you interpret them alone. Reply here or call me at ' + phone + ' and we will go through it together \u2014 there is no charge for that conversation.'].concat(sig);
       } else if (this.emailTpl === 'D') {
         subject = 'E-3 inspection report \u2014 ' + assoc;
-        lines = ['Hi [First Name],', '',
+        lines = [hi, '',
           'Attached is the completed [Visual / Final] E-3 Inspection Report for ' + assoc + ', covering the sampled exterior elevated elements required under Civil Code \u00a7 5551. It is stamped and ready to present to the board and to share with your insurer or lender.', '',
           'A note the board may find useful: this statute permits only licensed architects and licensed structural engineers to perform and stamp condo and HOA inspections. Contractors and certified building inspectors are not eligible, even though they qualify for apartment buildings under SB 721. Our inspections are performed by our licensed structural engineers, which is why this report will hold up if it is ever questioned during a sale, a claim, or a code review.', '',
           'If the board would like us to walk through the findings at a meeting, we are glad to do that at no charge \u2014 it usually takes fifteen minutes and saves a lot of back-and-forth.', '',
           'If our work made this requirement easier for you to manage, a short Google review would help other associations facing the same question find a firm that is actually eligible to do their inspection:', REVIEW, '',
-          'Best regards,'];
+          'Best regards,'].concat(sig);
       } else if (this.emailTpl === 'E') {
-        subject = 'Quick favor, [First Name]?';
-        lines = ['Hi [First Name],', '',
+        subject = 'Quick favor' + (first !== '[First Name]' ? ', ' + first : '') + '?';
+        lines = [hi, '',
           'Just checking that the E-3 report for ' + addr + ' covered everything you needed. If anything is unclear, reply here and I will sort it out.', '',
           'If it was helpful, a quick Google review would mean a lot \u2014 it is how most of our clients find us:', REVIEW, '',
-          'Thanks again,', '',
+          'Thanks again,'].concat(sig).concat(['',
           co + ', [street address], [city], CA [ZIP]',
-          'Prefer not to receive follow-ups like this? Reply with \u201cno thanks\u201d and we will not send another.'];
+          'Prefer not to receive follow-ups like this? Reply with \u201cno thanks\u201d and we will not send another.']);
       } else {
         subject = addr + ' is compliant \u2014 your Final Report is attached';
-        lines = ['Hi [First Name],', '',
+        lines = [hi, '',
           'Good news \u2014 the repairs at ' + addr + ' have been verified and your Final E-3 Inspection Report is attached. You are compliant.', '',
           'This is the document to keep on file and the one to hand over when a lender, insurer, escrow officer, or buyer asks. It confirms the conditions identified in the original inspection have been corrected, and it is stamped and formatted for building-department review. Your next inspection is due in ' + interval + ' \u2014 we will reach out well ahead of that so it never becomes a scramble.', '',
           'Thank you for seeing this through. Plenty of owners let a findings report sit in a drawer; you dealt with it, and your building is genuinely safer for it.', '',
           'If we made a confusing state requirement manageable, would you take thirty seconds to leave us a Google review? Owners and HOA boards facing this same deadline are searching right now, and most of them cannot tell a certified E-3 inspector from someone who is not legally eligible to do the work. A sentence from you is worth more than anything we could say about ourselves.', '',
           'Leave a review here:', REVIEW, '',
-          'It is genuinely appreciated.'];
+          'It is genuinely appreciated.'].concat(sig);
       }
-      const href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\r\n'));
-      window.location.href = href;
-      this.toast('Opening Outlook \u2014 attach the report file before sending.');
+      // Download the selected report (generated or uploaded signed copy) so it
+      // is sitting in Downloads ready to attach - mailto: cannot attach files.
+      const picked = this.reports.find(r => r.url === this.emailReportPick);
+      if (picked) {
+        const a = document.createElement('a');
+        a.href = this.reportDownloadHref(picked);
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      const href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\r\n'));
+      const openDraft = () => { window.location.href = href; };
+      if (picked) setTimeout(openDraft, 900); else openDraft();
+      this.toast(picked
+        ? '"' + picked.name + '" is downloading - attach it from your Downloads folder in the Outlook draft.'
+        : 'Opening Outlook - attach the report file before sending.');
     },
     async loadBranding() {
       try {
