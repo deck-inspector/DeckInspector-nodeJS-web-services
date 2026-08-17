@@ -150,34 +150,33 @@ module.exports = {
     // reorder stick end to end. Children not named in orderedIds keep their
     // existing relative order and are appended after the ordered ones, so a
     // stale client list can never drop a section.
+    // ⚠️ N1QL only. A KV get+upsert here failed in production with
+    // "unambiguous timeout" (Aug 17) — this cluster's key-value service is
+    // degraded while the query service is healthy. Read the array, reorder it
+    // in JS, write it back by key.
     reorderLocationChildren: async (locationId, orderedIds) => {
         try {
-            const collection = await getLocationsCollection();
-            let doc, docKey;
+            const bucket = process.env.DB_BUCKET_NAME;
+            const scope = process.env.DB_SCOPE_NAME || "inventory";
 
-            // Same key-then-query lookup addLocationChild uses: some locations
-            // are stored under a document key that differs from their id field.
-            try {
-                doc = await collection.get(locationId);
-                docKey = locationId;
-            } catch (err) {
-                if (err.name === "DocumentNotFoundError") {
-                    const query = `SELECT META(l).id as _key, l.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Location l WHERE META(l).id = $1 OR l.id = $1 OR l._id = $1`;
-                    const results = await executeQuery(query, [locationId]);
-                    if (results.length === 0) {
-                        throw new Error(`Location not found: ${locationId}`);
-                    }
-                    docKey = results[0]._key;
-                    doc = await collection.get(docKey);
-                } else {
-                    throw err;
-                }
+            // Tolerate the doc-key-vs-id mismatch some locations carry.
+            const found = await executeQuery(
+                `SELECT META(l).id AS _key, l.sections FROM \`${bucket}\`.\`${scope}\`.Location l ` +
+                `WHERE META(l).id = $1 OR l.id = $1 OR l._id = $1 LIMIT 1`,
+                [locationId]
+            );
+            if (!found.length) {
+                throw new Error(`Location not found: ${locationId}`);
             }
 
-            const sections = doc.content.sections || [];
-
+            const docKey = found[0]._key;
+            const sections = found[0].sections || [];
             const reordered = orderSectionsByIds(sections, orderedIds);
-            await collection.upsert(docKey, { ...doc.content, sections: reordered });
+
+            await executeQuery(
+                `UPDATE \`${bucket}\`.\`${scope}\`.Location l USE KEYS $1 SET l.sections = $2`,
+                [docKey, reordered]
+            );
             return { ok: 1, sections: reordered };
         } catch (error) {
             console.error("Error reordering location children:", error);

@@ -322,18 +322,28 @@ module.exports = {
   // Single-level projects hang sections directly off the project document.
   // Same contract as locationDAO.reorderLocationChildren: array order is report
   // order, unnamed children are preserved at the end.
+  // ⚠️ N1QL only — KV get+upsert times out intermittently on this cluster
+  // (see locationDAO.reorderLocationChildren). channels is preserved for
+  // mobile sync via IFMISSINGORNULL, same as updateProjectStatus.
   reorderSingleLevelProjectChildren: async (projectId, orderedIds) => {
     try {
-      const collection = await getProjectsCollection();
-      const doc = await collection.get(projectId);
-      const sections = doc.content.sections || [];
+      const bucket = couchbase.DB_BUCKET_NAME || process.env.DB_BUCKET_NAME;
+      const scope = couchbase.DB_SCOPE_NAME || process.env.DB_SCOPE_NAME || "inventory";
 
-      const reordered = orderSectionsByIds(sections, orderedIds);
-      await collection.upsert(projectId, {
-        ...doc.content,
-        sections: reordered,
-        channels: doc.content.channels || ["Project"],
-      });
+      const found = await executeQuery(
+        `SELECT p.sections FROM \`${bucket}\`.\`${scope}\`.\`Project\` AS p USE KEYS $1`,
+        [projectId]
+      );
+      if (!found.length) {
+        throw new Error(`Project not found: ${projectId}`);
+      }
+
+      const reordered = orderSectionsByIds(found[0].sections || [], orderedIds);
+      await executeQuery(
+        `UPDATE \`${bucket}\`.\`${scope}\`.\`Project\` AS p USE KEYS $1 ` +
+        `SET p.sections = $2, p.channels = IFMISSINGORNULL(p.channels, ["Project"])`,
+        [projectId, reordered]
+      );
       return { ok: 1, sections: reordered };
     } catch (error) {
       console.error("Error reordering single level project children:", error);
