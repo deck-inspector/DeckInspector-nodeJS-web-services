@@ -115,6 +115,8 @@ input,select{font-family:inherit;font-size:16px}
 .btn-dl{background:var(--brand-soft);color:var(--brand-dark);padding:10px 18px;font-weight:700;border-radius:10px}
 .btn-edit{background:var(--brand);color:#fff;padding:12px 26px;font-weight:800;font-size:16px;border-radius:10px;box-shadow:0 2px 8px rgba(41,44,116,.35);flex-shrink:0}
 .btn-edit:hover{background:var(--brand-dark)}
+.btn-edit:disabled{opacity:.32;box-shadow:none;cursor:default}
+.btn-edit:disabled:hover{background:var(--brand)}
 .btn-dl:hover{background:#d3e8df}
 .btn-del{background:var(--danger-soft);color:var(--danger);padding:10px 14px;font-weight:700;border-radius:10px}
 .btn-del:hover{background:#f6d7d2}
@@ -799,9 +801,12 @@ input,select{font-family:inherit;font-size:16px}
         <div class="empty" v-if="loadingSections">Loading inspections&hellip;</div>
         <div class="empty" v-else-if="!sections.length">No inspection sections recorded for this unit yet.</div>
         <div class="seclist" v-else>
-          <div class="scard" v-for="s in sections" :key="s._id || s.id">
+          <div class="scard" v-for="(s,si) in sections" :key="s._id || s.id">
             <div style="display:flex;align-items:flex-start;gap:8px">
               <h4 style="flex:1">{{ s.name }}</h4>
+              <button class="btn-edit" style="padding:12px 14px" title="Move up — this is the order the report prints in" :disabled="si===0 || reordering" @click="moveSectionCard(si,-1)">&#9650;</button>
+              <button class="btn-edit" style="padding:12px 14px" title="Move down — this is the order the report prints in" :disabled="si===sections.length-1 || reordering" @click="moveSectionCard(si,1)">&#9660;</button>
+              <button class="btn-edit" title="Move this inspection point to another unit" @click="openSecMove(s)">&#8644; Move</button>
               <button class="btn-edit" style="color:#C00000;border-color:#C00000" @click="openSecEditInvasive(s)">&#128269; Invasive</button>
               <button class="btn-edit" @click="openSecEdit(s)">&#9998; Edit</button>
             </div>
@@ -1188,6 +1193,25 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ MOVE SECTION TO ANOTHER UNIT ============ -->
+  <div class="overlay" v-if="movingSec" @click.self="movingSec=null">
+    <div class="modal">
+      <h3>Move inspection point</h3>
+      <p><b>{{ movingSec.name }}</b><br><br>Choose the unit this inspection point belongs under. Its photos, invasive and conclusive records move with it.</p>
+      <div class="field"><label>Move to unit</label>
+        <select v-model="moveTargetId">
+          <option value="">Select a unit&hellip;</option>
+          <option v-for="t in moveTargets" :key="t.id" :value="t.id">{{ t.label }}</option>
+        </select>
+      </div>
+      <div class="empty" v-if="!moveTargets.length" style="margin:0">This project has no other unit to move it to.</div>
+      <div class="mrow">
+        <button class="btn-cancel" @click="movingSec=null">Cancel</button>
+        <button class="btn-edit" :disabled="!moveTargetId || movingBusy" @click="doMoveSection">{{ movingBusy ? 'Moving…' : 'Move' }}</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ DELETE PROPOSAL CONFIRM ============ -->
   <div class="overlay" v-if="propDeleting" @click.self="propDeleting=null">
     <div class="modal">
@@ -1410,6 +1434,8 @@ createApp({
       lifeOptions: ['0-1 Years', '1-4 Years', '4-7 Years', '7-10 Years'],
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
+      // Section ordering + move-to-another-unit
+      reordering: false, movingSec: null, moveTargetId: '', movingBusy: false,
       structTab: 'buildings',
       docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFiles: [], docProgress: '', uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
       proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
@@ -1419,6 +1445,21 @@ createApp({
     };
   },
   computed: {
+    // Every other unit in this project a section could be moved to, labelled
+    // "Building › Unit" so identically-named units stay tellable apart.
+    moveTargets() {
+      const here = this.unit ? String(this.unit.locationId) : '';
+      const out = [];
+      for (const loc of (this.structure.locations || [])) {
+        if (String(loc.locationId) !== here) out.push({ id: loc.locationId, label: loc.locationName });
+      }
+      for (const sp of (this.structure.subProjects || [])) {
+        for (const loc of (sp.subProjectLocations || [])) {
+          if (String(loc.locationId) !== here) out.push({ id: loc.locationId, label: sp.name + ' › ' + loc.locationName });
+        }
+      }
+      return out;
+    },
     // Final Upon Completion side-menu: fields grouped by document section, in
     // document order, every editable control reachable.
     fcGroups() {
@@ -2404,6 +2445,58 @@ createApp({
         this.sections = data.sections || [];
       } catch (e) { /* empty is fine */ }
       finally { this.loadingSections = false; }
+    },
+
+    /* ---------- section order (this is the order the report prints in) ---------- */
+    async moveSectionCard(index, dir) {
+      const target = index + dir;
+      if (this.reordering || target < 0 || target >= this.sections.length) return;
+      const before = this.sections.slice();
+      const list = this.sections.slice();
+      const [moved] = list.splice(index, 1);
+      list.splice(target, 0, moved);
+      this.sections = list;                     // move on screen immediately
+      this.reordering = true;
+      try {
+        const res = await this.api('/section/reorder', {
+          method: 'POST',
+          json: {
+            parentid: this.unit.locationId,
+            orderedIds: list.map(s => s._id || s.id),
+          },
+        });
+        if (!res.ok) throw new Error('reorder');
+      } catch (e) {
+        if (e.message !== 'auth') {
+          this.sections = before;               // put it back if it didn't save
+          this.toast('Could not save the new order — nothing was changed.', 'err');
+        }
+      } finally { this.reordering = false; }
+    },
+
+    /* ---------- move a section to another unit ---------- */
+    openSecMove(s) {
+      this.movingSec = s;
+      this.moveTargetId = '';
+      if (!this.structure.locations.length && !this.structure.subProjects.length) this.loadStructure();
+    },
+    async doMoveSection() {
+      if (!this.movingSec || !this.moveTargetId) return;
+      const sectionId = this.movingSec._id || this.movingSec.id;
+      this.movingBusy = true;
+      try {
+        const res = await this.api('/section/moveSection', {
+          method: 'POST',
+          json: { sectionId: sectionId, newParentId: this.moveTargetId },
+        });
+        if (!res.ok) throw new Error('move');
+        this.sections = this.sections.filter(x => (x._id || x.id) !== sectionId);
+        this.movingSec = null;
+        this.toast('Inspection point moved.', 'ok');
+        this.loadStructure();
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not move the inspection point.', 'err');
+      } finally { this.movingBusy = false; }
     },
     ratingClass(v) {
       const s = String(v || '').toLowerCase();
