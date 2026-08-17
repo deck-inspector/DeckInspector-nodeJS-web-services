@@ -1237,6 +1237,16 @@ router.route('/generateproposal')
         const form = req.body && req.body.form ? req.body.form : req.body;
         const buffer = await ProposalGenerator.generateBuffer(companyIdentifier, form);
         const propName = ((form && form.property) || 'Proposal').replace(/[^\w .,'()-]/g, '').trim() || 'Proposal';
+        // format:'pdf' (David, Aug 17): proposals emailed to clients attach as
+        // PDF, converted by the self-hosted Word engine so the PDF matches the
+        // document. The plain Word download path is unchanged.
+        if (req.body && req.body.format === 'pdf') {
+          const { convertDocxToPdf } = require('../service/convertDocxToPdf');
+          const pdf = await convertDocxToPdf(buffer, propName + ' - Proposal.docx');
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="${propName} - Proposal.pdf"`);
+          return res.send(pdf);
+        }
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         res.setHeader('Content-Disposition', `attachment; filename="${propName} - Proposal.docx"`);
         return res.send(buffer);
