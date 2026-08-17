@@ -1523,6 +1523,14 @@ createApp({
         opts.body = JSON.stringify(opts.json);
       }
       const res = await fetch(API + pathname, Object.assign({}, opts, { headers }));
+      // A deploy restarts the server for a few seconds - retry reads and
+      // idempotent saves once instead of failing the user's click (Aug 17:
+      // an edit-save landed mid-deploy and errored even though it was valid).
+      const method = (opts.method || 'GET').toUpperCase();
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && !opts._retried5xx && (method === 'GET' || method === 'PUT')) {
+        await new Promise(r => setTimeout(r, 2500));
+        return this.api(pathname, Object.assign({}, opts, { _retried5xx: true }));
+      }
       if (res.status === 401 || res.status === 403) {
         if (res.status === 403 && !opts._retried) {
           await new Promise(r => setTimeout(r, 1500));
@@ -3534,7 +3542,39 @@ createApp({
     },
 
     /* ---------- assignment acceptance (visible to all users) ---------- */
-    isMe(u) { return !!this.user && u === this.user.username; },
+    // Does this assignment tag refer to a given user record? Legacy projects
+    // carry tags like "Gabe", "dmazor", "skrubins", "paul" that never exactly
+    // equal today's usernames ("Gabriel", "Dmazor", "SK", "paulk"), which
+    // locked inspectors out of clicking their own name (David, Aug 17).
+    matchesUser(tag, rec) {
+      if (!tag || !rec) return false;
+      const norm = s => String(s || '').toLowerCase().replace(/\s+/g, '');
+      const t = norm(tag);
+      if (!t) return false;
+      const fn = norm(rec.first_name), ln = norm(rec.last_name), un = norm(rec.username);
+      const cands = [un, fn, fn + ln, (fn.charAt(0) + ln), (fn.charAt(0) + ln.charAt(0))].filter(c => c && c.length > 1);
+      for (const c of cands) {
+        if (t === c) return true;
+        if (t.length >= 4 && (c.indexOf(t) === 0 || t.indexOf(c) === 0)) return true;
+        // nickname tolerance: "Gabe" -> "Gabriel" (shares "gab", one divergent
+        // trailing char). The uniqueness guard in isMe() blocks collisions.
+        if (t.length >= 3 && c.length >= 3) {
+          let cp = 0; while (cp < t.length && cp < c.length && t.charAt(cp) === c.charAt(cp)) cp++;
+          if (cp >= 3 && cp >= t.length - 1) return true;
+        }
+      }
+      return false;
+    },
+    isMe(u) {
+      if (!this.user || !u) return false;
+      const norm = s => String(s || '').toLowerCase().replace(/\s+/g, '');
+      const t = norm(u);
+      if (t === norm(this.user.username)) return true;   // exact username always wins
+      const others = (this.users || []).filter(o => o && o.username !== this.user.username);
+      if (others.some(o => norm(o.username) === t)) return false;   // someone else's exact username
+      if (!this.matchesUser(u, this.user)) return false;
+      return !others.some(o => this.matchesUser(u, o));  // ambiguous tag -> nobody claims it
+    },
     acceptStatus(p, u) { return ((p && p.assignmentStatus) || {})[u] || ''; },
     acceptClass(p, u) {
       const s = this.acceptStatus(p, u);
