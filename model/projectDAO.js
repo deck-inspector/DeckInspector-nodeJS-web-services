@@ -2,6 +2,7 @@
 
 const { v4: uuidv4 } = require("uuid");
 const couchbase = require("../database/couchbase");
+const { orderSectionsByIds } = require("./sectionOrder");
 
 // Helper function to generate document IDs
 function generateProjectId() {
@@ -314,6 +315,28 @@ module.exports = {
       return { ok: 1 };
     } catch (error) {
       console.error("Error adding child in single level project:", error);
+      throw error;
+    }
+  },
+
+  // Single-level projects hang sections directly off the project document.
+  // Same contract as locationDAO.reorderLocationChildren: array order is report
+  // order, unnamed children are preserved at the end.
+  reorderSingleLevelProjectChildren: async (projectId, orderedIds) => {
+    try {
+      const collection = await getProjectsCollection();
+      const doc = await collection.get(projectId);
+      const sections = doc.content.sections || [];
+
+      const reordered = orderSectionsByIds(sections, orderedIds);
+      await collection.upsert(projectId, {
+        ...doc.content,
+        sections: reordered,
+        channels: doc.content.channels || ["Project"],
+      });
+      return { ok: 1, sections: reordered };
+    } catch (error) {
+      console.error("Error reordering single level project children:", error);
       throw error;
     }
   },

@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require("uuid");
 const couchbase = require("../database/couchbase");
+const { orderSectionsByIds } = require("./sectionOrder");
 
 // Helper function to get Locations collection
 async function getLocationsCollection() {
@@ -140,6 +141,46 @@ module.exports = {
             return { ok: 1 };
         } catch (error) {
             console.error("Error adding location child:", error);
+            throw error;
+        }
+    },
+
+    // Rewrite the order of a location's sections array. That array order IS the
+    // order sections appear in the generated report, so this is what makes a
+    // reorder stick end to end. Children not named in orderedIds keep their
+    // existing relative order and are appended after the ordered ones, so a
+    // stale client list can never drop a section.
+    reorderLocationChildren: async (locationId, orderedIds) => {
+        try {
+            const collection = await getLocationsCollection();
+            let doc, docKey;
+
+            // Same key-then-query lookup addLocationChild uses: some locations
+            // are stored under a document key that differs from their id field.
+            try {
+                doc = await collection.get(locationId);
+                docKey = locationId;
+            } catch (err) {
+                if (err.name === "DocumentNotFoundError") {
+                    const query = `SELECT META(l).id as _key, l.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Location l WHERE META(l).id = $1 OR l.id = $1 OR l._id = $1`;
+                    const results = await executeQuery(query, [locationId]);
+                    if (results.length === 0) {
+                        throw new Error(`Location not found: ${locationId}`);
+                    }
+                    docKey = results[0]._key;
+                    doc = await collection.get(docKey);
+                } else {
+                    throw err;
+                }
+            }
+
+            const sections = doc.content.sections || [];
+
+            const reordered = orderSectionsByIds(sections, orderedIds);
+            await collection.upsert(docKey, { ...doc.content, sections: reordered });
+            return { ok: 1, sections: reordered };
+        } catch (error) {
+            console.error("Error reordering location children:", error);
             throw error;
         }
     },

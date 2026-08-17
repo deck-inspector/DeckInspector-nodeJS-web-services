@@ -51,6 +51,18 @@ module.exports = {
         const result = await cluster.query(query, { parameters: [parentId] });
         return result.rows;
     },
+    // Persist the display/report position of a section on the section document
+    // itself, so getSectionByParentId can return an ordered list. The parent
+    // document's own sections array is reordered separately (that array is what
+    // the report generator walks) - both are kept in step by
+    // sectionService.reorderSections.
+    setSequenceNo: async (sectionId, sequenceNo) => {
+        const collection = await getSectionsCollection();
+        await collection.mutateIn(sectionId, [
+            MutateInSpec.upsert("sequenceNo", sequenceNo)
+        ]);
+        return { ok: 1 };
+    },
     addImageInSection: async (sectionId, url) => {
         const collection = await getSectionsCollection();
         await collection.mutateIn(sectionId, [
