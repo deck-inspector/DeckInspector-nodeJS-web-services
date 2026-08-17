@@ -1163,6 +1163,7 @@ input,select{font-family:inherit;font-size:16px}
           <button class="btn-dl" v-if="logo && sigEd.logoUrl !== logo" @click="sigEd.logoUrl = logo">Use company logo</button>
           <button class="btn-dl" v-if="sigEd.logoUrl" @click="sigEd.logoUrl = ''">Remove logo</button>
           <input type="file" ref="sigLogoUp" accept="image/*" style="display:none" @change="sigEdLogo">
+          <div v-if="sigEd.logoUrl" style="display:flex;align-items:center;gap:6px"><label style="font-size:11px;margin:0">Logo width</label><input type="number" v-model.number="sigEd.logoWidth" min="60" max="600" step="10" style="width:80px"> px</div>
         </div>
       </div>
       <div style="border:1.5px dashed var(--line);border-radius:10px;padding:14px;margin-bottom:16px;background:#fff">
@@ -1387,7 +1388,7 @@ createApp({
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {}, tenantId: '',
       emailReportPick: '', reportProp: null, downloadingProp: false, emailBusy: false,
-      sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', saving: false, uploading: false },
+      sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', logoWidth: 300, saving: false, uploading: false },
       finalByPid: {}, dataByPid: {},
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
@@ -3149,7 +3150,11 @@ createApp({
       let h = '<div style="margin-top:20px;font-family:Calibri,Arial,sans-serif">';
       if (sig.company) h += '<div style="color:' + color + ';font-weight:bold;font-size:15pt">' + this.escapeHtml(sig.company) + '</div>';
       if (sig.phone) h += '<div style="color:' + color + ';font-weight:bold;font-size:13pt;margin-top:12px">' + this.escapeHtml(sig.phone) + '</div>';
-      if (sig.logoUrl) h += '<div style="margin:14px 0"><img src="' + this.escapeHtml(sig.logoUrl) + '" alt="' + this.escapeHtml(sig.company || 'logo') + '" style="max-width:300px;height:auto;border:0"></div>';
+      // Outlook's renderer (Word engine) IGNORES CSS max-width and draws the
+      // image at native size - the explicit width= attribute is what it obeys
+      // (David, Aug 17: "logo is three times larger than normal").
+      const lw = Math.max(60, Math.min(600, parseInt(sig.logoWidth, 10) || 300));
+      if (sig.logoUrl) h += '<div style="margin:14px 0"><img src="' + this.escapeHtml(sig.logoUrl) + '" alt="' + this.escapeHtml(sig.company || 'logo') + '" width="' + lw + '" style="width:' + lw + 'px;height:auto;border:0"></div>';
       if (site) h += '<div><a href="' + this.escapeHtml(href) + '" style="color:#0563C1">' + this.escapeHtml(site) + '</a></div>';
       h += '</div>';
       return h;
@@ -3349,10 +3354,11 @@ createApp({
         website: s.website || b.website || '',
         color: s.color || '#E8500B',
         logoUrl: s.logoUrl || this.logo || '',
+        logoWidth: parseInt(s.logoWidth, 10) || 300,
       };
     },
     sigEdPreview() {
-      return this.signatureHtml({ company: this.sigEd.company, phone: this.sigEd.phone, website: this.sigEd.website, color: this.sigEd.color, logoUrl: this.sigEd.logoUrl });
+      return this.signatureHtml({ company: this.sigEd.company, phone: this.sigEd.phone, website: this.sigEd.website, color: this.sigEd.color, logoUrl: this.sigEd.logoUrl, logoWidth: this.sigEd.logoWidth });
     },
     async sigEdLogo(e) {
       const f = (e.target.files && e.target.files[0]) || null;
@@ -3379,7 +3385,7 @@ createApp({
       if (!this.tenantId) { this.toast('Could not find your company record — try signing in again.', 'err'); return; }
       this.sigEd.saving = true;
       try {
-        const signature = { company: this.sigEd.company, phone: this.sigEd.phone, website: this.sigEd.website, color: this.sigEd.color, logoUrl: this.sigEd.logoUrl };
+        const signature = { company: this.sigEd.company, phone: this.sigEd.phone, website: this.sigEd.website, color: this.sigEd.color, logoUrl: this.sigEd.logoUrl, logoWidth: Math.max(60, Math.min(600, parseInt(this.sigEd.logoWidth, 10) || 300)) };
         const res = await this.api('/tenants/' + encodeURIComponent(this.tenantId) + '/updatesignature', { method: 'POST', json: { signature } });
         if (!res.ok) throw new Error('bad');
         this.brandInfo = Object.assign({}, this.brandInfo, { signature });
