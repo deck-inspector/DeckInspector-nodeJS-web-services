@@ -3388,16 +3388,23 @@ createApp({
       ];
       this.emailBusy = true;
       try {
-        // generate the proposal Word doc and carry it as a REAL attachment
+        // generate the proposal and carry it as a REAL attachment - as PDF
+        // (David, Aug 17: proposals convert too), falling back to the Word
+        // file if the converter is unreachable so the draft still goes out.
         const attachments = [];
         try {
-          const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: f } });
+          let res = await this.api('/project/generateproposal', { method: 'POST', json: { form: f, format: 'pdf' } });
+          let ext = 'pdf';
+          if (!res.ok) {
+            res = await this.api('/project/generateproposal', { method: 'POST', json: { form: f } });
+            ext = 'docx';
+          }
           if (res.ok) {
             const blob = await res.blob();
             const b64 = await new Promise((r2, j2) => { const fr = new FileReader(); fr.onload = () => r2(String(fr.result).split(',')[1] || ''); fr.onerror = j2; fr.readAsDataURL(blob); });
             let base = f.addressStreet ? [f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ') : String(f.property || 'Proposal').trim();
             base = base.replace(/\./g, '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Proposal';
-            attachments.push({ name: base + ' Proposal.docx', mime: this.mimeForExt('docx'), base64: b64 });
+            attachments.push({ name: base + ' Proposal.' + ext, mime: this.mimeForExt(ext), base64: b64 });
           }
         } catch (e) { /* draft still goes out without the file */ }
         const eml = this.buildEml({ to, subject, html: this.bodyHtml(lines) + this.signatureHtml(), attachments });
