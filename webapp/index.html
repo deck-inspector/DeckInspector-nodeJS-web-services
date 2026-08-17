@@ -3481,9 +3481,23 @@ createApp({
           try {
             const extM = String(picked.url || '').match(/\.(docx|doc|pdf)(\?|$)/i);
             const ext = (extM ? extM[1] : 'docx').toLowerCase();
-            const b64 = await this.fetchAsBase64(this.reportDownloadHref(picked));
             const nm = String(picked.name || 'Report').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 120);
-            attachments.push({ name: nm + '.' + ext, mime: this.mimeForExt(ext), base64: b64 });
+            if (ext === 'pdf') {
+              const b64 = await this.fetchAsBase64(this.reportDownloadHref(picked));
+              attachments.push({ name: nm + '.pdf', mime: this.mimeForExt('pdf'), base64: b64 });
+            } else {
+              // Word reports go to the client as PDF (David, Aug 17): the
+              // server converts via the self-hosted Word engine so the PDF
+              // matches the document exactly. If conversion fails, fall back
+              // to attaching the original Word file - the draft still goes out.
+              try {
+                const b64 = await this.fetchAsBase64(API + '/projectreports/downloadpdf?u=' + encodeURIComponent(picked.url || '') + '&n=' + encodeURIComponent(nm));
+                attachments.push({ name: nm + '.pdf', mime: this.mimeForExt('pdf'), base64: b64 });
+              } catch (e2) {
+                const b64 = await this.fetchAsBase64(this.reportDownloadHref(picked));
+                attachments.push({ name: nm + '.' + ext, mime: this.mimeForExt(ext), base64: b64 });
+              }
+            }
           } catch (e) { /* draft still goes out; user attaches manually */ }
         }
         const html = this.bodyHtml(lines) + this.signatureHtml() + (tail.length ? '<div style="margin-top:16px;color:#666;font-size:9pt">' + this.bodyHtml(tail) + '</div>' : '');
