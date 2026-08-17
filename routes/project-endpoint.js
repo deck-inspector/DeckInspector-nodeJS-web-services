@@ -252,6 +252,38 @@ router.route('/:id/unassign')
 
 
 
+// Assignment acceptance: the assigned inspector clicks their own name to
+// accept (green) or decline (red) the assignment; the state is stored on the
+// project so every user sees it. status: accepted | declined | none.
+// (Re-added Aug 17 — the route went missing from this file while the model
+// function and the webapp caller both survived, so every click 404'd and the
+// app showed "Could not save your response.")
+router.route('/:id/assignmentstatus')
+    .post(async function (req, res) {
+      try {
+        const projectId = req.params.id;
+        const { username, status } = req.body;
+
+        if (!projectId || !username || !status) {
+          return res.status(400).json(new newErrorResponse(400, false, "projectId, username and status are required"));
+        }
+        const allowed = ['accepted', 'declined', 'none'];
+        if (!allowed.includes(String(status))) {
+          return res.status(400).json(new newErrorResponse(400, false, "status must be accepted, declined or none"));
+        }
+
+        const result = await projects.setAssignmentStatus(projectId, username, String(status));
+        if (result.error) {
+          return res.status(result.error.code || 500).json(result.error);
+        }
+        return res.status(201).json(result.data);
+      }
+      catch (exception) {
+        const errResponse = new newErrorResponse(500, false, exception);
+        return res.status(500).json(errResponse);
+      }
+    });
+
 router.route('/:id/toggleprojectstatus/:state')
     .post(async function (req, res) {
       try {
