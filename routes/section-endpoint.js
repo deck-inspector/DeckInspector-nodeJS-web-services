@@ -248,48 +248,54 @@ catch (exception) {
 }
 })
 
-router.route('/moveSection')
+// Reorder the sections under one parent (unit, or a single-level project).
+// Body: { parentid, orderedIds: [sectionId, ...] }
+// Writes the parent document's sections array (report order) and each section's
+// sequenceNo (screen order) so the two can never drift apart.
+router.route('/reorder')
 .post(async function(req, res){
   try{
-    const sectionId = req.body.sectionId;
-    const newParentId = req.body.newParentId;
+    const parentId = req.body.parentid || req.body.parentId;
+    const orderedIds = req.body.orderedIds || req.body.orderedids;
 
-    if (!(sectionId && newParentId)) {
-      const errResponse = new ErrorResponse(400,"Invalid move operation","");
-      res.status(400).json(errResponse);
-      return;
+    const result = await SectionService.reorderSections(parentId, orderedIds);
+
+    if (result.reason) {
+      // Never surface 401 here - the client treats it as an expired session.
+      const status = (result.code === 401 || result.code === 403) ? 400 : (result.code || 400);
+      return res.status(status).json(result);
     }
-
-    //Get the section object by id
-    const result = await sectionDAO.getSectionById(sectionId);
-    if (!result) {
-      return res.status(404).json({ code: 404, message: "Section not found" });
-    }
-
-    const section = result;
-    //Remove the section from the original parent
-    const isSectionRemoved = await SectionService.deleteSectionPermanently(sectionId);
-    if (isSectionRemoved.reason) {
-      return res.status(isSectionRemoved.code).json(isSectionRemoved);
-    }
-    if (isSectionRemoved) {
-      //update the section parent id with new parent id
-      section.parentid = newParentId;
-      //add the section to the new parent
-      const isSectionAdded = await SectionService.addSection(section);
-
-      if (isSectionAdded.reason) {
-        return res.status(isSectionAdded.code).json(isSectionAdded);
-      }
-      if (isSectionAdded) {
-        return res.status(201).json(isSectionAdded);
-      }
-    }
-
+    return res.status(200).json(result);
   }
   catch (exception){
     console.log(exception);
-    const errResponse = new ErrorResponse(500, false, exception);
+    const errResponse = new newErrorResponse(500, false, exception);
+    return res.status(500).json(errResponse);
+  }
+})
+
+// Move a section to a different parent. Body: { sectionId, newParentId }.
+// Keeps the section document (and its photos, invasive and conclusive records)
+// intact and updates BOTH sides of the parent-child relationship - see
+// SectionService.moveSectionToParent for why the old delete-and-re-add
+// implementation was replaced.
+router.route('/moveSection')
+.post(async function(req, res){
+  try{
+    const sectionId = req.body.sectionId || req.body.sectionid;
+    const newParentId = req.body.newParentId || req.body.newparentid;
+
+    const result = await SectionService.moveSectionToParent(sectionId, newParentId);
+
+    if (result.reason) {
+      const status = (result.code === 401 || result.code === 403) ? 400 : (result.code || 400);
+      return res.status(status).json(result);
+    }
+    return res.status(200).json(result);
+  }
+  catch (exception){
+    console.log(exception);
+    const errResponse = new newErrorResponse(500, false, exception);
     return res.status(500).json(errResponse);
   }
 })
