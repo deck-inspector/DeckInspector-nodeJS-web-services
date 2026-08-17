@@ -1673,7 +1673,7 @@ createApp({
       const d = new Date(dateStr + 'T' + (timeStr || '00:00'));
       return isNaN(d) ? new Date().toISOString() : d.toISOString();
     },
-    addressLooksComplete(a) { return /,.+(,)?\s*[A-Z]{2}\.?\s*\d{5}/.test(a || ''); },
+    addressLooksComplete(a) { return /,.+[A-Z]{2}[.,]?\s*\d{5}/.test(a || ''); }, // [.,]? — "CA, 90008" is fine (David, Aug 17)
 
     /* ---------- reports ---------- */
     openReports(p) {
