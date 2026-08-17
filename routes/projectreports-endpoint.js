@@ -108,6 +108,48 @@ router.route('/downloadfile')
   }
 });
 
+// GET /api/projectreports/downloadpdf?u=<blob url>&n=<file name>
+// Same file access rules as /downloadfile, but Word files come back as PDF
+// (converted by the self-hosted Gotenberg/LibreOffice on the VM). Used by the
+// client-email flow (David, Aug 17): an uploaded Final Report must be
+// converted to PDF before it is attached to the Outlook draft. A file that is
+// already a PDF streams through unchanged.
+router.route('/downloadpdf')
+.get(async function (req, res) {
+  try {
+    const axios = require('axios');
+    const { convertDocxToPdf } = require('../service/convertDocxToPdf');
+    let u = req.query.u || '';
+    let n = (req.query.n || 'report').toString();
+    if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
+    let dlHost = '';
+    try { dlHost = new URL(u).hostname.toLowerCase(); } catch (e) { dlHost = ''; }
+    const allowedHosts = ['deckinspectorsappdata.blob.core.windows.net', 'deckinspectors.blob.core.windows.net', 'deckmultireportingapp.azurewebsites.net'];
+    if (!allowedHosts.includes(dlHost)) {
+      return res.status(400).send('Invalid file location.');
+    }
+    n = n.replace(/[\\/:*?"<>|]/g, '.').replace(/\s+/g, ' ').trim().slice(0, 150).replace(/\.(docx|doc|pdf)$/i, '');
+    const ext = (u.split('?')[0].match(/\.(docx|doc|pdf)$/i) || [, 'docx'])[1].toLowerCase();
+
+    const resp = await axios.get(u, { responseType: 'arraybuffer', timeout: 120000 });
+    let out = Buffer.from(resp.data);
+    if (ext !== 'pdf') {
+      // Photo-heavy Final Reports can take LibreOffice a while - this request
+      // is worth waiting for rather than failing the attachment.
+      out = await convertDocxToPdf(out, n + '.docx');
+    }
+    const fname = n + '.pdf';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(fname)}`);
+    return res.send(out);
+  } catch (err) {
+    console.error('downloadpdf error:', err.message);
+    // 502 tells the caller "conversion path failed" - the webapp falls back to
+    // attaching the original Word file so the draft still goes out.
+    return res.status(502).send('Could not convert the file to PDF.');
+  }
+});
+
 router.route('/:project_id')
 .get(async function(req,res){
   try{
