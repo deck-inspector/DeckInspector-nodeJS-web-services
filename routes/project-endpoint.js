@@ -21,6 +21,7 @@ const FinalReportGenerator = require("../service/ReportGeneration/FinalReportGen
 const ProposalGenerator = require("../service/ReportGeneration/ProposalGenerator.js");
 const proposals = require("../model/proposals");
 const locationModel = require("../model/location");
+const cbase = require("../database/couchbase");
 
 router.route('/add')
     .post(async function (req, res) {
@@ -345,6 +346,94 @@ router.route('/:id/hasinspectiondata')
         return res.status(200).json(result.data);
       } catch (error) {
         console.log(error);
+        return res.status(500).json(new ErrorResponse(500, "Internal server error", error));
+      }
+    });
+
+// Repair photo references that were left as device-local paths by the old
+// (MongoDB-era) post-upload rewrite. The blobs were uploaded to Azure fine;
+// this walks the project's sections, maps each local path to its blob URL
+// (same container/name rules as routes/images-endpoint.js), verifies the blob
+// exists, and rewrites the section doc. (David, Aug 17: "photo sync is not
+// working on 1518 E. 51st St.")
+router.route('/:id/repairphotos')
+    .post(async function (req, res) {
+      try {
+        const projectId = req.params.id;
+        const bucket = process.env.DB_BUCKET_NAME;
+        const scope = process.env.DB_SCOPE_NAME || "inventory";
+        const account = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+        if (!account) return res.status(500).json({ error: "AZURE_STORAGE_ACCOUNT_NAME not configured" });
+        const cluster = cbase.cluster;
+        // parent ids = project + subprojects
+        const subs = await cluster.query(
+          `SELECT META(s).id AS metaId, s.id AS docId FROM \`${bucket}\`.\`${scope}\`.SubProject s WHERE s.parentid = $1`,
+          { parameters: [projectId] });
+        const parentIds = [projectId];
+        for (const r of (subs.rows || [])) for (const v of [r.metaId, r.docId]) if (v && parentIds.indexOf(v) === -1) parentIds.push(v);
+        // locations under those parents
+        const locs = await cluster.query(
+          `SELECT RAW META(l).id FROM \`${bucket}\`.\`${scope}\`.Location l WHERE l.parentid IN $1`,
+          { parameters: [parentIds] });
+        const locIds = locs.rows || [];
+        if (!locIds.length) return res.status(200).json({ sections: 0, repaired: 0, unresolved: [] });
+        // section docs under those locations
+        const secs = await cluster.query(
+          `SELECT META(v).id AS sid, v.* FROM \`${bucket}\`.\`${scope}\`.VisualSection v WHERE v.parentid IN $1`,
+          { parameters: [locIds] });
+        const sanitize = (n) => String(n || "").replace(/[^a-zA-Z0-9 ]/g, "").toLowerCase().split(" ").join("");
+        const base = "https://" + account + ".blob.core.windows.net/";
+        const exists = async (url) => {
+          try { const r = await fetch(url, { method: "HEAD" }); return r.ok; } catch (e) { return false; }
+        };
+        let repaired = 0; const unresolved = []; let sectionsTouched = 0;
+        const secColl = cbase.Sections, locColl = cbase.Locations;
+        for (const row of (secs.rows || [])) {
+          const sid = row.sid; const images = Array.isArray(row.images) ? row.images.slice() : [];
+          let changed = false;
+          for (let i = 0; i < images.length; i++) {
+            const img = String(images[i] || "");
+            if (/^https?:\/\//i.test(img)) continue;
+            const parts = img.split("/").filter(Boolean);
+            const file = parts[parts.length - 1];
+            const pathSeg = parts.length > 1 ? parts[parts.length - 2] : "";
+            // candidate containers: path segment (what the app sent), then section name
+            const candidates = [];
+            for (const nm of [pathSeg, row.name]) {
+              const c = sanitize(nm);
+              if (c && c.length >= 3 && candidates.indexOf(c) === -1) candidates.push(c);
+            }
+            let fixed = null;
+            for (const c of candidates) {
+              const url = base + c + "/" + encodeURIComponent(c + "-" + file);
+              if (await exists(url)) { fixed = url; break; }
+            }
+            if (fixed) { images[i] = fixed; changed = true; repaired++; }
+            else unresolved.push((row.name || sid) + " :: " + img);
+          }
+          if (changed) {
+            sectionsTouched++;
+            const doc = await secColl.get(sid);
+            await secColl.upsert(sid, Object.assign({}, doc.content, { images }));
+            // refresh the parent location's copy (thumbnail url + count)
+            try {
+              const locDoc = await locColl.get(row.parentid);
+              if (locDoc && locDoc.content && Array.isArray(locDoc.content.sections)) {
+                const lastHttp = images.filter(u => /^https?:\/\//i.test(u)).pop() || "";
+                let touched = false;
+                const sections = locDoc.content.sections.map(s => {
+                  const sd = s && (s.id || s._id);
+                  if (sd === sid) { touched = true; return Object.assign({}, s, { url: lastHttp, count: images.length }); }
+                  return s;
+                });
+                if (touched) await locColl.upsert(row.parentid, Object.assign({}, locDoc.content, { sections }));
+              }
+            } catch (e) { /* best effort */ }
+          }
+        }
+        return res.status(200).json({ sections: sectionsTouched, repaired, unresolved });
+      } catch (error) {
+        console.log("repairphotos failed:", error);
         return res.status(500).json(new ErrorResponse(500, "Internal server error", error));
       }
     });
