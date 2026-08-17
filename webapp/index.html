@@ -1336,7 +1336,7 @@ createApp({
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {},
-      finalByPid: {},
+      finalByPid: {}, dataByPid: {},
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
@@ -1542,41 +1542,50 @@ createApp({
       this.loadQbo();
     },
     projectId(p) { return p.id || p._id; },
-    // Green = not inspected yet: inspection date is today or later and the
-    // project isn't complete (David, Aug 15).
+    // GREEN = scheduled, not inspected yet: inspection date is today or later,
+    // project isn't complete, and no inspection data has been recorded yet.
+    // The moment actual inspection data exists the card turns YELLOW instead
+    // (David, Aug 17: "the green turns to yellow when there is an actual
+    // inspection with data, but stays yellow until the final report is printed").
     isUpcoming(p) {
       if (!p || !p.editedat || p.iscomplete) return false;
+      if (this.needsFinal(p)) return false;               // inspected -> yellow wins
       const t = new Date(); t.setHours(0, 0, 0, 0);
       return new Date(p.editedat).getTime() >= t.getTime();
     },
-    // YELLOW = inspection happened (date passed) but NO Final Report on file
-    // yet (David, Aug 17). A report counts as a Final Report when its stored
-    // name contains "Final Report" - the same rule the backend uses.
+    // For every active project, learn two facts (fetched in the background):
+    //  - does it have actual inspection data (any location with sections)?
+    //  - is a Final Report on file? (report name contains "Final Report" -
+    //    the same rule the backend uses)
     async sweepFinalReports() {
-      const t = new Date(); t.setHours(0, 0, 0, 0);
-      const today = t.getTime();
-      const candidates = this.projects.filter(p => !p.iscomplete && p.editedat && new Date(p.editedat).getTime() < today);
-      const queue = candidates.slice();
+      const queue = this.projects.filter(p => !p.iscomplete);
       const worker = async () => {
         while (queue.length) {
           const p = queue.shift();
           const pid = this.projectId(p);
           try {
-            const res = await this.api('/projectreports/' + encodeURIComponent(pid));
-            const reports = res.ok ? (await res.json() || []) : [];
+            const [repRes, dataRes] = await Promise.all([
+              this.api('/projectreports/' + encodeURIComponent(pid)),
+              this.api('/project/' + encodeURIComponent(pid) + '/hasinspectiondata'),
+            ]);
+            const reports = repRes.ok ? (await repRes.json() || []) : [];
+            const dataJ = dataRes.ok ? (await dataRes.json() || {}) : {};
             this.finalByPid = Object.assign({}, this.finalByPid, {
               [pid]: reports.some(r => /final\s*report/i.test(r && r.name || '')),
             });
-          } catch (e) { /* leave unknown - card stays plain */ }
+            this.dataByPid = Object.assign({}, this.dataByPid, { [pid]: !!dataJ.hasData });
+          } catch (e) { /* leave unknown - card stays plain/green */ }
         }
       };
       await Promise.all([worker(), worker(), worker(), worker(), worker()]);
     },
+    // YELLOW = the inspection actually happened (there is inspection data)
+    // but NO Final Report is on file yet. Stays yellow until the Final
+    // Report exists, regardless of the scheduled date.
     needsFinal(p) {
-      if (!p || p.iscomplete || !p.editedat) return false;
-      const t = new Date(); t.setHours(0, 0, 0, 0);
-      if (new Date(p.editedat).getTime() >= t.getTime()) return false;   // upcoming = green, not yellow
-      return this.finalByPid[this.projectId(p)] === false;               // only when we KNOW there's none
+      if (!p || p.iscomplete) return false;
+      const pid = this.projectId(p);
+      return this.dataByPid[pid] === true && this.finalByPid[pid] === false;   // only when we KNOW both
     },
     async loadReports() {
       this.loadingReports = true;
