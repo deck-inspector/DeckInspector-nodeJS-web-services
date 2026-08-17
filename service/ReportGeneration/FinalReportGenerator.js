@@ -137,7 +137,7 @@ class FinalReportGenerator {
             }
         }
         if (restPart) {
-            const m = restPart.replace(/\s+/g, ' ').match(/^(.*?),?\s*([A-Z]{2})\.?\s*(\d{5})(?:-\d{4})?\s*$/);
+            const m = restPart.replace(/\s+/g, ' ').match(/^(.*?),?\s*([A-Z]{2})[.,]?\s*(\d{5})(?:-\d{4})?\s*$/);
             if (m) {
                 addressStreet = streetPart;
                 addressCity = m[1].replace(/,\s*$/, '').trim();

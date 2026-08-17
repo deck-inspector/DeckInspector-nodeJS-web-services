@@ -219,7 +219,7 @@ class ProposalGenerator {
         if (cIdx === -1) return [flat, '', ''];
         const street = flat.slice(0, cIdx).trim();
         const rest = flat.slice(cIdx + 1).trim();
-        const m = rest.match(/^(.*?),?\s*([A-Z]{2})\.?\s*(\d{5})(?:-\d{4})?\s*$/);
+        const m = rest.match(/^(.*?),?\s*([A-Z]{2})[.,]?\s*(\d{5})(?:-\d{4})?\s*$/);
         if (m) return [street, m[1].replace(/,\s*$/, '').trim(), m[2] + ' ' + m[3]];
         return [street, rest, ''];
     }
