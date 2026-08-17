@@ -425,6 +425,34 @@ var getLocationByParentId = async function(parentId){
     }
 }
 
+// Does this project have any actual inspection data yet? True when at least
+// one location under the project (directly, or under one of its subprojects)
+// has one or more sections recorded. Used by the web app's project list to
+// turn a scheduled (green) project yellow once the inspection has started,
+// until the Final Report is on file (David, Aug 17).
+var hasInspectionData = async function (projectId) {
+    try {
+        const cluster = couchbase.cluster;
+        const bucket = process.env.DB_BUCKET_NAME;
+        const scope = process.env.DB_SCOPE_NAME || "inventory";
+        // parent ids = the project itself + its subprojects
+        const subQuery = `SELECT META(s).id AS metaId, s.id AS docId, s._id AS legacyId FROM \`${bucket}\`.\`${scope}\`.SubProject s WHERE s.parentid = $1`;
+        const subs = await cluster.query(subQuery, { parameters: [projectId] });
+        const parentIds = [projectId];
+        for (const row of (subs.rows || [])) {
+            for (const v of [row.metaId, row.docId, row.legacyId]) {
+                if (v && parentIds.indexOf(v) === -1) parentIds.push(v);
+            }
+        }
+        const locQuery = `SELECT RAW COUNT(1) FROM \`${bucket}\`.\`${scope}\`.Location l WHERE l.parentid IN $1 AND ARRAY_LENGTH(IFMISSINGORNULL(l.sections, [])) > 0`;
+        const result = await cluster.query(locQuery, { parameters: [parentIds] });
+        const count = (result.rows && result.rows[0]) || 0;
+        return { data: { hasData: count > 0, code: 200 } };
+    } catch (error) {
+        return { error: { code: 500, message: "Error checking inspection data.", errordata: error } };
+    }
+}
+
 var updateSectionInLocationsAdd = async function (locationId, sectionId, sectionData) {
     try {
         const collection = await getLocationsCollection();
@@ -530,6 +558,7 @@ module.exports = {
     getLocationById,
     addRemoveSections,
     getLocationByParentId,
+    hasInspectionData,
     editLocation,
     updateSectionInLocationsAdd,
     updateSectionInLocationsRemove
