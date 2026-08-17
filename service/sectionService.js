@@ -172,25 +172,21 @@ const reorderSections = async (parentId, orderedIds) => {
       return { code: 400, success: false, reason: "No sections of this parent were named in the requested order" };
     }
 
+    const ordered = orderSectionsByIds(rows, requested);
+    // NB: named finalIds, not orderedIds - that is this function's parameter.
+    const finalIds = ordered.map((section) => childId(section)).filter(Boolean);
+
+    // Screen order first, then report order. Both are single N1QL statements,
+    // so a failure surfaces to the caller instead of leaving the screen and the
+    // report disagreeing — the earlier version swallowed sequenceNo errors and
+    // a KV timeout produced exactly that split (Aug 17, seen in production).
+    await SectionDAO.setSequenceNos(finalIds);
+
     const parentType = String(rows[0].parenttype || "location").toLowerCase();
     if (parentType === "project") {
-      await ProjectDAO.reorderSingleLevelProjectChildren(parentId, requested);
+      await ProjectDAO.reorderSingleLevelProjectChildren(parentId, finalIds);
     } else {
-      await LocationDAO.reorderLocationChildren(parentId, requested);
-    }
-
-    // Mirror the same order onto the section documents.
-    const ordered = orderSectionsByIds(rows, requested);
-    for (let index = 0; index < ordered.length; index++) {
-      const id = childId(ordered[index]);
-      if (!id) continue;
-      try {
-        await SectionDAO.setSequenceNo(id, index);
-      } catch (error) {
-        // A KV hiccup on one section must not fail the whole reorder - the
-        // parent array (report order) is already committed above.
-        console.error(`Could not set sequenceNo on section ${id}:`, error);
-      }
+      await LocationDAO.reorderLocationChildren(parentId, finalIds);
     }
 
     return {
