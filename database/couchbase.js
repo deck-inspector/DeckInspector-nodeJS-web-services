@@ -61,6 +61,20 @@ async function createCouchbaseCluster() {
     const options = {
       username: DB_USERNAME,
       password: DB_PASSWORD,
+      // KV "unambiguous timeout" fix (Aug 17): every App Service restart
+      // (i.e. every deploy) leaves a window where the SDK is still opening
+      // its KV sockets; KV ops racing that bootstrap threw at the default
+      // 2.5s kvTimeout while N1QL (HTTP to the query service) rode it out.
+      // Give KV ops room to outlast a re-bootstrap instead of failing the
+      // user's click. Query/management stay generous for report generation.
+      timeouts: {
+        connectTimeout: 15000,
+        bootstrapTimeout: 15000,
+        kvTimeout: 10000,
+        kvDurableTimeout: 15000,
+        queryTimeout: 75000,
+        managementTimeout: 75000,
+      },
     };
 
     // Only add configProfile for Capella clusters
@@ -89,6 +103,26 @@ async function createCouchbaseCluster() {
 
     cached.bucket = cached.cluster.bucket(DB_BUCKET_NAME);
     console.log("Successfully accessed bucket:", DB_BUCKET_NAME);
+
+    // Warm the KV connections BEFORE declaring the connection ready.
+    // couchbase.connect() resolves before the bucket's KV sockets are open;
+    // this SDK (4.6) has no waitUntilReady, but bucket.ping() exercises the
+    // KV service and forces the bootstrap to finish. Without this, the first
+    // requests after every deploy raced the bootstrap and hit
+    // "unambiguous timeout" (seen in production Aug 17). Best-effort with
+    // retries - a failed ping logs but never blocks startup (index.js already
+    // retries the whole connect if the DB is down).
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const t0 = Date.now();
+        await cached.bucket.ping();
+        console.log(`KV warm-up ping ok in ${Date.now() - t0}ms (attempt ${attempt})`);
+        break;
+      } catch (pingError) {
+        console.warn(`KV warm-up ping attempt ${attempt} failed:`, pingError.message);
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
   } catch (error) {
     console.error("Error connecting to Couchbase cluster:", error.message);
     console.error("Connection string:", DB_CONN_STR);
