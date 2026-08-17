@@ -63,6 +63,10 @@ input,select{font-family:inherit;font-size:16px}
 .pcard.upcoming .meta .chip.open{background:#12A344;color:#fff;font-weight:700}
 .pcard.upcoming .addr{color:#0E7A33}
 .pcard.upcoming h3::after{content:' \2022 SCHEDULED';color:#12A344;font-size:11px;font-weight:800;letter-spacing:.5px;vertical-align:middle}
+.pcard.needsfinal{background:#FFF8E1;border:4px solid #E8A700;box-shadow:0 0 0 3px rgba(232,167,0,.28),0 6px 18px rgba(232,167,0,.35)}
+.pcard.needsfinal .addr{color:#8A6400}
+.pcard.needsfinal .meta .chip.open{background:#E8A700;color:#fff;font-weight:700}
+.pcard.needsfinal h3::after{content:' \2022 NEEDS FINAL REPORT';color:#C98F00;font-size:11px;font-weight:800;letter-spacing:.5px;vertical-align:middle}
 .pcard:hover{box-shadow:0 6px 22px rgba(28,39,51,.14)}
 .pcard .thumb{height:150px;background:#e7edf2 center/cover no-repeat;position:relative}
 .pcard .thumb .noimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#a9b8c4;font-size:40px}
@@ -367,7 +371,7 @@ input,select{font-family:inherit;font-size:16px}
         <div class="empty" v-if="loadingProjects">Loading projects…</div>
         <div class="empty" v-else-if="filteredProjects.length===0">No projects match.</div>
         <div class="grid" v-else>
-          <div class="pcard" :class="{upcoming: isUpcoming(p)}" v-for="p in filteredProjects" :key="p.id">
+          <div class="pcard" :class="{upcoming: isUpcoming(p), needsfinal: needsFinal(p)}" v-for="p in filteredProjects" :key="p.id">
             <div class="thumb" :style="thumbStyle(p)">
               <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
             </div>
@@ -1332,6 +1336,7 @@ createApp({
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {},
+      finalByPid: {},
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
@@ -1514,6 +1519,7 @@ createApp({
         const data = await res.json();
         this.projects = (data.projects || []).filter(p => !p.isdeleted);
         if (!this.users.length) this.loadUsers();
+        this.sweepFinalReports();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not load projects.', 'err');
       } finally { this.loadingProjects = false; }
@@ -1542,6 +1548,35 @@ createApp({
       if (!p || !p.editedat || p.iscomplete) return false;
       const t = new Date(); t.setHours(0, 0, 0, 0);
       return new Date(p.editedat).getTime() >= t.getTime();
+    },
+    // YELLOW = inspection happened (date passed) but NO Final Report on file
+    // yet (David, Aug 17). A report counts as a Final Report when its stored
+    // name contains "Final Report" - the same rule the backend uses.
+    async sweepFinalReports() {
+      const t = new Date(); t.setHours(0, 0, 0, 0);
+      const today = t.getTime();
+      const candidates = this.projects.filter(p => !p.iscomplete && p.editedat && new Date(p.editedat).getTime() < today);
+      const queue = candidates.slice();
+      const worker = async () => {
+        while (queue.length) {
+          const p = queue.shift();
+          const pid = this.projectId(p);
+          try {
+            const res = await this.api('/projectreports/' + encodeURIComponent(pid));
+            const reports = res.ok ? (await res.json() || []) : [];
+            this.finalByPid = Object.assign({}, this.finalByPid, {
+              [pid]: reports.some(r => /final\s*report/i.test(r && r.name || '')),
+            });
+          } catch (e) { /* leave unknown - card stays plain */ }
+        }
+      };
+      await Promise.all([worker(), worker(), worker(), worker(), worker()]);
+    },
+    needsFinal(p) {
+      if (!p || p.iscomplete || !p.editedat) return false;
+      const t = new Date(); t.setHours(0, 0, 0, 0);
+      if (new Date(p.editedat).getTime() >= t.getTime()) return false;   // upcoming = green, not yellow
+      return this.finalByPid[this.projectId(p)] === false;               // only when we KNOW there's none
     },
     async loadReports() {
       this.loadingReports = true;
