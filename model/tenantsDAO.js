@@ -346,6 +346,21 @@ module.exports = {
     }
   },
 
+  // Branded email signature used by the web app's Outlook drafts
+  // (company line, phone, website, color, logoUrl) - David, Aug 17.
+  updateTenantSignature: async (id, signature) => {
+    try {
+      const collection = await getTenantsCollection();
+      const doc = await collection.get(id);
+      doc.content.signature = signature;
+      await collection.upsert(id, doc.content);
+      return { ok: 1 };
+    } catch (error) {
+      console.error("Error updating tenant signature:", error);
+      throw error;
+    }
+  },
+
   updateTenantLogo: async (id, logoURL) => {
     try {
       const collection = await getTenantsCollection();
