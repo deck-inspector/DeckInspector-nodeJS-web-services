@@ -618,7 +618,7 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
             <h3 style="margin:0 0 4px">Email the Client (Outlook)</h3>
-            <div class="hint">Pick the report to send — including a signed report you uploaded — and the email style. Outlook opens pre-addressed to the client with their name in the greeting and your signature written in; the chosen report downloads so it&rsquo;s ready to attach from your Downloads folder.</div>
+            <div class="hint">Pick the report to send — including a signed report you uploaded — and the email style. A ready-to-send Outlook draft downloads with the report <b>already attached</b>, addressed to the client with their name in the greeting and your branded signature. Open the downloaded draft and press Send.</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
               <select v-model="emailReportPick" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;max-width:420px">
                 <option value="">No report — write the email only</option>
@@ -631,7 +631,8 @@ input,select{font-family:inherit;font-size:16px}
                 <option value="D">D — HOA / property manager · board-appropriate ask</option>
                 <option value="E">E — Follow-up reminder (3 days later, once)</option>
               </select>
-              <button class="btn-dl" @click="emailClient">&#9993; Open in Outlook</button>
+              <button class="btn-dl" :disabled="emailBusy" @click="emailClient">{{ emailBusy ? '&#9203; Preparing&hellip;' : '&#9993; Create Outlook Draft' }}</button>
+              <button class="btn-dl" title="Company line, phone, logo and colors written into every draft" @click="sigEdOpen">&#9998; Signature</button>
             </div>
           </div>
           <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
@@ -1142,6 +1143,39 @@ input,select{font-family:inherit;font-size:16px}
   </div>
 
   <!-- ============ DELETE PROJECT CONFIRM ============ -->
+  <!-- ============ EMAIL SIGNATURE EDITOR ============ -->
+  <div class="overlay" v-if="sigEd.open" @click.self="sigEd.open=false">
+    <div class="modal">
+      <h3>Email Signature &amp; Branding</h3>
+      <p>This signature is written into every Outlook draft the app creates — report emails and proposal emails — using your company branding. Each company sets its own.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <div style="flex:1;min-width:200px"><label style="font-size:11px">Company line</label><input v-model.trim="sigEd.company" placeholder="Deck Inspectors Inc."></div>
+        <div style="min-width:150px"><label style="font-size:11px">Phone</label><input v-model.trim="sigEd.phone" placeholder="888-224-0489"></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <div style="flex:1;min-width:200px"><label style="font-size:11px">Website</label><input v-model.trim="sigEd.website" placeholder="www.deckinspectors.com"></div>
+        <div><label style="font-size:11px">Brand color</label><input type="color" v-model="sigEd.color" style="width:60px;height:38px;padding:2px"></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:11px">Logo</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn-dl" :disabled="sigEd.uploading" @click="$refs.sigLogoUp.click()">{{ sigEd.uploading ? 'Uploading&hellip;' : '&#11014; Upload Logo' }}</button>
+          <button class="btn-dl" v-if="logo && sigEd.logoUrl !== logo" @click="sigEd.logoUrl = logo">Use company logo</button>
+          <button class="btn-dl" v-if="sigEd.logoUrl" @click="sigEd.logoUrl = ''">Remove logo</button>
+          <input type="file" ref="sigLogoUp" accept="image/*" style="display:none" @change="sigEdLogo">
+        </div>
+      </div>
+      <div style="border:1.5px dashed var(--line);border-radius:10px;padding:14px;margin-bottom:16px;background:#fff">
+        <div style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Preview</div>
+        <div v-html="sigEdPreview()"></div>
+      </div>
+      <div class="mrow">
+        <button class="btn-cancel" @click="sigEd.open=false">Cancel</button>
+        <button class="btn-dl" :disabled="sigEd.saving" @click="sigEdSave">{{ sigEd.saving ? 'Saving&hellip;' : '&#10003; Save Signature' }}</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" v-if="deletingProject" @click.self="deletingProject=null">
     <div class="modal">
       <h3>Delete this project?</h3>
@@ -1351,8 +1385,9 @@ createApp({
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
-      emailTpl: 'C', brandInfo: {},
-      emailReportPick: '', reportProp: null, downloadingProp: false,
+      emailTpl: 'C', brandInfo: {}, tenantId: '',
+      emailReportPick: '', reportProp: null, downloadingProp: false, emailBusy: false,
+      sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', saving: false, uploading: false },
       finalByPid: {}, dataByPid: {},
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
@@ -3071,9 +3106,12 @@ createApp({
     // Open Outlook Desktop with a proposal cover email pre-written and
     // pre-addressed to the proposal's contact (David, Aug 14 - workflow step 1).
     // mailto: cannot attach files - the user attaches the downloaded Word/PDF.
-    // Signature block written into the email body: Outlook does not append
-    // the saved signature to mailto: drafts, so the draft ended up unsigned
-    // (David, Aug 17 - "we also need our signature line").
+    /* ---------- Outlook draft (.eml) machinery ----------
+       mailto: could neither attach files nor carry HTML, so drafts arrived
+       with no attachment and an unbranded plain-text signature (David,
+       Aug 17). We now download a ready-to-send .eml draft: X-Unsent makes
+       Outlook open it in compose mode, the report rides along as a real
+       attachment, and the signature is the tenant's branded HTML block. */
     sigLines() {
       const u = this.user || {};
       const b = this.brandInfo || {};
@@ -3085,7 +3123,85 @@ createApp({
       if (u.email) out.push(u.email);
       return out;
     },
-    emailProposal(prArg) {
+    sigConfig() {
+      const b = this.brandInfo || {};
+      if (b.signature && (b.signature.company || b.signature.logoUrl)) return b.signature;
+      return null;
+    },
+    escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
+    signatureHtml(sigArg) {
+      const sig = sigArg || this.sigConfig();
+      if (!sig) {
+        // no branded signature configured - plain text lines
+        return '<div style="margin-top:16px">' + this.sigLines().map(l => this.escapeHtml(l)).join('<br>') + '</div>';
+      }
+      const color = sig.color || '#E8500B';
+      const site = String(sig.website || '').trim();
+      const href = site ? (/^https?:\/\//i.test(site) ? site : 'https://' + site) : '';
+      let h = '<div style="margin-top:20px;font-family:Calibri,Arial,sans-serif">';
+      if (sig.company) h += '<div style="color:' + color + ';font-weight:bold;font-size:15pt">' + this.escapeHtml(sig.company) + '</div>';
+      if (sig.phone) h += '<div style="color:' + color + ';font-weight:bold;font-size:13pt;margin-top:12px">' + this.escapeHtml(sig.phone) + '</div>';
+      if (sig.logoUrl) h += '<div style="margin:14px 0"><img src="' + this.escapeHtml(sig.logoUrl) + '" alt="' + this.escapeHtml(sig.company || 'logo') + '" style="max-width:300px;height:auto;border:0"></div>';
+      if (site) h += '<div><a href="' + this.escapeHtml(href) + '" style="color:#0563C1">' + this.escapeHtml(site) + '</a></div>';
+      h += '</div>';
+      return h;
+    },
+    bodyHtml(lines) {
+      const link = (t) => t.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#0563C1">$1</a>');
+      return lines.map(l => l ? '<div>' + link(this.escapeHtml(l)) + '</div>' : '<div>&nbsp;</div>').join('');
+    },
+    b64chunks(b64) { return (b64 || '').replace(/[^A-Za-z0-9+/=]/g, '').match(/.{1,76}/g) || []; },
+    b64utf8(str) { return btoa(unescape(encodeURIComponent(str))); },
+    // Build an RFC-822 draft Outlook opens in COMPOSE mode (X-Unsent: 1).
+    buildEml(opts) {
+      const B = 'E3PART' + Math.random().toString(36).slice(2);
+      const out = [];
+      if (opts.to) out.push('To: ' + opts.to);
+      out.push('Subject: =?UTF-8?B?' + this.b64utf8(opts.subject || '') + '?=');
+      out.push('X-Unsent: 1');
+      out.push('MIME-Version: 1.0');
+      out.push('Content-Type: multipart/mixed; boundary="' + B + '"');
+      out.push('');
+      out.push('--' + B);
+      out.push('Content-Type: text/html; charset=utf-8');
+      out.push('Content-Transfer-Encoding: base64');
+      out.push('');
+      const html = '<html><body style="font-family:Calibri,Arial,sans-serif;font-size:11pt">' + opts.html + '</body></html>';
+      out.push.apply(out, this.b64chunks(this.b64utf8(html)));
+      for (const att of (opts.attachments || [])) {
+        out.push('--' + B);
+        out.push('Content-Type: ' + att.mime + '; name="' + att.name.replace(/"/g, '') + '"');
+        out.push('Content-Disposition: attachment; filename="' + att.name.replace(/"/g, '') + '"');
+        out.push('Content-Transfer-Encoding: base64');
+        out.push('');
+        out.push.apply(out, this.b64chunks(att.base64));
+      }
+      out.push('--' + B + '--');
+      return out.join('\r\n');
+    },
+    async fetchAsBase64(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('fetch');
+      const blob = await r.blob();
+      return await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(String(fr.result).split(',')[1] || '');
+        fr.onerror = rej;
+        fr.readAsDataURL(blob);
+      });
+    },
+    mimeForExt(ext) {
+      return ext === 'pdf' ? 'application/pdf'
+        : ext === 'doc' ? 'application/msword'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    },
+    downloadEml(eml, baseName) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([eml], { type: 'message/rfc822' }));
+      a.download = String(baseName || 'Email').replace(/\./g, '').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 120) + '.eml';
+      document.body.appendChild(a); a.click(); a.remove();
+    },
+    async emailProposal(prArg) {
       const src = (prArg && prArg.form) ? prArg : this.prop;
       const f = (src && src.form) || {};
       const to = (f.contactEmail || '').trim();
@@ -3102,17 +3218,34 @@ createApp({
         'It covers the scope of the inspection, the elements included, the price, and the timeline \u2014 everything you need to review in one page. The inspection satisfies California\u2019s balcony-and-elevated-elements law (SB 721 for apartments, Civil Code \u00a7 5551 for condos and HOAs), and the report we deliver is formatted for lenders, insurers, and building departments.', '',
         'To move forward, simply sign the proposal and send it back \u2014 reply to this email with the signed copy and we will get your inspection on the calendar right away.', '',
         'If you have any questions at all, reply here or call me directly at ' + phone + '. I am happy to walk through it.', '',
-        'Thank you,', ''
-      ].concat(this.sigLines());   // signature written in - Outlook skips the saved signature on mailto: drafts
-      const href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\r\n'));
-      window.location.href = href;
-      this.toast(to ? 'Opening Outlook \u2014 attach the proposal file before sending.' : 'Opening Outlook \u2014 add the client\u2019s email address and attach the proposal.');
+        'Thank you,'
+      ];
+      this.emailBusy = true;
+      try {
+        // generate the proposal Word doc and carry it as a REAL attachment
+        const attachments = [];
+        try {
+          const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: f } });
+          if (res.ok) {
+            const blob = await res.blob();
+            const b64 = await new Promise((r2, j2) => { const fr = new FileReader(); fr.onload = () => r2(String(fr.result).split(',')[1] || ''); fr.onerror = j2; fr.readAsDataURL(blob); });
+            let base = f.addressStreet ? [f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ') : String(f.property || 'Proposal').trim();
+            base = base.replace(/\./g, '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Proposal';
+            attachments.push({ name: base + ' Proposal.docx', mime: this.mimeForExt('docx'), base64: b64 });
+          }
+        } catch (e) { /* draft still goes out without the file */ }
+        const eml = this.buildEml({ to, subject, html: this.bodyHtml(lines) + this.signatureHtml(), attachments });
+        this.downloadEml(eml, subject);
+        this.toast(attachments.length
+          ? 'Outlook draft downloaded with the proposal attached \u2014 open it and press Send.'
+          : 'Outlook draft downloaded \u2014 the proposal file could not be generated, attach it manually.');
+      } finally { this.emailBusy = false; }
     },
     // Open Outlook Desktop with the review-request email pre-written (David,
     // Aug 14). Templates A-E from the approved "Google Review Request" doc;
     // property address, inspection interval, company name/phone auto-filled.
     // mailto: cannot attach files - the user attaches the downloaded report.
-    emailClient() {
+    async emailClient() {
       const p = this.current || {};
       const addr = (p.address || p.name || '[Property Address]').split('\n')[0].trim() || '[Property Address]';
       const assoc = p.name || '[Association Name]';
@@ -3129,8 +3262,7 @@ createApp({
       const contact = (pf.ownerMgr || '').trim();
       const first = (contact.split(/\s+/)[0] || '').trim() || '[First Name]';
       const hi = 'Hi ' + first + ',';
-      const sig = [''].concat(this.sigLines());
-      let subject = '', lines = [];
+      let subject = '', lines = [], tail = [];
       if (this.emailTpl === 'A') {
         subject = 'Your E-3 inspection report for ' + addr;
         lines = [hi, '',
@@ -3139,14 +3271,14 @@ createApp({
           'If anything in the report raises a question, reply here or call me directly at ' + phone + '.', '',
           'One small favor. If we made this straightforward for you, would you take thirty seconds to leave a Google review? Most owners find us by searching, and an honest word from someone who has actually used us is the single biggest reason the next one calls a certified E-3 inspector instead of taking their chances.', '',
           'Leave a review here:', REVIEW, '',
-          'Thank you for trusting us with your property.'].concat(sig);
+          'Thank you for trusting us with your property.'];
       } else if (this.emailTpl === 'B') {
         subject = 'Your E-3 inspection report for ' + addr + ' \u2014 findings and next steps';
         lines = [hi, '',
           'Your completed E-3 Visual Inspection Report for ' + addr + ' is attached. We did identify conditions that need attention, and I want to make sure you know exactly what they mean before you read through it.', '',
           'Every finding in the report is ranked by urgency. [Items marked immediate need to be addressed promptly / Nothing we found is an immediate life-safety hazard], and the remainder go into a documented repair timeline rather than needing action this week. Finding these now is the point of the inspection \u2014 the same damage discovered during an escrow or after a failure is dramatically more expensive and far less within your control.', '',
           'Here is what happens next. Once repairs are complete, we return and issue a Final Report confirming the work. That is the document your lender, insurer, or city will want, and it is what closes out your compliance obligation.', '',
-          'I would rather walk you through the findings than have you interpret them alone. Reply here or call me at ' + phone + ' and we will go through it together \u2014 there is no charge for that conversation.'].concat(sig);
+          'I would rather walk you through the findings than have you interpret them alone. Reply here or call me at ' + phone + ' and we will go through it together \u2014 there is no charge for that conversation.'];
       } else if (this.emailTpl === 'D') {
         subject = 'E-3 inspection report \u2014 ' + assoc;
         lines = [hi, '',
@@ -3154,15 +3286,15 @@ createApp({
           'A note the board may find useful: this statute permits only licensed architects and licensed structural engineers to perform and stamp condo and HOA inspections. Contractors and certified building inspectors are not eligible, even though they qualify for apartment buildings under SB 721. Our inspections are performed by our licensed structural engineers, which is why this report will hold up if it is ever questioned during a sale, a claim, or a code review.', '',
           'If the board would like us to walk through the findings at a meeting, we are glad to do that at no charge \u2014 it usually takes fifteen minutes and saves a lot of back-and-forth.', '',
           'If our work made this requirement easier for you to manage, a short Google review would help other associations facing the same question find a firm that is actually eligible to do their inspection:', REVIEW, '',
-          'Best regards,'].concat(sig);
+          'Best regards,'];
       } else if (this.emailTpl === 'E') {
         subject = 'Quick favor' + (first !== '[First Name]' ? ', ' + first : '') + '?';
         lines = [hi, '',
           'Just checking that the E-3 report for ' + addr + ' covered everything you needed. If anything is unclear, reply here and I will sort it out.', '',
           'If it was helpful, a quick Google review would mean a lot \u2014 it is how most of our clients find us:', REVIEW, '',
-          'Thanks again,'].concat(sig).concat(['',
-          co + ', [street address], [city], CA [ZIP]',
-          'Prefer not to receive follow-ups like this? Reply with \u201cno thanks\u201d and we will not send another.']);
+          'Thanks again,'];
+        tail = [co + ', [street address], [city], CA [ZIP]',
+          'Prefer not to receive follow-ups like this? Reply with \u201cno thanks\u201d and we will not send another.'];
       } else {
         subject = addr + ' is compliant \u2014 your Final Report is attached';
         lines = [hi, '',
@@ -3171,22 +3303,83 @@ createApp({
           'Thank you for seeing this through. Plenty of owners let a findings report sit in a drawer; you dealt with it, and your building is genuinely safer for it.', '',
           'If we made a confusing state requirement manageable, would you take thirty seconds to leave us a Google review? Owners and HOA boards facing this same deadline are searching right now, and most of them cannot tell a certified E-3 inspector from someone who is not legally eligible to do the work. A sentence from you is worth more than anything we could say about ourselves.', '',
           'Leave a review here:', REVIEW, '',
-          'It is genuinely appreciated.'].concat(sig);
+          'It is genuinely appreciated.'];
       }
-      // Download the selected report (generated or uploaded signed copy) so it
-      // is sitting in Downloads ready to attach - mailto: cannot attach files.
-      const picked = this.reports.find(r => r.url === this.emailReportPick);
-      if (picked) {
-        const a = document.createElement('a');
-        a.href = this.reportDownloadHref(picked);
-        document.body.appendChild(a); a.click(); a.remove();
-      }
-      const href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\r\n'));
-      const openDraft = () => { window.location.href = href; };
-      if (picked) setTimeout(openDraft, 900); else openDraft();
-      this.toast(picked
-        ? '"' + picked.name + '" is downloading - attach it from your Downloads folder in the Outlook draft.'
-        : 'Opening Outlook - attach the report file before sending.');
+      this.emailBusy = true;
+      try {
+        // Selected report (generated or uploaded signed copy) rides along as a
+        // REAL attachment inside the .eml draft.
+        const picked = this.reports.find(r => r.url === this.emailReportPick);
+        const attachments = [];
+        if (picked) {
+          try {
+            const extM = String(picked.url || '').match(/\.(docx|doc|pdf)(\?|$)/i);
+            const ext = (extM ? extM[1] : 'docx').toLowerCase();
+            const b64 = await this.fetchAsBase64(this.reportDownloadHref(picked));
+            const nm = String(picked.name || 'Report').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 120);
+            attachments.push({ name: nm + '.' + ext, mime: this.mimeForExt(ext), base64: b64 });
+          } catch (e) { /* draft still goes out; user attaches manually */ }
+        }
+        const html = this.bodyHtml(lines) + this.signatureHtml() + (tail.length ? '<div style="margin-top:16px;color:#666;font-size:9pt">' + this.bodyHtml(tail) + '</div>' : '');
+        const eml = this.buildEml({ to, subject, html, attachments });
+        this.downloadEml(eml, subject);
+        this.toast(picked
+          ? (attachments.length
+            ? 'Outlook draft downloaded with "' + picked.name + '" attached — open it and press Send.'
+            : 'Outlook draft downloaded, but the report could not be fetched — attach it manually.')
+          : 'Outlook draft downloaded — open it, attach the report if needed, and press Send.');
+      } finally { this.emailBusy = false; }
+    },
+    /* ---------- email signature editor (per tenant) ---------- */
+    sigEdOpen() {
+      const s = this.sigConfig() || {};
+      const b = this.brandInfo || {};
+      this.sigEd = {
+        open: true, saving: false, uploading: false,
+        company: s.company || b.name || '',
+        phone: s.phone || b.phone || '',
+        website: s.website || b.website || '',
+        color: s.color || '#E8500B',
+        logoUrl: s.logoUrl || this.logo || '',
+      };
+    },
+    sigEdPreview() {
+      return this.signatureHtml({ company: this.sigEd.company, phone: this.sigEd.phone, website: this.sigEd.website, color: this.sigEd.color, logoUrl: this.sigEd.logoUrl });
+    },
+    async sigEdLogo(e) {
+      const f = (e.target.files && e.target.files[0]) || null;
+      e.target.value = '';
+      if (!f) return;
+      this.sigEd.uploading = true;
+      try {
+        const fd = new FormData();
+        fd.append('picture', f, f.name);
+        fd.append('containerName', 'signatures');
+        fd.append('uploader', (this.user && this.user.username) || 'admin');
+        fd.append('entityName', 'signature');
+        const up = await this.api('/image/upload', { method: 'POST', body: fd });
+        if (!up.ok) throw new Error('upload');
+        const ud = await up.json();
+        const url = ud.url || (ud.data && ud.data.url) || '';
+        if (!url) throw new Error('upload');
+        this.sigEd.logoUrl = url;
+      } catch (err) {
+        if (err.message !== 'auth') this.toast('Could not upload the logo.', 'err');
+      } finally { this.sigEd.uploading = false; }
+    },
+    async sigEdSave() {
+      if (!this.tenantId) { this.toast('Could not find your company record — try signing in again.', 'err'); return; }
+      this.sigEd.saving = true;
+      try {
+        const signature = { company: this.sigEd.company, phone: this.sigEd.phone, website: this.sigEd.website, color: this.sigEd.color, logoUrl: this.sigEd.logoUrl };
+        const res = await this.api('/tenants/' + encodeURIComponent(this.tenantId) + '/updatesignature', { method: 'POST', json: { signature } });
+        if (!res.ok) throw new Error('bad');
+        this.brandInfo = Object.assign({}, this.brandInfo, { signature });
+        this.sigEd.open = false;
+        this.toast('Signature saved — every Outlook draft now uses it.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save the signature.', 'err');
+      } finally { this.sigEd.saving = false; }
     },
     async loadBranding() {
       try {
@@ -3197,7 +3390,8 @@ createApp({
         const j = await res.json();
         const t = j.Tenant || j.tenant || j;
         this.logo = (t && ((t.icons && t.icons.header) || t.logo)) || '';
-        this.brandInfo = t ? { name: t.name || '', phone: t.phone || '', website: t.website || '', footerText: t.footerText || '' } : {};
+        this.tenantId = (t && (t.id || t._id)) || '';
+        this.brandInfo = t ? { name: t.name || '', phone: t.phone || '', website: t.website || '', footerText: t.footerText || '', signature: t.signature || null } : {};
       } catch (e) { this.logo = ''; }
     },
     // Queue every chosen file (multi-select / whole-folder allowed), skipping
