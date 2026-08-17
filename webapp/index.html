@@ -59,8 +59,10 @@ input,select{font-family:inherit;font-size:16px}
 .search .icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ink-soft)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
 .pcard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .15s}
-.pcard.upcoming{background:#F1FAF1;border:2px solid #2E9E4F;box-shadow:0 2px 10px rgba(46,158,79,.18)}
-.pcard.upcoming .meta .chip.open{background:#DCF3E1;color:#176A33}
+.pcard.upcoming{background:#E9F8EC;border:4px solid #12A344;box-shadow:0 0 0 3px rgba(18,163,68,.28),0 6px 18px rgba(18,163,68,.35)}
+.pcard.upcoming .meta .chip.open{background:#12A344;color:#fff;font-weight:700}
+.pcard.upcoming .addr{color:#0E7A33}
+.pcard.upcoming h3::after{content:' \2022 SCHEDULED';color:#12A344;font-size:11px;font-weight:800;letter-spacing:.5px;vertical-align:middle}
 .pcard:hover{box-shadow:0 6px 22px rgba(28,39,51,.14)}
 .pcard .thumb{height:150px;background:#e7edf2 center/cover no-repeat;position:relative}
 .pcard .thumb .noimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#a9b8c4;font-size:40px}
