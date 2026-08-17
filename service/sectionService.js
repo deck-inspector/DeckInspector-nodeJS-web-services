@@ -7,6 +7,7 @@ const InvasiveUtil = require("../service/invasiveUtil");
 const ProjectDAO = require("../model/projectDAO");
 const updateParentHelper = require("../service/updateParentHelper");
 const RatingMapping  = require("../model/ratingMapping.js");
+const { orderSectionsByIds, sortSectionsBySequence, childId } = require("../model/sectionOrder");
 
 
 const addSection = async (section) => {
@@ -115,9 +116,12 @@ var getSectionsByParentId = async function (parentId) {
       for (let section of result) {
         transformData(section);
       }
+      // Screen order must match report order. The query has no ORDER BY, so
+      // sort by the sequenceNo written by reorderSections. Lists that have
+      // never been reordered carry no sequenceNo and come back untouched.
       return {
         success: true,
-        sections: result,
+        sections: sortSectionsBySequence(result),
       };
     }
     // A parent (e.g. a location) with NO sections is a normal, valid state -
@@ -128,6 +132,162 @@ var getSectionsByParentId = async function (parentId) {
     return {
       success: true,
       sections: [],
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
+
+/**
+ * Reorder the sections under one parent.
+ *
+ * Writes BOTH places order lives, so the unit screen and the generated report
+ * agree: the parent document's sections array (report order) and the
+ * sequenceNo on each section document (screen order).
+ *
+ * The parent-child relationship is taken from the sections themselves, never
+ * from the client: only sections that actually belong to parentId are touched,
+ * and the parent kind (location vs single-level project) is read off the
+ * section's own parenttype. Empty parent is a valid state - returns an empty
+ * list, never a 401 (that would log the user out).
+ */
+const reorderSections = async (parentId, orderedIds) => {
+  try {
+    if (!parentId) {
+      return { code: 400, success: false, reason: "parentid is required" };
+    }
+
+    const rows = await SectionDAO.getSectionByParentId(parentId);
+    if (!rows || rows.length === 0) {
+      return { success: true, sections: [] };
+    }
+
+    // Only ids that really live under this parent survive.
+    const owned = new Set(rows.map((row) => childId(row)).filter(Boolean));
+    const requested = (Array.isArray(orderedIds) ? orderedIds : [])
+      .map(String)
+      .filter((id) => owned.has(id));
+
+    if (requested.length === 0) {
+      return { code: 400, success: false, reason: "No sections of this parent were named in the requested order" };
+    }
+
+    const parentType = String(rows[0].parenttype || "location").toLowerCase();
+    if (parentType === "project") {
+      await ProjectDAO.reorderSingleLevelProjectChildren(parentId, requested);
+    } else {
+      await LocationDAO.reorderLocationChildren(parentId, requested);
+    }
+
+    // Mirror the same order onto the section documents.
+    const ordered = orderSectionsByIds(rows, requested);
+    for (let index = 0; index < ordered.length; index++) {
+      const id = childId(ordered[index]);
+      if (!id) continue;
+      try {
+        await SectionDAO.setSequenceNo(id, index);
+      } catch (error) {
+        // A KV hiccup on one section must not fail the whole reorder - the
+        // parent array (report order) is already committed above.
+        console.error(`Could not set sequenceNo on section ${id}:`, error);
+      }
+    }
+
+    return {
+      success: true,
+      sections: ordered.map((section) => childId(section)),
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
+
+/**
+ * Move a section to a different parent, keeping the parent-child relationship
+ * correct on BOTH sides and keeping the section itself intact.
+ *
+ * The old /moveSection route deleted the section from its old parent and
+ * re-added it as a NEW document. That had three problems:
+ *   - deleteSectionPermanently also deletes the section's invasive and
+ *     conclusive child records, so a "move" silently destroyed them;
+ *   - the section got a new id, orphaning anything that referenced the old one;
+ *   - it never updated parenttype, so moving between a unit and a single-level
+ *     project left the section pointing at the wrong kind of parent and the
+ *     report generator could not find it.
+ *
+ * This version edits the section in place (same id, same photos, same invasive
+ * and conclusive children), then detaches the metadata entry from the old
+ * parent and attaches it to the new one. The destination kind is verified
+ * against the database rather than trusted from the client.
+ */
+const moveSectionToParent = async (sectionId, newParentId) => {
+  try {
+    if (!sectionId || !newParentId) {
+      return { code: 400, success: false, reason: "sectionId and newParentId are required" };
+    }
+
+    const section = await SectionDAO.getSectionById(sectionId);
+    if (!section) {
+      return { code: 404, success: false, reason: "Section not found" };
+    }
+
+    const oldParentId = section.parentid;
+    const oldParentType = String(section.parenttype || "location").toLowerCase();
+
+    if (String(oldParentId) === String(newParentId)) {
+      return { success: true, sections: [sectionId], message: "Section is already under that parent" };
+    }
+
+    // Verify the destination exists and learn what kind of parent it is.
+    let newParentType = null;
+    const destinationLocation = await LocationDAO.getLocationById(newParentId);
+    if (destinationLocation) {
+      newParentType = "location";
+    } else {
+      const destinationProject = await ProjectDAO.getProjectById(newParentId);
+      if (destinationProject) newParentType = "project";
+    }
+    if (!newParentType) {
+      return { code: 404, success: false, reason: "Destination parent not found" };
+    }
+
+    // 1. Point the section at its new parent - both halves of the relationship.
+    await SectionDAO.editSection(sectionId, {
+      parentid: newParentId,
+      parenttype: newParentType,
+    });
+
+    // 2. Detach the metadata entry from the old parent.
+    await updateParentHelper.removeSectionMetadataFromParent(sectionId, {
+      parentid: oldParentId,
+      parenttype: oldParentType,
+    });
+
+    // 3. Attach it under the new parent (appended at the end of its list).
+    const movedSection = await SectionDAO.getSectionById(sectionId);
+    await updateParentHelper.addSectionMetadataInParent(sectionId, movedSection);
+
+    // 4. Re-evaluate invasive flags: the new hierarchy may need marking, and
+    //    the old one may no longer have any invasive children.
+    try {
+      if (movedSection.furtherinvasivereviewrequired) {
+        await InvasiveUtil.markSectionInvasive(sectionId);
+      }
+      if (oldParentType === "project") {
+        await InvasiveUtil.markProjectNonInvasive(oldParentId);
+      } else {
+        await InvasiveUtil.markLocationNonInvasive(oldParentId);
+      }
+    } catch (error) {
+      // Invasive re-marking is cosmetic on the cards - never fail a move for it.
+      console.error("Could not re-evaluate invasive flags after move:", error);
+    }
+
+    return {
+      success: true,
+      sectionId: sectionId,
+      parentid: newParentId,
+      parenttype: newParentType,
     };
   } catch (error) {
     return handleError(error);
@@ -251,6 +411,8 @@ module.exports = {
   getSectionById,
   deleteSectionPermanently,
   getSectionsByParentId,
+  reorderSections,
+  moveSectionToParent,
   editSetion,
   addImageInSection,
   removeImageFromSection
