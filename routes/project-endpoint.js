@@ -20,6 +20,7 @@ const {generateLocationReportDoc} = require("../service/projectreportgeneration"
 const FinalReportGenerator = require("../service/ReportGeneration/FinalReportGenerator.js");
 const ProposalGenerator = require("../service/ReportGeneration/ProposalGenerator.js");
 const proposals = require("../model/proposals");
+const locationModel = require("../model/location");
 
 router.route('/add')
     .post(async function (req, res) {
@@ -332,6 +333,21 @@ router.route('/getProjectMetadata/:id')
       }
     });
 
+
+// Lightweight check for the web app's project list: does this project have
+// any actual inspection data (any location with sections) yet? Drives the
+// yellow "needs Final Report" highlight (David, Aug 17).
+router.route('/:id/hasinspectiondata')
+    .get(async function (req, res) {
+      try {
+        const result = await locationModel.hasInspectionData(req.params.id);
+        if (result.error) return res.status(result.error.code).json(result.error);
+        return res.status(200).json(result.data);
+      } catch (error) {
+        console.log(error);
+        return res.status(500).json(new ErrorResponse(500, "Internal server error", error));
+      }
+    });
 
 /** UMESH TODO  -- REFACTOR this code
  *  Add request Validation
