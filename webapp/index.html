@@ -631,7 +631,7 @@ input,select{font-family:inherit;font-size:16px}
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
               <select v-model="emailReportPick" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;max-width:420px">
                 <option value="">No report — write the email only</option>
-                <option v-for="(r,i) in emailableReports()" :key="(r.url||'')+i" :value="r.url">{{ r.name }} &mdash; {{ shortDate(r.timestamp) }}</option>
+                <option v-for="(r,i) in emailableReports()" :key="(r.url||'')+i" :value="r.url">{{ r.name }} &mdash; {{ shortDate(r.timestamp) }}{{ r.isDocBacked ? ' \u2014 your uploaded Final' : '' }}</option>
               </select>
               <select v-model="emailTpl" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;max-width:420px">
                 <option value="C">C — Final Report after repairs · asks for review (best moment)</option>
@@ -1426,7 +1426,7 @@ createApp({
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {}, tenantId: '',
-      emailReportPick: '', reportProp: null, downloadingProp: false, emailBusy: false,
+      emailReportPick: '', emailDocs: [], reportProp: null, downloadingProp: false, emailBusy: false,
       sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', logoWidth: 300, saving: false, uploading: false },
       finalByPid: {}, dataByPid: {},
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
@@ -1680,7 +1680,7 @@ createApp({
       history.pushState({ v: 'reports', pid: this.projectId(p) }, '');
       this.current = p; this.view = 'reports'; this.reports = [];
       this.generating = false; this.generateStartedAt = null;
-      this.assignPick = ''; this.emailReportPick = ''; this.reportProp = null;
+      this.assignPick = ''; this.emailReportPick = ''; this.emailDocs = []; this.reportProp = null;
       this.loadReports();
       this.loadReportProposal();
       if (!this.users.length) this.loadUsers();
@@ -1738,6 +1738,14 @@ createApp({
       try {
         const res = await this.api('/projectreports/' + encodeURIComponent(this.projectId(this.current)));
         this.reports = res.ok ? (await res.json() || []) : [];
+        // The Final report is uploaded under project DOCUMENTS (David, Aug 17)
+        // - load them too so the client email can attach one. RAW fetch: this
+        // endpoint returns 401 when the list is empty (never use api()).
+        try {
+          const dres = await fetch(API + '/projectdocuments/' + encodeURIComponent(this.projectId(this.current)));
+          const dj = dres.ok ? await dres.json() : [];
+          this.emailDocs = Array.isArray(dj) ? dj : (dj.documents || dj.data || []);
+        } catch (e) { this.emailDocs = []; }
         this.defaultEmailReportPick();
       } catch (e) { /* list may just be empty */ }
       finally { this.loadingReports = false; }
@@ -1745,16 +1753,39 @@ createApp({
     // Reports offered in the "Email the Client" picker: everything on the
     // project (generated AND uploaded signed/completed reports - David,
     // Aug 17), newest first, failed builds excluded.
+    // Newest document uploaded under Project Documents that looks like the
+    // signed Final (name contains "final", Word/PDF file).
+    uploadedFinalDoc() {
+      return (this.emailDocs || [])
+        .filter(d => d && d.url && /final/i.test(d.name || '') && /\.(docx|doc|pdf)(\?|$)/i.test(d.url))
+        .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))[0] || null;
+    },
     emailableReports() {
-      return this.reports.filter(r => !this.isFailed(r))
+      // The dropdown lists REPORT FILES only (David, Aug 17) - but the Final
+      // Report entry is backed by the signed Final uploaded under project
+      // DOCUMENTS, so the Outlook draft attaches the uploaded file. Only the
+      // newest final-named report entry is swapped; if the project has an
+      // uploaded final but no final-named report record, one entry is added
+      // for it so it is still sendable.
+      const reps = this.reports.filter(r => !this.isFailed(r))
         .slice().sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+      const doc = this.uploadedFinalDoc();
+      if (!doc) return reps;
+      const idx = reps.findIndex(r => /final/i.test(r.name || ''));
+      if (idx !== -1) {
+        reps[idx] = { ...reps[idx], url: doc.url, isDocBacked: true };
+        return reps;
+      }
+      return [{ name: String(doc.name || 'Final Report').replace(/\.(docx|doc|pdf)$/i, ''), url: doc.url, timestamp: doc.timestamp, isDocBacked: true }].concat(reps);
     },
     defaultEmailReportPick() {
       const list = this.emailableReports();
       if (this.emailReportPick && list.some(r => r.url === this.emailReportPick)) return;
-      // prefer the uploaded signed/completed report, else the newest report
+      // Default to the Final Report backed by the DOCUMENTS upload (David,
+      // Aug 17), else an uploaded "(Completed)" report, else the newest.
+      const docBacked = list.find(r => r.isDocBacked);
       const signed = list.find(r => /\(completed\)/i.test(r.name || ''));
-      this.emailReportPick = (signed || list[0] || {}).url || '';
+      this.emailReportPick = (docBacked || signed || list[0] || {}).url || '';
     },
     // The proposal that was accepted into this project - shown in the Reports
     // view for easy access (David, Aug 17).
@@ -1884,7 +1915,11 @@ createApp({
           method: 'POST', json: { project_id: this.projectId(this.current), name: baseName + ' (Completed)', url: url, uploader: this.user.username },
         });
         if (!res.ok) throw new Error('bad');
-        this.toast('Completed report uploaded \u2014 it\u2019s now in the Report Files list.');
+        // The Outlook draft must be built from the Final the user just
+        // uploaded (David, Aug 17): select it in the Email-the-Client picker
+        // immediately, replacing whatever was picked before the upload.
+        this.emailReportPick = url;
+        this.toast('Completed report uploaded \u2014 it\u2019s selected for the client email.');
         this.loadReports();
       } catch (err) {
         if (err.message !== 'auth') this.toast('Could not upload the report.', 'err');
@@ -3482,13 +3517,13 @@ createApp({
       try {
         // Selected report (generated or uploaded signed copy) rides along as a
         // REAL attachment inside the .eml draft.
-        const picked = this.reports.find(r => r.url === this.emailReportPick);
+        const picked = this.emailableReports().find(r => r.url === this.emailReportPick);
         const attachments = [];
         if (picked) {
           try {
             const extM = String(picked.url || '').match(/\.(docx|doc|pdf)(\?|$)/i);
             const ext = (extM ? extM[1] : 'docx').toLowerCase();
-            const nm = String(picked.name || 'Report').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 120);
+            const nm = String(picked.name || 'Report').replace(/\.(docx|doc|pdf)$/i, '').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 120);
             if (ext === 'pdf') {
               const b64 = await this.fetchAsBase64(this.reportDownloadHref(picked));
               attachments.push({ name: nm + '.pdf', mime: this.mimeForExt('pdf'), base64: b64 });
