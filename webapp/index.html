@@ -182,6 +182,9 @@ input,select{font-family:inherit;font-size:16px}
 .tag.good{background:#e3f4e9;color:#1e824c}
 .tag.fair{background:#fdf3e3;color:#b45f05}
 .tag.bad{background:var(--danger-soft);color:var(--danger)}
+.seccmts{margin:2px 0 12px;font-size:14.5px;line-height:1.5;color:var(--ink)}
+.seccmts b{color:var(--brand);font-weight:700;margin-right:4px}
+.seccmts div+div{margin-top:6px}
 .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
 .photos img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;cursor:pointer;background:#e7edf2}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
@@ -373,16 +376,20 @@ input,select{font-family:inherit;font-size:16px}
         <div class="empty" v-if="loadingProjects">Loading projects…</div>
         <div class="empty" v-else-if="filteredProjects.length===0">No projects match.</div>
         <div class="grid" v-else>
-          <div class="pcard" :class="{upcoming: isUpcoming(p), needsfinal: needsFinal(p)}" v-for="p in filteredProjects" :key="p.id">
-            <div class="thumb" :style="thumbStyle(p)">
+          <!-- The whole card opens the INSPECTION (David, Aug 17): the image,
+               empty space and the project NAME are all click targets. Buttons,
+               the assign dropdown, inspector tags, and the address/status/date
+               text keep their own behavior - cardClick filters those out. -->
+          <div class="pcard" :class="{upcoming: isUpcoming(p), needsfinal: needsFinal(p)}" v-for="p in filteredProjects" :key="p.id" @click="cardClick(p, $event)">
+            <div class="thumb" :style="thumbStyle(p)" style="cursor:pointer">
               <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
             </div>
             <div class="body">
-              <h3>{{ p.name }}</h3>
+              <h3 style="cursor:pointer">{{ p.name }}</h3>
               <div class="addr">{{ p.address || 'No address on file' }}</div>
               <div class="meta">
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
-                <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ p.editedat ? niceDate(p.editedat) : shortDate(p.createdat) }}</span>
+                <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ p.editedat ? inspNice(p.editedat) : shortDate(p.createdat) }}</span>
               </div>
               <div class="assignrow">
                 <!-- tag colour = the inspector's response: green ✓ accepted, red ✗ declined,
@@ -560,7 +567,7 @@ input,select{font-family:inherit;font-size:16px}
           <div>
             <h2>{{ current.name }}</h2>
             <div class="addr">{{ current.address || 'No address on file' }}</div>
-            <div class="addr" style="font-weight:700;color:var(--brand)">&#128197; Inspection: {{ current.editedat ? niceDate(current.editedat) : 'not set' }}<span v-if="current.createdby" style="color:var(--ink-soft);font-weight:400"> &middot; &#128100; {{ current.createdby }}</span></div>
+            <div class="addr" style="font-weight:700;color:var(--brand)">&#128197; Inspection: {{ current.editedat ? inspNice(current.editedat) : 'not set' }}<span v-if="current.createdby" style="color:var(--ink-soft);font-weight:400"> &middot; &#128100; {{ current.createdby }}</span></div>
             <div class="addr-warn" v-if="current.address && !addressLooksComplete(current.address)">
               &#9888; For the address boxes to auto-fill on the Final Report, format the address as: Street, City, ST 12345
             </div>
@@ -710,7 +717,7 @@ input,select{font-family:inherit;font-size:16px}
           <div>
             <h2>{{ current.name }}</h2>
             <div class="addr">{{ current.address || 'No address on file' }}</div>
-            <div class="addr" style="font-weight:700;color:var(--brand)">&#128197; Inspection: {{ current.editedat ? niceDate(current.editedat) : 'not set' }}<span v-if="current.createdby" style="color:var(--ink-soft);font-weight:400"> &middot; &#128100; {{ current.createdby }}</span></div>
+            <div class="addr" style="font-weight:700;color:var(--brand)">&#128197; Inspection: {{ current.editedat ? inspNice(current.editedat) : 'not set' }}<span v-if="current.createdby" style="color:var(--ink-soft);font-weight:400"> &middot; &#128100; {{ current.createdby }}</span></div>
           </div>
           <div class="spacer" style="flex:1"></div>
           <button class="btn-dl" @click="openStructAdd('building', null)">&#65291; Building</button>
@@ -814,6 +821,12 @@ input,select{font-family:inherit;font-size:16px}
               <span class="tag" :class="ratingClass(s.visualreview)" v-if="s.visualreview">Visual: {{ s.visualreview }}</span>
               <span class="tag" :class="String(s.visualsignsofleak).toLowerCase()==='yes' ? 'bad' : 'good'" v-if="s.visualsignsofleak!==undefined">Leaks: {{ s.visualsignsofleak }}</span>
               <span class="tag" :class="String(s.furtherinvasivereviewrequired).toLowerCase()==='yes' ? 'fair' : 'good'" v-if="s.furtherinvasivereviewrequired!==undefined">Invasive: {{ s.furtherinvasivereviewrequired }}</span>
+            </div>
+            <!-- Condition + the inspector's own comments, visible without
+                 opening Edit (David, Aug 17). Hidden entirely when empty. -->
+            <div class="seccmts" v-if="secText(s.conditionalassessment) || secText(s.additionalconsiderations, s.additionalconsiderationshtml)">
+              <div v-if="secText(s.conditionalassessment)"><b>Condition:</b> {{ secText(s.conditionalassessment) }}</div>
+              <div v-if="secText(s.additionalconsiderations, s.additionalconsiderationshtml)" style="white-space:pre-wrap">{{ secText(s.additionalconsiderations, s.additionalconsiderationshtml) }}</div>
             </div>
             <div class="photos" v-if="(s.images||[]).length">
               <img v-for="(img,i) in s.images" :key="i" :src="img" loading="lazy" @click="lightbox=img" alt="inspection photo">
@@ -1094,7 +1107,8 @@ input,select{font-family:inherit;font-size:16px}
               </select>
               <div style="font-size:12px;color:var(--ink-soft);margin-top:3px">Need a new form? Create it in the <a href="https://www.e3-multi-tennant.com/" target="_blank" style="color:var(--brand)">admin site</a> &rarr; Custom Forms, then pick it here.</div>
             </div>
-            <div class="field"><label>Inspection Date &amp; Time</label><input type="datetime-local" v-model="editForm.inspDate"></div>
+            <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Inspection Date</label><input type="date" v-model="editForm.inspDate"></div>
+            <div class="field" style="flex:1"><label>Inspection Time <span style="font-weight:400;color:var(--ink-soft)">(optional)</span></label><input type="time" v-model="editForm.inspTime"></div></div>
             <div class="field"><label>Location Photo</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap">
                 <button class="btn-dl" :disabled="photoBusy || !editForm.address" @click="satPhoto(editForm)">&#128225; Satellite from address</button>
@@ -1125,7 +1139,8 @@ input,select{font-family:inherit;font-size:16px}
               </select>
               <div style="font-size:12px;color:var(--ink-soft);margin-top:3px">Need a new form? Create it in the <a href="https://www.e3-multi-tennant.com/" target="_blank" style="color:var(--brand)">admin site</a> &rarr; Custom Forms, then pick it here.</div>
             </div>
-            <div class="field"><label>Inspection Date &amp; Time</label><input type="datetime-local" v-model="addForm.inspDate"></div>
+            <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Inspection Date</label><input type="date" v-model="addForm.inspDate"></div>
+            <div class="field" style="flex:1"><label>Inspection Time <span style="font-weight:400;color:var(--ink-soft)">(optional)</span></label><input type="time" v-model="addForm.inspTime"></div></div>
             <div class="field"><label>Location Photo</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap">
                 <button class="btn-dl" :disabled="photoBusy || !addForm.address" @click="satPhoto(addForm)">&#128225; Satellite from address</button>
@@ -1417,7 +1432,7 @@ createApp({
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
-      addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' },
+      addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', inspTime: '', url: '' },
       forms: [], photoBusy: false,
       structOpen: false, structBusy: false, structDelete: null,
       struct: { mode: 'add', kind: 'unit', id: null, parentid: null, parenttype: 'project', name: '', description: '', ltype: 'apartment' },
@@ -1425,7 +1440,7 @@ createApp({
       users: [], loadingUsers: false, userAddOpen: false, savingUser: false, deletingUser: null,
       userForm: { first_name: '', last_name: '', username: '', email: '', mobile: '', password: '', access_type: 'both' },
       assignPick: '',
-      editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '', formId: null, inspDate: '', url: '' },
+      editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '', formId: null, inspDate: '', inspTime: '', url: '' },
       secEditOpen: false, loadingSec: false, savingSec: false, secOriginal: null, secId: null, secPhotoBusy: false,
       secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '', images: [] },
       // Invasive inspection linked to the open section (InvasiveSection record)
@@ -1630,6 +1645,34 @@ createApp({
     thumbStyle(p) { return this.hasImage(p) ? { backgroundImage: `url('${p.url}')` } : {}; },
     shortDate(d) { if (!d) return ''; const x = new Date(d); return isNaN(x) ? '' : x.toLocaleDateString(); },
     niceDate(d) { if (!d) return ''; const x = new Date(d); return isNaN(x) ? '' : x.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); },
+    // Inspection date display (David, Aug 17): a date-only inspection is stored
+    // at local midnight, and midnight means "no time was set" - show just the
+    // date instead of inventing a time. Anything else shows date + time.
+    inspNice(d) {
+      if (!d) return '';
+      const x = new Date(d);
+      if (isNaN(x)) return '';
+      if (x.getHours() === 0 && x.getMinutes() === 0) return x.toLocaleDateString([], { dateStyle: 'medium' });
+      return x.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+    },
+    toLocalDateStr(iso) {
+      if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return '';
+      const p = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    },
+    // Time prefill for the edit form: midnight = "no time set" -> blank field.
+    toLocalTimeStr(iso) {
+      if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return '';
+      if (d.getHours() === 0 && d.getMinutes() === 0) return '';
+      const p = n => String(n).padStart(2, '0');
+      return p(d.getHours()) + ':' + p(d.getMinutes());
+    },
+    // date (YYYY-MM-DD) + optional time (HH:MM) -> ISO; no date -> "now".
+    inspToISO(dateStr, timeStr) {
+      if (!dateStr) return new Date().toISOString();
+      const d = new Date(dateStr + 'T' + (timeStr || '00:00'));
+      return isNaN(d) ? new Date().toISOString() : d.toISOString();
+    },
     addressLooksComplete(a) { return /,.+(,)?\s*[A-Z]{2}\.?\s*\d{5}/.test(a || ''); },
 
     /* ---------- reports ---------- */
@@ -2416,6 +2459,15 @@ createApp({
       this.structure = { subProjects: [], locations: [] };
       this.loadStructure();
     },
+    // Whole-card click on the dashboard opens the INSPECTION (never Reports).
+    // Ignore clicks on anything with its own job: every button, the assign
+    // dropdown, inspector tags, and plain informational text (address, status
+    // chip, date). The project name is deliberately NOT excluded - clicking it
+    // opens the inspection too (David, Aug 17).
+    cardClick(p, event) {
+      if (event.target.closest('button, select, a, input, .tag, .addr, .meta')) return;
+      this.openInspect(p);
+    },
     async loadStructure() {
       this.loadingStructure = true;
       try {
@@ -2498,6 +2550,14 @@ createApp({
         if (e.message !== 'auth') this.toast('Could not move the inspection point.', 'err');
       } finally { this.movingBusy = false; }
     },
+    // Plain text for a section's card: prefer the plain field; fall back to
+    // the mobile app's ...html variant with tags stripped. '' when empty.
+    secText(plain, html) {
+      const t = String(plain || '').trim();
+      if (t) return t;
+      const h = String(html || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/\s+/g, ' ').trim();
+      return h;
+    },
     ratingClass(v) {
       const s = String(v || '').toLowerCase();
       if (s.startsWith('good')) return 'good';
@@ -2508,7 +2568,7 @@ createApp({
 
     /* ---------- project management ---------- */
     openAdd() {
-      this.addForm = { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', url: '' };
+      this.addForm = { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', inspTime: '', url: '' };
       if (!this.forms.length) this.loadForms();
       this.addOpen = true;
     },
@@ -2521,7 +2581,7 @@ createApp({
             name: this.addForm.name, description: this.addForm.description, address: this.addForm.address,
             createdby: this.user.username, url: this.addForm.url || '', assignedto: [],
             projecttype: this.addForm.projecttype,
-            editedat: this.addForm.inspDate ? new Date(this.addForm.inspDate).toISOString() : new Date().toISOString(),
+            editedat: this.inspToISO(this.addForm.inspDate, this.addForm.inspTime),
             formId: this.addForm.formId || null,
           },
         });
@@ -2830,7 +2890,7 @@ createApp({
     },
 
     openEdit() {
-      this.editForm = { name: this.current.name || '', address: this.current.address || '', description: this.current.description || '', formId: this.current.formId || null, inspDate: this.toLocalDT(this.current.editedat), url: this.current.url || '' };
+      this.editForm = { name: this.current.name || '', address: this.current.address || '', description: this.current.description || '', formId: this.current.formId || null, inspDate: this.toLocalDateStr(this.current.editedat), inspTime: this.toLocalTimeStr(this.current.editedat), url: this.current.url || '' };
       if (!this.forms.length) this.loadForms();
       this.editOpen = true;
     },
@@ -2845,7 +2905,7 @@ createApp({
             description: this.editForm.description,
             url: this.editForm.url || this.current.url || '',
             lasteditedby: this.user.username,
-            editedat: this.editForm.inspDate ? new Date(this.editForm.inspDate).toISOString() : new Date().toISOString(),
+            editedat: this.inspToISO(this.editForm.inspDate, this.editForm.inspTime),
             projecttype: this.current.projecttype,
             formId: this.editForm.formId || null,
           },
@@ -2856,7 +2916,7 @@ createApp({
         this.current.description = this.editForm.description;
         this.current.url = this.editForm.url || this.current.url;
         this.current.formId = this.editForm.formId || null;
-        this.current.editedat = this.editForm.inspDate ? new Date(this.editForm.inspDate).toISOString() : this.current.editedat;
+        this.current.editedat = this.editForm.inspDate ? this.inspToISO(this.editForm.inspDate, this.editForm.inspTime) : this.current.editedat;
         this.editOpen = false;
         this.toast('Project updated.');
       } catch (e) {
