@@ -388,6 +388,23 @@ var updateTenantPhone = async function (tenantId, phone) {
     return handleError(error);
   }
 };
+var updateTenantSignature = async function (tenantId, signature) {
+  try {
+    const result = await TenantDAO.updateTenantSignature(tenantId, signature);
+    if (result.ok === 1) {
+      return {
+        success: true,
+      };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No Tenant found with the given ID/failed to update.",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
 var updateTenantWebsite = async function (tenantId, website) {
   try {
     const result = await TenantDAO.updateTenantWebsite(tenantId, website);
@@ -510,6 +527,7 @@ module.exports = {
   updateTenantPhone,
   updateLogoURL,
   updateTenantWebsite,
+  updateTenantSignature,
   updateTenantExpenses,
   addUsedDiskSpace,
   updateValidityDate,
