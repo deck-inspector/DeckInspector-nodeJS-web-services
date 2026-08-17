@@ -226,7 +226,19 @@ const moveSectionToParent = async (sectionId, newParentId) => {
       return { code: 400, success: false, reason: "sectionId and newParentId are required" };
     }
 
-    const section = await SectionDAO.getSectionById(sectionId);
+    // Couchbase KV get THROWS DocumentNotFoundError rather than returning
+    // null, so every lookup here is wrapped: a missing document is a 404, not
+    // a 500, and a missing Location must fall through to the Project check
+    // (otherwise moving a section onto a single-level project would error).
+    const missing = (error) =>
+      error && (error.name === "DocumentNotFoundError" || error.code === 13);
+
+    let section = null;
+    try {
+      section = await SectionDAO.getSectionById(sectionId);
+    } catch (error) {
+      if (!missing(error)) throw error;
+    }
     if (!section) {
       return { code: 404, success: false, reason: "Section not found" };
     }
@@ -240,11 +252,21 @@ const moveSectionToParent = async (sectionId, newParentId) => {
 
     // Verify the destination exists and learn what kind of parent it is.
     let newParentType = null;
-    const destinationLocation = await LocationDAO.getLocationById(newParentId);
+    let destinationLocation = null;
+    try {
+      destinationLocation = await LocationDAO.getLocationById(newParentId);
+    } catch (error) {
+      if (!missing(error)) throw error;
+    }
     if (destinationLocation) {
       newParentType = "location";
     } else {
-      const destinationProject = await ProjectDAO.getProjectById(newParentId);
+      let destinationProject = null;
+      try {
+        destinationProject = await ProjectDAO.getProjectById(newParentId);
+      } catch (error) {
+        if (!missing(error)) throw error;
+      }
       if (destinationProject) newParentType = "project";
     }
     if (!newParentType) {
