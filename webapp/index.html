@@ -696,12 +696,19 @@ input,select{font-family:inherit;font-size:16px}
               <div v-else class="hint">QuickBooks {{ qbo.invoice.emailStatus === 'EmailSent' ? 'emailed the invoice to the client' : 'has the invoice' }} &mdash; refresh after payment to see it flip to PAID.</div>
             </template>
             <template v-else>
-              <div class="hint">Creates the invoice in QuickBooks ({{ qbo.qboCompanyName || 'connected' }}) and QuickBooks emails it to the client with a Pay&nbsp;Now link. Amount and email are pre-filled from the accepted proposal &mdash; check them, then send.</div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
-                <div><label style="font-size:11px">Amount ($)</label><input v-model.trim="qbo.amount" style="width:110px" placeholder="1500.00"></div>
+              <div class="hint">Creates the invoice in QuickBooks ({{ qbo.qboCompanyName || 'connected' }}) and QuickBooks emails it to the client with a Pay&nbsp;Now link. Everything below is pre-filled from the accepted proposal &mdash; check it, then send. Terms are always Due&nbsp;on&nbsp;receipt, P.O. Number is always &ldquo;Contract&rdquo;, and QuickBooks assigns the invoice number. Pick the Product/Service on each line in QuickBooks afterwards &mdash; the item&rsquo;s own description fills in when you do.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:8px 0">
+                <div style="flex:1;min-width:180px"><label style="font-size:11px">Customer (property)</label><input v-model.trim="qbo.propertyName" placeholder="601 N. Garfield / Apartments"></div>
+                <div style="flex:1;min-width:160px"><label style="font-size:11px">Bill to (owner)</label><input v-model.trim="qbo.customerName" placeholder="Owner / MGR name"></div>
+                <div style="min-width:130px"><label style="font-size:11px">Owner phone</label><input v-model.trim="qbo.phone" placeholder="760-555-0000"></div>
                 <div style="flex:1;min-width:200px"><label style="font-size:11px">Client email</label><input v-model.trim="qbo.email" placeholder="client@email.com"></div>
-                <div style="flex:1;min-width:180px"><label style="font-size:11px">Bill to (customer)</label><input v-model.trim="qbo.customerName" placeholder="Property / client name"></div>
-                <button class="btn-dl" :disabled="qbo.creating || !qbo.amount" @click="qboCreateInvoice" style="align-self:flex-end">{{ qbo.creating ? 'Sending&hellip;' : '&#128181; Create &amp; Send Invoice' }}</button>
+                <div style="min-width:130px"><label style="font-size:11px">Inspection date</label><input v-model.trim="qbo.txnDateStr" placeholder="M/D/YYYY"></div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:0 0 8px">
+                <div style="flex:1;min-width:200px"><label style="font-size:11px">Ship to (property address)</label><input v-model.trim="qbo.shipLine" placeholder="601 N. Garfield, Anaheim, CA 92805"></div>
+                <div><label style="font-size:11px">Inspection ($)</label><input v-model.trim="qbo.inspectionAmount" style="width:100px" placeholder="550.00"></div>
+                <div><label style="font-size:11px">Report fee ($)</label><input v-model.trim="qbo.reportAmount" style="width:100px" placeholder="100.00"></div>
+                <button class="btn-dl" :disabled="qbo.creating || (!qbo.inspectionAmount && !qbo.reportAmount)" @click="qboCreateInvoice">{{ qbo.creating ? 'Sending&hellip;' : '&#128181; Create &amp; Send Invoice' }}</button>
               </div>
               <div v-if="qbo.error" class="hint" style="color:#B00020">{{ qbo.error }}</div>
             </template>
@@ -1459,7 +1466,10 @@ createApp({
       emailReportPick: '', emailDocs: [], reportProp: null, downloadingProp: false, emailBusy: false,
       sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', logoWidth: 300, saving: false, uploading: false },
       finalByPid: {}, dataByPid: {},
-      qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null, amount: '', email: '', customerName: '', description: '', creating: false, error: '', message: '' },
+      qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null,
+             email: '', propertyName: '', customerName: '', phone: '', shipLine: '', ship: {}, txnDateStr: '', txnDateIso: '',
+             inspectionAmount: '', reportAmount: '',
+             creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, busy: false, busyKind: '' },
       filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', inspTime: '', url: '' },
@@ -3449,10 +3459,16 @@ createApp({
         this.qbo.invoice = j.invoice || null;
         const d = j.defaults || {};
         if (!this.qbo.invoice) {
-          this.qbo.amount = d.amount != null ? String(d.amount) : '';
           this.qbo.email = d.email || '';
-          this.qbo.customerName = d.customerName || (this.current && this.current.name) || '';
-          this.qbo.description = d.description || '';
+          this.qbo.propertyName = d.propertyName || (this.current && this.current.name) || '';
+          this.qbo.customerName = d.customerName || '';
+          this.qbo.phone = d.phone || '';
+          this.qbo.ship = d.ship || {};
+          this.qbo.shipLine = [d.ship && d.ship.line1, d.ship && d.ship.city, d.ship && d.ship.stateZip].filter(Boolean).join(', ');
+          this.qbo.txnDateIso = d.txnDate || '';
+          this.qbo.txnDateStr = d.txnDate ? new Date(d.txnDate).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' }) : '';
+          this.qbo.inspectionAmount = d.inspectionAmount != null ? String(d.inspectionAmount) : '';
+          this.qbo.reportAmount = d.reportAmount != null ? String(d.reportAmount) : '';
         }
       } catch (e) {
         this.qbo.configured = false;
@@ -3467,13 +3483,32 @@ createApp({
         this.toast('Approve the connection in the QuickBooks tab, then come back and hit \u21bb Refresh.');
       } catch (e) { this.toast('Could not start the QuickBooks connection.', 'err'); }
     },
+    // The typed date wins over the loaded one, so David can correct it inline.
+    qboTxnDate() {
+      const t = String(this.qbo.txnDateStr || '').trim();
+      if (t) { const d = new Date(t + ' 12:00:00'); if (!isNaN(d.getTime())) return d.toISOString(); }
+      return this.qbo.txnDateIso || new Date().toISOString();
+    },
+    // Ship To: keep the proposal's parsed parts unless David edited the line.
+    qboShipParts() {
+      const base = this.qbo.ship || {};
+      const joined = [base.line1, base.city, base.stateZip].filter(Boolean).join(', ');
+      const typed = String(this.qbo.shipLine || '').trim();
+      if (!typed || typed === joined) return base;
+      const bits = typed.split(',').map(x => x.trim()).filter(Boolean);
+      return { line1: bits[0] || '', city: bits[1] || '', stateZip: bits.slice(2).join(' ') || '' };
+    },
     async qboCreateInvoice() {
       this.qbo.creating = true; this.qbo.error = '';
       try {
         const res = await this.api('/project/qbo/invoice', { method: 'POST', json: {
           projectId: this.projectId(this.current || {}),
-          amount: this.qbo.amount, email: this.qbo.email,
-          customerName: this.qbo.customerName, description: this.qbo.description,
+          email: this.qbo.email, propertyName: this.qbo.propertyName,
+          customerName: this.qbo.customerName, phone: this.qbo.phone,
+          ship: this.qboShipParts(), poNumber: 'Contract',
+          txnDate: this.qboTxnDate(),
+          inspectionAmount: this.qbo.inspectionAmount,
+          reportAmount: this.qbo.reportAmount,
         }});
         const j = await res.json();
         if (!res.ok) { this.qbo.error = j.message || 'Could not create the invoice.'; return; }
