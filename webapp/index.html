@@ -398,8 +398,8 @@ input,select{font-family:inherit;font-size:16px}
               <div class="meta">
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
                 <span @click.stop style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
-                  <input type="date" class="cdate" v-model="p._inspD">
-                  <input type="time" class="cdate" v-model="p._inspT">
+                  <input type="date" class="cdate" v-model="p._inspD" @change="autoSaveCardDate(p)">
+                  <input type="time" class="cdate" v-model="p._inspT" @change="autoSaveCardDate(p)">
                   <template v-if="cardDateDirty(p)">
                     <button class="btn-edit" style="padding:5px 10px;font-size:13px" :disabled="p._inspBusy || !p._inspD" title="Save the new inspection date &amp; time" @click="saveCardDate(p)">{{ p._inspBusy ? '&#8987;' : '&#10003;' }}</button>
                     <button class="btn-cancel" style="padding:5px 10px;font-size:13px" :disabled="p._inspBusy" title="Undo" @click="resetCardDate(p)">&#10005;</button>
@@ -2541,6 +2541,14 @@ createApp({
     resetCardDate(p) {
       p._inspD = this.toLocalDateStr(p.editedat);
       p._inspT = this.toLocalTimeStr(p.editedat);
+    },
+    // Save as soon as a date/time is picked (David, Aug 18: typed 8/20 on a
+    // card, never clicked the save check, and the card "didn't re-sort" -
+    // the date was simply never saved). 'change' fires only on a complete
+    // valid value, so partial typing never saves. The check/undo buttons
+    // stay as a fallback for in-flight edits.
+    autoSaveCardDate(p) {
+      if (this.cardDateDirty(p) && p._inspD && !p._inspBusy) this.saveCardDate(p);
     },
     async saveCardDate(p) {
       if (!p._inspD || p._inspBusy) return;
