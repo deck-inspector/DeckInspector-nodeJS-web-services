@@ -87,7 +87,14 @@ class FinalRepairsGenerator {
   }
 
   // Every location in the project (building units + common locations), with
-  // the building name folded into the display title.
+  // the building name folded into the display title. The red-dot Final
+  // Inspection marker (finalInspectionService.MARK) is stripped so the report
+  // reads clean; frOrigName is the authoritative pre-marking name.
+  cleanName(loc) {
+    if (loc.frOrigName !== undefined && loc.frOrigName !== null && loc.frOrigName !== "") return String(loc.frOrigName);
+    return String(loc.name || "").replace(/\u{1F534}\s*/gu, "");
+  }
+
   async allLocations(projectId) {
     const out = [];
     const subs = await subProjectModel.getSubProjectsByParentId(projectId).catch(() => null);
@@ -95,12 +102,12 @@ class FinalRepairsGenerator {
     for (const sp of subItems) {
       const kids = await locationModel.getLocationByParentId(sp.id || sp._id).catch(() => null);
       for (const loc of ((kids && kids.data && kids.data.item) || [])) {
-        out.push({ id: loc.id || loc._id, title: `${sp.name} — ${loc.name}` });
+        out.push({ id: loc.id || loc._id, title: `${sp.name} — ${this.cleanName(loc)}` });
       }
     }
     const locs = await locationModel.getLocationByParentId(projectId).catch(() => null);
     for (const loc of ((locs && locs.data && locs.data.item) || [])) {
-      out.push({ id: loc.id || loc._id, title: String(loc.name || "") });
+      out.push({ id: loc.id || loc._id, title: this.cleanName(loc) });
     }
     return out;
   }
