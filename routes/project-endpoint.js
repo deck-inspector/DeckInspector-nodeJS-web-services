@@ -81,8 +81,33 @@ router.route('/allprojects')
         var errResponse;
         var result = await projectService.getAllProjects();
         var companyIdentifier = req.user.company;
-        console.log(req.user);
         result.projects = result.projects.filter(project => project.companyIdentifier === companyIdentifier);
+
+        // INSPECTOR-SCOPED VISIBILITY (David, Aug 17): non-admin users see
+        // ONLY the projects assigned to them - including legacy shorthand
+        // assignment tags ("Gabe" for Gabriel), matched with the same rules
+        // the acceptance-click feature uses. Users with role 'admin' see
+        // everything. If the requester's record can't be loaded, fail SAFE
+        // (restricted view) rather than exposing the whole list.
+        // NOTE: this governs the WEB list only - mobile sync channels are
+        // unchanged and still deliver all projects to phones.
+        try {
+          const usersModel = require('../model/user');
+          const { projectAssignedToUser } = require('../service/assignmentMatch');
+          const me = await usersModel.getUserbyUsername(req.user.username);
+          const isAdmin = !!(me && String(me.role || '').toLowerCase() === 'admin');
+          if (!isAdmin) {
+            const all = await usersModel.getAllUser();
+            const others = (all.users || []).filter(u =>
+              u && u.companyIdentifier === companyIdentifier && u.username !== req.user.username);
+            result.projects = result.projects.filter(p => projectAssignedToUser(p, me, others));
+          }
+        } catch (visErr) {
+          // Fail safe: an error while scoping must not expose everything.
+          console.error('allprojects visibility scoping error:', visErr && visErr.message);
+          result.projects = [];
+        }
+
         if (result.reason) {
           return res.status(result.code).json(result);
         }
