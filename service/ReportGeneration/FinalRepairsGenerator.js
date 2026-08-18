@@ -102,14 +102,35 @@ class FinalRepairsGenerator {
     for (const sp of subItems) {
       const kids = await locationModel.getLocationByParentId(sp.id || sp._id).catch(() => null);
       for (const loc of ((kids && kids.data && kids.data.item) || [])) {
-        out.push({ id: loc.id || loc._id, title: `${sp.name} — ${this.cleanName(loc)}` });
+        out.push({ id: loc.id || loc._id, title: `${sp.name} — ${this.cleanName(loc)}`, meta: loc.sections || [] });
       }
     }
     const locs = await locationModel.getLocationByParentId(projectId).catch(() => null);
     for (const loc of ((locs && locs.data && locs.data.item) || [])) {
-      out.push({ id: loc.id || loc._id, title: this.cleanName(loc) });
+      out.push({ id: loc.id || loc._id, title: this.cleanName(loc), meta: loc.sections || [] });
     }
     return out;
+  }
+
+  // A unit is BAD if the section DOC says so OR the location's embedded
+  // section-summary metadata says so (legacy data disagrees sometimes - the
+  // web tree follows the metadata, so the report must too).
+  mergedBadSections(sectionDocs, metaEntries) {
+    const bad = (sectionDocs || []).filter((s) => this.isBadSection(s));
+    const names = new Set(bad.map((s) => String(s.name || "").toLowerCase()));
+    for (const m of (metaEntries || [])) {
+      if (!m || !this.isBadSection(m)) continue;
+      if (names.has(String(m.name || "").toLowerCase())) continue;
+      bad.push({
+        name: m.name,
+        visualreview: m.visualreview,
+        furtherinvasivereviewrequired: m.furtherinvasivereviewrequired,
+        visualsignsofleak: m.visualsignsofleak,
+        conditionalassessment: m.conditionalassessment,
+        images: m.coverUrl ? [m.coverUrl] : [],
+      });
+    }
+    return bad;
   }
 
   async buildData(projectId) {
@@ -120,7 +141,7 @@ class FinalRepairsGenerator {
     for (const loc of all) {
       const secRes = await sectionService.getSectionsByParentId(loc.id).catch(() => null);
       const sections = (secRes && secRes.sections) || [];
-      const bad = sections.filter((s) => this.isBadSection(s));
+      const bad = this.mergedBadSections(sections, loc.meta);
       if (!bad.length) continue;
       const { answers, repairPhotos } = await this.repairFindings(loc.id);
       locations.push({
