@@ -168,6 +168,7 @@ class FinalRepairsGenerator {
     const buffer = await docxTemplate.createReport({
       template,
       data,
+      processLineBreaks: true,   // renders \n in comments as real line breaks
       additionalJsContext: {
         img: async (url) => (url ? await this.fetchImage(url) : null),
       },
