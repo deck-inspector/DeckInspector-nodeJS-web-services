@@ -190,6 +190,13 @@ input,select{font-family:inherit;font-size:16px}
 .tag.good{background:#e3f4e9;color:#1e824c}
 .tag.fair{background:#fdf3e3;color:#b45f05}
 .tag.bad{background:var(--danger-soft);color:var(--danger)}
+/* Location condition rollup in the directory tree + unit cards (David, Aug 18:
+   BAD locations turn red, with the rating shown next to the unit) */
+.trate{font-size:10px;font-weight:800;letter-spacing:.4px;padding:2px 7px;border-radius:8px;margin-left:6px;vertical-align:middle}
+.trate.good{background:#E3F5E8;color:#0E7A33}
+.trate.fair{background:#FFF3D6;color:#9A6D00}
+.trate.bad{background:#FBDCDC;color:#C62828}
+.tnode.badloc{color:#C62828;font-weight:800}
 .seccmts{margin:2px 0 12px;font-size:14.5px;line-height:1.5;color:var(--ink)}
 .seccmts b{color:var(--brand);font-weight:700;margin-right:4px}
 .seccmts div+div{margin-top:6px}
@@ -755,12 +762,12 @@ input,select{font-family:inherit;font-size:16px}
             <template v-for="sp in structure.subProjects" :key="'t'+sp.id">
               <button class="tnode" :class="{on: view==='inspect' && structTab==='buildings'}" @click="gotoTab('buildings')">&#127970; {{ sp.name }}</button>
               <div class="tkids">
-                <button class="tnode" v-for="loc in sp.subProjectLocations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}</button>
+                <button class="tnode" v-for="loc in sp.subProjectLocations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId, badloc: loc.rating==='Bad'}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}<span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span></button>
               </div>
             </template>
             <button class="tnode" :class="{on: view==='inspect' && structTab==='locations'}" @click="gotoTab('locations')">&#128205; Common Locations</button>
             <div class="tkids">
-              <button class="tnode" v-for="loc in structure.locations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}</button>
+              <button class="tnode" v-for="loc in structure.locations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId, badloc: loc.rating==='Bad'}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}<span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span></button>
             </div>
           </div>
         </div>
@@ -784,7 +791,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="unitgrid">
               <div class="ucard" v-for="loc in sp.subProjectLocations" :key="loc.locationId" @click="openUnit(loc)" style="cursor:pointer">
                 <img class="uimg" v-if="loc.url" :src="loc.url" loading="lazy" alt=""><div class="uicon" v-else>&#128682;</div>
-                <div style="flex:1"><b>{{ loc.locationName }}</b><span>{{ loc.locationType || 'Unit' }}</span></div>
+                <div style="flex:1"><b :style="loc.rating==='Bad' ? 'color:#C62828' : ''">{{ loc.locationName }}</b><span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span><span>{{ loc.locationType || 'Unit' }}</span></div>
                 <span class="btn-dl" style="padding:4px 9px;font-size:12px" @click.stop="openStructEdit('unit', loc)">&#9998;</span>
                 <span class="btn-del" style="padding:4px 9px;font-size:12px" @click.stop="structDelete = { kind: 'unit', id: loc.locationId, name: loc.locationName }">&#128465;</span>
               </div>
@@ -796,7 +803,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="unitgrid">
               <div class="ucard" v-for="loc in structure.locations" :key="loc.locationId" @click="openUnit(loc)" style="cursor:pointer">
                 <img class="uimg" v-if="loc.url" :src="loc.url" loading="lazy" alt=""><div class="uicon" v-else>&#128682;</div>
-                <div style="flex:1"><b>{{ loc.locationName }}</b><span>{{ loc.locationType || 'Unit' }}</span></div>
+                <div style="flex:1"><b :style="loc.rating==='Bad' ? 'color:#C62828' : ''">{{ loc.locationName }}</b><span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span><span>{{ loc.locationType || 'Unit' }}</span></div>
                 <span class="btn-dl" style="padding:4px 9px;font-size:12px" @click.stop="openStructEdit('unit', loc)">&#9998;</span>
                 <span class="btn-del" style="padding:4px 9px;font-size:12px" @click.stop="structDelete = { kind: 'unit', id: loc.locationId, name: loc.locationName }">&#128465;</span>
               </div>
@@ -2699,10 +2706,15 @@ createApp({
       try {
         const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/toggleprojectstatus/' + to, { method: 'POST' });
         if (!res.ok) throw new Error('bad');
+        const hadFinal = p.finalinspection;
         p.iscomplete = !p.iscomplete;
         // Completing a project ends its Final Inspection cycle - the backend
-        // clears the flag in the same UPDATE; mirror it locally.
-        if (p.iscomplete) p.finalinspection = false;
+        // clears the flag in the same UPDATE; mirror it locally and put the
+        // original Inspection Form back on the project.
+        if (p.iscomplete) {
+          p.finalinspection = false;
+          if (hadFinal) await this.restoreProjectForm(p);
+        }
         this.toast(p.iscomplete ? 'Project marked complete.' : 'Project reopened.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not update the project.', 'err');
@@ -2713,13 +2725,29 @@ createApp({
          same data - the card turns BLUE with a "FINAL INSPECTION AFTER
          REPAIRS" tag until it is marked complete again. ------------------- */
     isFinalInsp(p) { return !!(p && p.finalinspection && !p.iscomplete); },
+    // The tenant's "Final Repairs Inspection" custom form (built in the admin
+    // site). Scheduling a Final Inspection switches the project's Inspection
+    // Form to it automatically (David, Aug 18) so the mobile app - which
+    // renders whatever form the project carries - shows the repair questions
+    // on next sync. No form with that name => no switch, everything else works.
+    async finalRepairsFormId() {
+      if (!this.forms.length) await this.loadForms();
+      const f = (this.forms || []).find(x => /final\s*repairs?\s*inspection/i.test(x.name || ''));
+      return f ? (f._id || f.id) : null;
+    },
     async scheduleFinalInsp(p) {
       try {
         // Set the flag first (merge PUT - formId must ride along, see
         // saveCardDate), then reopen. Reopen preserves the flag; only
         // COMPLETING clears it (backend updateProjectStatus).
+        const repairsForm = await this.finalRepairsFormId();
+        const payload = { finalinspection: true, formId: p.formId || null };
+        if (repairsForm) {
+          payload.prevFormId = p.formId || null;   // restored on complete/cancel
+          payload.formId = repairsForm;
+        }
         const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)), {
-          method: 'PUT', json: { finalinspection: true, formId: p.formId || null },
+          method: 'PUT', json: payload,
         });
         if (!res.ok) throw new Error('bad');
         if (p.iscomplete) {
@@ -2728,10 +2756,29 @@ createApp({
           p.iscomplete = false;
         }
         p.finalinspection = true;
-        this.toast('Back on the schedule for a Final Inspection — set the new date and time on the card.');
+        if (repairsForm) { p.prevFormId = p.formId || null; p.formId = repairsForm; }
+        this.toast(repairsForm
+          ? 'Back on the schedule — inspection form switched to Final Repairs Inspection. Set the new date on the card.'
+          : 'Back on the schedule for a Final Inspection — set the new date and time on the card.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not schedule the Final Inspection.', 'err');
       }
+    },
+    // Put the project's original Inspection Form back (after the Final
+    // Inspection is completed or cancelled). Best-effort - never blocks the
+    // status change itself.
+    async restoreProjectForm(p) {
+      // Only restore when we actually stored the original (prevFormId key
+      // present, even as null). A project flagged before the form-switch
+      // existed has no prevFormId - leave its form alone.
+      if (p.prevFormId === undefined) return;
+      try {
+        await this.api('/project/' + encodeURIComponent(this.projectId(p)), {
+          method: 'PUT', json: { formId: p.prevFormId || null, prevFormId: null },
+        });
+        p.formId = p.prevFormId || null;
+        p.prevFormId = null;
+      } catch (e) { /* form restore is best-effort */ }
     },
     async cancelFinalInsp(p) {
       // Undo = mark complete again; the backend clears the flag in the same
@@ -2739,8 +2786,10 @@ createApp({
       try {
         const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/toggleprojectstatus/1', { method: 'POST' });
         if (!res.ok) throw new Error('bad');
+        const hadFinal = p.finalinspection;
         p.iscomplete = true;
         p.finalinspection = false;
+        if (hadFinal) await this.restoreProjectForm(p);
         this.toast('Final Inspection cancelled — project is Complete again.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not update the project.', 'err');
