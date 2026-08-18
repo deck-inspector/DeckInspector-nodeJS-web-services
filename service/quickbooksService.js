@@ -153,25 +153,51 @@ async function qapi(conn, method, path, body) {
 
 function q(str) { return String(str || "").replace(/'/g, "\\'"); }
 
-async function findOrCreateCustomer(conn, displayName, email) {
+// Customer lookup is TOLERANT: exact DisplayName first, then a
+// case/punctuation-insensitive scan, then the contact email. Only when none
+// of those match is a customer created (the app never UPDATES a customer -
+// per the Intuit compliance answers, so the phone/address we want on the
+// invoice are written onto the INVOICE, not back onto the customer record).
+function norm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+
+async function findOrCreateCustomer(conn, displayName, email, phone) {
   const name = String(displayName || "Client").slice(0, 100).trim() || "Client";
-  const found = await qapi(conn, "GET", "/query?query=" + encodeURIComponent("select * from Customer where DisplayName = '" + q(name) + "'"));
-  const rows = (found.QueryResponse && found.QueryResponse.Customer) || [];
+  const exact = await qapi(conn, "GET", "/query?query=" + encodeURIComponent(
+    "select * from Customer where DisplayName = '" + q(name) + "'"));
+  let rows = (exact.QueryResponse && exact.QueryResponse.Customer) || [];
   if (rows.length) return rows[0];
+
+  // tolerant pass - "James Escamilla" vs "Escamilla, James" / "James  Escamilla."
+  const all = await qapi(conn, "GET", "/query?query=" + encodeURIComponent(
+    "select * from Customer maxresults 1000"));
+  const list = (all.QueryResponse && all.QueryResponse.Customer) || [];
+  const want = norm(name);
+  const wantSorted = want.split(" ").sort().join(" ");
+  let hit = list.find(c => norm(c.DisplayName) === want)
+         || list.find(c => norm(c.DisplayName).split(" ").sort().join(" ") === wantSorted);
+  if (!hit && email) {
+    const e = String(email).toLowerCase().trim();
+    hit = list.find(c => c.PrimaryEmailAddr && String(c.PrimaryEmailAddr.Address || "").toLowerCase().trim() === e);
+  }
+  if (hit) return hit;
+
   const created = await qapi(conn, "POST", "/customer", {
     DisplayName: name,
     PrimaryEmailAddr: email ? { Address: email } : undefined,
+    PrimaryPhone: phone ? { FreeFormNumber: phone } : undefined,
   });
   return created.Customer;
 }
 
-// First Service-type item, or create "E-3 Inspection" against the first
-// income account. QBO invoices require an ItemRef on every line.
+// Fallback ONLY: used if QuickBooks refuses an invoice line that carries no
+// Product/Service. David picks the real item in QBO himself.
 async function findOrCreateServiceItem(conn) {
-  const found = await qapi(conn, "GET", "/query?query=" + encodeURIComponent("select * from Item where Type = 'Service' maxresults 1"));
+  const found = await qapi(conn, "GET", "/query?query=" + encodeURIComponent(
+    "select * from Item where Type = 'Service' maxresults 1"));
   const rows = (found.QueryResponse && found.QueryResponse.Item) || [];
   if (rows.length) return rows[0];
-  const acct = await qapi(conn, "GET", "/query?query=" + encodeURIComponent("select * from Account where AccountType = 'Income' maxresults 1"));
+  const acct = await qapi(conn, "GET", "/query?query=" + encodeURIComponent(
+    "select * from Account where AccountType = 'Income' maxresults 1"));
   const accts = (acct.QueryResponse && acct.QueryResponse.Account) || [];
   if (!accts.length) throw new Error("No income account in QuickBooks to attach the service item to.");
   const created = await qapi(conn, "POST", "/item", {
@@ -181,21 +207,121 @@ async function findOrCreateServiceItem(conn) {
   return created.Item;
 }
 
+// "Due on receipt" (or whatever the tenant named it) - matched by name, not id.
+async function findTerm(conn, wanted) {
+  const want = norm(wanted || "due on receipt");
+  const res = await qapi(conn, "GET", "/query?query=" + encodeURIComponent(
+    "select * from Term maxresults 200"));
+  const rows = (res.QueryResponse && res.QueryResponse.Term) || [];
+  return rows.find(t => norm(t.Name) === want)
+      || rows.find(t => norm(t.Name).indexOf("due on receipt") !== -1)
+      || null;
+}
+
+// Sales-form CUSTOM FIELDS are addressed by DefinitionId (1..3), and which id
+// is "P.O. Number" differs per company - so read the company preferences and
+// match on the NAME the customer gave the field. Survives renames/reordering.
+async function customFieldMap(conn) {
+  const map = {};
+  try {
+    const res = await qapi(conn, "GET", "/query?query=" + encodeURIComponent("select * from Preferences"));
+    const prefs = ((res.QueryResponse && res.QueryResponse.Preferences) || [])[0] || {};
+    const groups = (prefs.SalesFormsPrefs && prefs.SalesFormsPrefs.CustomField) || [];
+    for (const g of groups) {
+      for (const f of (g.CustomField || [])) {
+        const m = String(f.Name || "").match(/SalesCustomName(\d)/i);
+        if (m && f.StringValue) map[norm(f.StringValue)] = m[1];
+      }
+    }
+  } catch (e) { console.error("QBO: could not read custom field preferences:", e.message); }
+  return map;
+}
+
+function ymd(d) {
+  if (!d) return undefined;
+  const dt = (d instanceof Date) ? d : new Date(d);
+  if (isNaN(dt.getTime())) return undefined;
+  // format in Pacific time - the invoice date must match the inspection date
+  // the office sees on the project card, not a UTC-shifted day.
+  const p = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles",
+    year: "numeric", month: "2-digit", day: "2-digit" }).format(dt);
+  return p;   // en-CA gives YYYY-MM-DD
+}
+
+// opts: { customerName, phone, email, ship:{line1,city,stateZip}, txnDate,
+//         poNumber, lines:[{description, amount, serviceDate}] }
 async function createAndSendInvoice(companyIdentifier, opts) {
   const conn = await freshConnection(companyIdentifier);
   if (!conn) throw new Error("QuickBooks is not connected for this company.");
-  const customer = await findOrCreateCustomer(conn, opts.customerName, opts.email);
-  const item = await findOrCreateServiceItem(conn);
-  const inv = await qapi(conn, "POST", "/invoice", {
+
+  // The QBO CUSTOMER is the PROPERTY (matches David's books - customer list is
+  // properties, e.g. "4423 Hoover St. / Apartments"); the owner's name + phone
+  // go in the invoice's Bill To box only.
+  const customer = await findOrCreateCustomer(conn, opts.propertyName || opts.customerName, opts.email, opts.phone);
+  const [term, cfMap] = await Promise.all([findTerm(conn, "Due on receipt"), customFieldMap(conn)]);
+
+  const txn = ymd(opts.txnDate);
+  // No Description is sent - when David picks the Product/Service in QBO the
+  // item's own default description fills the blank cell (his sample invoice).
+  const lines = (opts.lines || []).filter(l => l && Number(l.amount) > 0).map(l => ({
+    Amount: Number(l.amount),
+    DetailType: "SalesItemLineDetail",
+    SalesItemLineDetail: {
+      Qty: 1, UnitPrice: Number(l.amount),
+      ServiceDate: ymd(l.serviceDate || opts.txnDate),
+    },
+  }));
+  if (!lines.length) throw new Error("No priced lines to invoice.");
+
+  // BillTo: owner name on line 1, owner phone on the line BELOW it (David).
+  const billAddr = { Line1: String(opts.customerName || "").trim() || undefined };
+  if (opts.phone) billAddr.Line2 = String(opts.phone).trim();
+
+  const ship = opts.ship || {};
+  const shipAddr = {};
+  if (ship.line1) shipAddr.Line1 = String(ship.line1).trim();
+  if (ship.city) shipAddr.City = String(ship.city).trim();
+  if (ship.stateZip) {
+    const m = String(ship.stateZip).trim().match(/^([A-Za-z]{2})[,\s]+(\S.*)$/);
+    if (m) { shipAddr.CountrySubDivisionCode = m[1].toUpperCase(); shipAddr.PostalCode = m[2].trim(); }
+    else shipAddr.Line2 = String(ship.stateZip).trim();
+  }
+
+  const custom = [];
+  const poId = cfMap[norm("P.O. Number")] || cfMap[norm("PO Number")];
+  if (poId && opts.poNumber) {
+    custom.push({ DefinitionId: poId, Name: "P.O. Number", Type: "StringType", StringValue: String(opts.poNumber) });
+  }
+
+  // NOTE: DocNumber is deliberately NOT sent - QuickBooks auto-numbers the
+  // invoice (requires "Custom transaction numbers" to be OFF in QBO settings).
+  const payload = {
     CustomerRef: { value: customer.Id },
     BillEmail: opts.email ? { Address: opts.email } : undefined,
-    Line: [{
-      Amount: opts.amount,
-      DetailType: "SalesItemLineDetail",
-      Description: opts.description || "E-3 Inspection",
-      SalesItemLineDetail: { ItemRef: { value: item.Id }, Qty: 1, UnitPrice: opts.amount },
-    }],
-  });
+    BillAddr: billAddr.Line1 ? billAddr : undefined,
+    ShipAddr: Object.keys(shipAddr).length ? shipAddr : undefined,
+    TxnDate: txn,
+    DueDate: txn,                    // Due on receipt
+    ShipDate: txn,
+    SalesTermRef: term ? { value: term.Id } : undefined,
+    CustomField: custom.length ? custom : undefined,
+    Line: lines,
+  };
+
+  let inv;
+  try {
+    inv = await qapi(conn, "POST", "/invoice", payload);
+  } catch (e) {
+    // Some QBO companies reject a line with no Product/Service. Retry once
+    // with a fallback item so the invoice still lands; David re-picks the
+    // item in QuickBooks.
+    if (!/item/i.test(e.message)) throw e;
+    console.warn("QBO rejected item-less lines, retrying with a fallback item:", e.message);
+    const item = await findOrCreateServiceItem(conn);
+    for (const l of payload.Line) l.SalesItemLineDetail.ItemRef = { value: item.Id };
+    inv = await qapi(conn, "POST", "/invoice", payload);
+  }
+
   const invoice = inv.Invoice;
   let emailed = false;
   if (opts.email) {
