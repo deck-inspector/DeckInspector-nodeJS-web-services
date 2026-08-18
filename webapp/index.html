@@ -2717,7 +2717,11 @@ createApp({
         // original Inspection Form back on the project.
         if (p.iscomplete) {
           p.finalinspection = false;
-          if (hadFinal) await this.restoreProjectForm(p);
+          if (hadFinal) {
+            await this.restoreProjectForm(p);
+            // take the red markers off the units (repair records are kept)
+            try { await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/finalinspection/cleanup', { method: 'POST' }); } catch (e) { /* best-effort */ }
+          }
         }
         this.toast(p.iscomplete ? 'Project marked complete.' : 'Project reopened.');
       } catch (e) {
@@ -2761,9 +2765,25 @@ createApp({
         }
         p.finalinspection = true;
         if (repairsForm) { p.prevFormId = p.formId || null; p.formId = repairsForm; }
-        this.toast(repairsForm
-          ? 'Back on the schedule — inspection form switched to Final Repairs Inspection. Set the new date on the card.'
-          : 'Back on the schedule for a Final Inspection — set the new date and time on the card.');
+        // Prepare the phones: mark BAD units red, write original findings into
+        // their descriptions, pre-create the REPAIRS records with the form
+        // questions (David, Aug 18 - inspectors must see WHICH units and tap
+        // straight into the questions, no manual adding).
+        let markedMsg = '';
+        try {
+          const rp = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/finalinspection/prepare', {
+            method: 'POST', json: { username: this.user.username },
+          });
+          if (rp.ok) {
+            const rj = await rp.json();
+            const n = (rj.marked || []).length;
+            markedMsg = n ? (' ' + n + ' BAD unit' + (n === 1 ? '' : 's') + ' marked \u{1F534} and pre-loaded with the repair questions.') : ' No BAD units found to mark.';
+          }
+        } catch (e) { /* marking is best-effort; scheduling already succeeded */ }
+        this.toast((repairsForm
+          ? 'Back on the schedule — inspection form switched to Final Repairs Inspection.'
+          : 'Back on the schedule for a Final Inspection.') + markedMsg + ' Set the new date on the card.');
+        this.loadProjects();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not schedule the Final Inspection.', 'err');
       }
@@ -2793,7 +2813,10 @@ createApp({
         const hadFinal = p.finalinspection;
         p.iscomplete = true;
         p.finalinspection = false;
-        if (hadFinal) await this.restoreProjectForm(p);
+        if (hadFinal) {
+          await this.restoreProjectForm(p);
+          try { await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/finalinspection/cleanup', { method: 'POST' }); } catch (e) { /* best-effort */ }
+        }
         this.toast('Final Inspection cancelled — project is Complete again.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not update the project.', 'err');
