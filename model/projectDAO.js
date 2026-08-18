@@ -221,7 +221,10 @@ module.exports = {
       // intermittently while the query service stays responsive (the original
       // cause of failing complete/reopen toggles). Touches only iscomplete and
       // keeps the channels default the old code maintained for mobile sync.
-      const query = `UPDATE \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` AS p USE KEYS $1 SET p.iscomplete = $2, p.channels = IFMISSINGORNULL(p.channels, ["Project"]) RETURNING META(p).id`;
+      // Completing a project also ends any Final Inspection After Repairs
+      // cycle (Aug 18): the blue re-inspection flag is cleared in the same
+      // UPDATE so the card returns to plain Complete. Reopening keeps it.
+      const query = `UPDATE \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` AS p USE KEYS $1 SET p.iscomplete = $2, p.finalinspection = CASE WHEN $2 THEN false ELSE IFMISSING(p.finalinspection, false) END, p.channels = IFMISSINGORNULL(p.channels, ["Project"]) RETURNING META(p).id`;
       const rows = await executeQuery(query, [id, isComplete]);
       if (!rows || rows.length === 0) {
         throw new Error("No project found with id " + id);
