@@ -62,18 +62,25 @@ async function allLocations(projectId) {
 }
 
 async function prepare(projectId, username) {
-  const pRes = await projectModel.getProjectById(projectId);
+  const debug = { locCount: 0, secCounts: [], formErr: '', projFormId: '' };
+  const pRes = await projectModel.getProjectById(projectId).catch((e) => ({ err: String(e && e.message || e) }));
   const proj = (pRes && (pRes.project || (pRes.data && pRes.data.item))) || {};
+  debug.projFormId = proj.formId || ('MISSING:' + JSON.stringify(Object.keys(pRes || {})));
   let form = null;
   if (proj.formId) {
-    const fRes = await locationFormService.getLocationFormById(proj.formId).catch(() => null);
+    const fRes = await locationFormService.getLocationFormById(proj.formId).catch((e) => ({ ferr: String(e && e.message || e) }));
     form = (fRes && (fRes.location || fRes.form)) || null;
+    if (!form) debug.formErr = JSON.stringify(fRes).slice(0, 160);
   }
   const now = new Date().toISOString();
   const marked = [];
-  for (const locId of await allLocations(projectId)) {
+  const locIds = await allLocations(projectId);
+  debug.locCount = locIds.length;
+  for (const locId of locIds) {
     const secRes = await sectionService.getSectionsByParentId(locId).catch(() => null);
-    const bad = ((secRes && secRes.sections) || []).filter(isBadSection);
+    const secs = (secRes && secRes.sections) || [];
+    const bad = secs.filter(isBadSection);
+    if (debug.secCounts.length < 14) debug.secCounts.push(String(locId).slice(0, 6) + ':' + secs.length + '/' + bad.length);
     if (!bad.length) continue;
 
     const doc = await LocationDAO.getLocationById(locId).catch(() => null);
@@ -120,7 +127,7 @@ async function prepare(projectId, username) {
     }
     marked.push(origName);
   }
-  return { success: true, marked, repairsForm: !!form };
+  return { success: true, marked, repairsForm: !!form, debug };
 }
 
 async function cleanup(projectId) {
