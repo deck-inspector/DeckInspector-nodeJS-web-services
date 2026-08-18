@@ -40,6 +40,24 @@ async function executeQuery(statement, parameters = []) {
   }
 }
 
+
+// Read/write a full Project doc through the QUERY service (KV-free).
+// getProjectDocByKey returns the doc content (no META wrapper) or null.
+async function getProjectDocByKey(id) {
+  const rows = await executeQuery(
+    `SELECT p.* FROM \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` AS p USE KEYS $1`,
+    [id]
+  );
+  return rows.length ? rows[0] : null;
+}
+async function upsertProjectDoc(id, doc) {
+  await executeQuery(
+    `UPSERT INTO \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` (KEY, VALUE) VALUES ($1, $2)`,
+    [id, doc]
+  );
+  return { ok: 1 };
+}
+
 module.exports = {
     // ...existing code...
     addProject: async (project) => {
@@ -101,15 +119,17 @@ module.exports = {
   }
 },
 
+  // N1QL only (Aug 17): assignment must RELIABLY reach the database because
+  // Sync Gateway imports every Project write and the inspectors' phones sync
+  // from it - a KV timeout here silently breaks web AND mobile assignment.
   assignProjectToUser: async (id, username) => {
     try {
-      const collection = await getProjectsCollection();
-      const doc = await collection.get(id);
-      const assignedto = doc.content.assignedto || [];
-
+      const doc = await getProjectDocByKey(id);
+      if (!doc) throw new Error(`Project not found: ${id}`);
+      const assignedto = doc.assignedto || [];
       if (!assignedto.includes(username)) {
         assignedto.push(username);
-        await collection.upsert(id, { ...doc.content, assignedto, channels: doc.content.channels || ["Project"] });
+        await upsertProjectDoc(id, { ...doc, assignedto, channels: doc.channels || ["Project"] });
       }
       return { ok: 1 };
     } catch (error) {
@@ -120,15 +140,14 @@ module.exports = {
 
   unassignUserFromProject: async (id, username) => {
     try {
-      const collection = await getProjectsCollection();
-      const doc = await collection.get(id);
-      let assignedto = doc.content.assignedto || [];
-
-      assignedto = assignedto.filter((user) => user !== username);
-      await collection.upsert(id, { ...doc.content, assignedto, channels: doc.content.channels || ["Project"] });
+      const doc = await getProjectDocByKey(id);
+      if (!doc) throw new Error(`Project not found: ${id}`);
+      let assignedto = doc.assignedto || [];
+      assignedto = assignedto.filter(u => u !== username);
+      await upsertProjectDoc(id, { ...doc, assignedto, channels: doc.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
-      console.error("Error unassigning user from project:", error);
+      console.error("Error unassigning project from user:", error);
       throw error;
     }
   },
@@ -169,12 +188,14 @@ module.exports = {
     }
   },
 
+  // N1QL only (Aug 17) - same reliability reasoning as assignProjectToUser.
+  // Merge semantics preserved: newData fields overlay the stored doc.
   editProject: async (projectId, newData) => {
     try {
-      const collection = await getProjectsCollection();
-      const doc = await collection.get(projectId);
-      const updatedDoc = { ...doc.content, ...newData };
-      await collection.upsert(projectId, { ...updatedDoc, channels: doc.content.channels || ["Project"] });
+      const doc = await getProjectDocByKey(projectId);
+      if (!doc) throw new Error(`Project not found: ${projectId}`);
+      const updatedDoc = { ...doc, ...newData };
+      await upsertProjectDoc(projectId, { ...updatedDoc, channels: doc.channels || ["Project"] });
       return { ok: 1 };
     } catch (error) {
       console.error("Error editing project:", error);
