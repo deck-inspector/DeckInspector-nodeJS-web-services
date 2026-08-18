@@ -115,6 +115,8 @@ input,select{font-family:inherit;font-size:16px}
 .btn-dl{background:var(--brand-soft);color:var(--brand-dark);padding:10px 18px;font-weight:700;border-radius:10px}
 .btn-edit{background:var(--brand);color:#fff;padding:12px 26px;font-weight:800;font-size:16px;border-radius:10px;box-shadow:0 2px 8px rgba(41,44,116,.35);flex-shrink:0}
 .btn-edit:hover{background:var(--brand-dark)}
+.cdate{padding:5px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;background:#fff;font-family:inherit}
+.cdate:focus{border-color:var(--brand);outline:none}
 .btn-edit:disabled{opacity:.32;box-shadow:none;cursor:default}
 .btn-edit:disabled:hover{background:var(--brand)}
 .btn-dl:hover{background:#d3e8df}
@@ -389,12 +391,13 @@ input,select{font-family:inherit;font-size:16px}
               <div class="addr">{{ p.address || 'No address on file' }}</div>
               <div class="meta">
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
-                <span v-if="!cardDate || cardDate.pid !== projectId(p)" style="color:var(--ink-soft);font-size:13px;cursor:pointer;border-bottom:1px dashed var(--line)" title="Click to change the inspection date &amp; time" @click="openCardDate(p)">&#128197; {{ p.editedat ? inspNice(p.editedat) : shortDate(p.createdat) }}</span>
-                <span v-else @click.stop style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
-                  <input type="date" v-model="cardDate.date" style="padding:4px 6px;border:1.5px solid var(--brand);border-radius:6px;font-size:13px">
-                  <input type="time" v-model="cardDate.time" style="padding:4px 6px;border:1.5px solid var(--line);border-radius:6px;font-size:13px">
-                  <button class="btn-edit" style="padding:5px 10px;font-size:13px" :disabled="cardDate.busy || !cardDate.date" @click="saveCardDate(p)">{{ cardDate.busy ? '&#8987;' : '&#10003;' }}</button>
-                  <button class="btn-cancel" style="padding:5px 10px;font-size:13px" :disabled="cardDate.busy" @click="cardDate=null">&#10005;</button>
+                <span @click.stop style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  <input type="date" class="cdate" v-model="p._inspD">
+                  <input type="time" class="cdate" v-model="p._inspT">
+                  <template v-if="cardDateDirty(p)">
+                    <button class="btn-edit" style="padding:5px 10px;font-size:13px" :disabled="p._inspBusy || !p._inspD" title="Save the new inspection date &amp; time" @click="saveCardDate(p)">{{ p._inspBusy ? '&#8987;' : '&#10003;' }}</button>
+                    <button class="btn-cancel" style="padding:5px 10px;font-size:13px" :disabled="p._inspBusy" title="Undo" @click="resetCardDate(p)">&#10005;</button>
+                  </template>
                 </span>
               </div>
               <div class="assignrow">
@@ -1457,8 +1460,7 @@ createApp({
       unit: null, sections: [], loadingSections: false, lightbox: null,
       // Section ordering + move-to-another-unit
       reordering: false, movingSec: null, moveTargetId: '', movingBusy: false,
-      // Inline inspection date/time editor on the project card (David, Aug 17)
-      cardDate: null,
+
       structTab: 'buildings',
       docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFiles: [], docProgress: '', uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
       proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
@@ -1642,7 +1644,7 @@ createApp({
       try {
         const res = await this.api('/project/allprojects');
         const data = await res.json();
-        this.projects = (data.projects || []).filter(p => !p.isdeleted);
+        this.projects = this.decorateCardDates((data.projects || []).filter(p => !p.isdeleted));
         if (!this.users.length) this.loadUsers();
         this.sweepFinalReports();
       } catch (e) {
@@ -2511,14 +2513,27 @@ createApp({
       if (event.target.closest('button, select, a, input, .tag, .addr, .meta')) return;
       this.openInspect(p);
     },
-    /* ---------- inline inspection date/time on the card (David, Aug 17) ---------- */
-    openCardDate(p) {
-      this.cardDate = { pid: this.projectId(p), date: this.toLocalDateStr(p.editedat), time: this.toLocalTimeStr(p.editedat), busy: false };
+    /* ---------- always-open inspection date/time on the card (David, Aug 17:
+         "make all of the project cards look and act like 147 Berendo") ------- */
+    decorateCardDates(list) {
+      for (const p of list) {
+        p._inspD = this.toLocalDateStr(p.editedat);
+        p._inspT = this.toLocalTimeStr(p.editedat);
+        p._inspBusy = false;
+      }
+      return list;
+    },
+    cardDateDirty(p) {
+      return p._inspD !== this.toLocalDateStr(p.editedat) || p._inspT !== this.toLocalTimeStr(p.editedat);
+    },
+    resetCardDate(p) {
+      p._inspD = this.toLocalDateStr(p.editedat);
+      p._inspT = this.toLocalTimeStr(p.editedat);
     },
     async saveCardDate(p) {
-      if (!this.cardDate || !this.cardDate.date) return;
-      this.cardDate.busy = true;
-      const iso = this.inspToISO(this.cardDate.date, this.cardDate.time);
+      if (!p._inspD || p._inspBusy) return;
+      p._inspBusy = true;
+      const iso = this.inspToISO(p._inspD, p._inspT);
       try {
         // Minimal merge payload. formId must ride along: the edit route forces
         // the key to null when absent and the DAO merges, which would wipe the
@@ -2528,12 +2543,11 @@ createApp({
         });
         if (!res.ok) throw new Error('bad');
         p.editedat = iso;
-        this.cardDate = null;
+        this.resetCardDate(p);
         this.toast('Inspection date updated.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not save the new date.', 'err');
-        if (this.cardDate) this.cardDate.busy = false;
-      }
+      } finally { p._inspBusy = false; }
     },
     async loadStructure() {
       this.loadingStructure = true;
