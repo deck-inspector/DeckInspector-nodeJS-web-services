@@ -67,6 +67,12 @@ input,select{font-family:inherit;font-size:16px}
 .pcard.needsfinal .addr{color:#8A6400}
 .pcard.needsfinal .meta .chip.open{background:#E8A700;color:#fff;font-weight:700}
 .pcard.needsfinal h3::after{content:' \2022 NEEDS FINAL REPORT';color:#C98F00;font-size:11px;font-weight:800;letter-spacing:.5px;vertical-align:middle}
+/* BLUE = re-inspection: completed project put back on the schedule for a
+   Final Inspection After Repairs (David, Aug 18). Overrides green/yellow. */
+.pcard.finalinsp{background:#E9F1FD;border:4px solid #1565D8;box-shadow:0 0 0 3px rgba(21,101,216,.28),0 6px 18px rgba(21,101,216,.35)}
+.pcard.finalinsp .addr{color:#0D4FB0}
+.pcard.finalinsp .meta .chip.open{background:#1565D8;color:#fff;font-weight:700}
+.pcard.finalinsp h3::after{content:' \2022 FINAL INSPECTION AFTER REPAIRS';color:#1565D8;font-size:11px;font-weight:800;letter-spacing:.5px;vertical-align:middle}
 .pcard:hover{box-shadow:0 6px 22px rgba(28,39,51,.14)}
 .pcard .thumb{height:150px;background:#e7edf2 center/cover no-repeat;position:relative}
 .pcard .thumb .noimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#a9b8c4;font-size:40px}
@@ -382,7 +388,7 @@ input,select{font-family:inherit;font-size:16px}
                empty space and the project NAME are all click targets. Buttons,
                the assign dropdown, inspector tags, and the address/status/date
                text keep their own behavior - cardClick filters those out. -->
-          <div class="pcard" :class="{upcoming: isUpcoming(p), needsfinal: needsFinal(p)}" v-for="p in filteredProjects" :key="p.id" @click="cardClick(p, $event)">
+          <div class="pcard" :class="{finalinsp: isFinalInsp(p), upcoming: !isFinalInsp(p) && isUpcoming(p), needsfinal: !isFinalInsp(p) && needsFinal(p)}" v-for="p in filteredProjects" :key="p.id" @click="cardClick(p, $event)">
             <div class="thumb" :style="thumbStyle(p)" style="cursor:pointer">
               <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
             </div>
@@ -415,6 +421,8 @@ input,select{font-family:inherit;font-size:16px}
                 <button class="btn btn-reports" @click="openReports(p)">Reports</button>
                 <button class="btn btn-dl" style="flex:0 0 auto;padding:12px 14px" title="Project documents" @click="openDocs(p)">&#128206;</button>
                 <button class="btn btn-dl" style="flex:0 0 auto;padding:12px 12px" :title="p.iscomplete ? 'Reopen project' : 'Mark complete'" @click="toggleComplete(p)">{{ p.iscomplete ? '&#8634;' : '&#10003;' }}</button>
+                <button class="btn btn-dl" v-if="p.iscomplete" style="flex:1 1 100%;background:#1565D8;color:#fff;border-color:#1565D8" title="Put this project back on the schedule for a Final Inspection After Repairs" @click="scheduleFinalInsp(p)">&#128260; Schedule Final Inspection</button>
+                <button class="btn btn-dl" v-else-if="isFinalInsp(p)" style="flex:1 1 100%" title="Take this project back off the Final Inspection schedule and return it to Complete" @click="cancelFinalInsp(p)">&#10005; Cancel Final Inspection</button>
                 <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete project" @click="deletingProject = p">&#128465;</button>
               </div>
             </div>
@@ -2680,7 +2688,48 @@ createApp({
         const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/toggleprojectstatus/' + to, { method: 'POST' });
         if (!res.ok) throw new Error('bad');
         p.iscomplete = !p.iscomplete;
+        // Completing a project ends its Final Inspection cycle - the backend
+        // clears the flag in the same UPDATE; mirror it locally.
+        if (p.iscomplete) p.finalinspection = false;
         this.toast(p.iscomplete ? 'Project marked complete.' : 'Project reopened.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not update the project.', 'err');
+      }
+    },
+    /* ---------- Final Inspection After Repairs (David, Aug 18): a completed
+         project goes back on the schedule for a re-inspection. Same project,
+         same data - the card turns BLUE with a "FINAL INSPECTION AFTER
+         REPAIRS" tag until it is marked complete again. ------------------- */
+    isFinalInsp(p) { return !!(p && p.finalinspection && !p.iscomplete); },
+    async scheduleFinalInsp(p) {
+      try {
+        // Set the flag first (merge PUT - formId must ride along, see
+        // saveCardDate), then reopen. Reopen preserves the flag; only
+        // COMPLETING clears it (backend updateProjectStatus).
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)), {
+          method: 'PUT', json: { finalinspection: true, formId: p.formId || null },
+        });
+        if (!res.ok) throw new Error('bad');
+        if (p.iscomplete) {
+          const r2 = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/toggleprojectstatus/0', { method: 'POST' });
+          if (!r2.ok) throw new Error('bad');
+          p.iscomplete = false;
+        }
+        p.finalinspection = true;
+        this.toast('Back on the schedule for a Final Inspection — set the new date and time on the card.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not schedule the Final Inspection.', 'err');
+      }
+    },
+    async cancelFinalInsp(p) {
+      // Undo = mark complete again; the backend clears the flag in the same
+      // UPDATE, returning the project to exactly where it was.
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/toggleprojectstatus/1', { method: 'POST' });
+        if (!res.ok) throw new Error('bad');
+        p.iscomplete = true;
+        p.finalinspection = false;
+        this.toast('Final Inspection cancelled — project is Complete again.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not update the project.', 'err');
       }
