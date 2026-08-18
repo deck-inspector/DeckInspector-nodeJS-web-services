@@ -626,7 +626,9 @@ input,select{font-family:inherit;font-size:16px}
             <button class="kind" :class="{on: reportKind==='Visual'}" @click="reportKind='Visual'">Visual</button>
             <button class="kind" :class="{on: reportKind==='Invasive'}" @click="reportKind='Invasive'">Invasive</button>
             <button class="kind" :class="{on: reportKind==='InvasiveOnly'}" @click="reportKind='InvasiveOnly'">Invasive Only</button>
+            <button class="kind" :class="{on: reportKind==='FinalRepairs'}" style="border-color:#1565D8" :style="reportKind==='FinalRepairs' ? 'background:#1565D8;color:#fff' : 'color:#1565D8'" @click="reportKind='FinalRepairs'">Final Repairs</button>
           </div>
+          <div class="hint" v-if="reportKind==='FinalRepairs'" style="margin-top:8px">Covers every location the original inspection rated <b style="color:#C62828">BAD</b> (or flagged for invasive review): the original findings and photos, plus the repairs-inspection answers recorded on-site.</div>
           <div class="genrow">
             <button class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create {{ kindLabel }} (Word)</button>
             <button class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="generating" @click="generateReport('pdf')">&#128462; Create {{ kindLabel }} (PDF)</button>
@@ -1580,7 +1582,9 @@ createApp({
       return [...this.reports].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
     },
     kindLabel() {
-      return this.reportKind === 'InvasiveOnly' ? 'Invasive Only Report' : this.reportKind + ' Report';
+      if (this.reportKind === 'InvasiveOnly') return 'Invasive Only Report';
+      if (this.reportKind === 'FinalRepairs') return 'Final Repairs Report';
+      return this.reportKind + ' Report';
     },
     assignedList() {
       const a = this.current && this.current.assignedto;
