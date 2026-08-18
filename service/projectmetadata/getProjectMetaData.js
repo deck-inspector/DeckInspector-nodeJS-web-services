@@ -103,13 +103,33 @@ async function getProjectData(projectId) {
 }
 
 
+// Worst-of condition rollup for a location, from the section metadata the
+// location doc already carries (visualreview / furtherinvasivereviewrequired,
+// maintained by updateParentHelper). BAD if ANY section's visual review is Bad
+// OR further invasive review is required (David, Aug 18); else FAIR if any
+// Fair; else GOOD if any rated Good; '' when nothing is rated yet.
+function locConditionRollup(loc) {
+    const secs = Array.isArray(loc && loc.sections) ? loc.sections : [];
+    let fair = false, good = false;
+    for (const s of secs) {
+        if (!s) continue;
+        const v = String(s.visualreview || '').toLowerCase();
+        const inv = s.furtherinvasivereviewrequired;
+        const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
+        if (v.startsWith('bad') || invYes) return 'Bad';
+        if (v.startsWith('fair')) fair = true;
+        else if (v.startsWith('good')) good = true;
+    }
+    return fair ? 'Fair' : (good ? 'Good' : '');
+}
+
 async function getProjectWiseLocationsMetaData(projectId) {
     const locationData = await location.getLocationByParentId(projectId);
     const locations = [];
     if(locationData.data && locationData.data.item)
     {
         for (const loc of locationData.data.item) {
-            locations.push({ locationId: loc.id || loc._id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo, url: loc.url || ''});
+            locations.push({ locationId: loc.id || loc._id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo, url: loc.url || '', rating: locConditionRollup(loc)});
         }
     }
     locations.sort(function(loc1,loc2){
@@ -149,7 +169,8 @@ async function getSubProjectsData(projectId) {
                         locationName: locName,
                         locationType: locType,
                         isInvasive: isInvasive,
-                        url: loc.url || ''
+                        url: loc.url || '',
+                        rating: locConditionRollup(loc)
                     });
                 }
             }
