@@ -389,7 +389,13 @@ input,select{font-family:inherit;font-size:16px}
               <div class="addr">{{ p.address || 'No address on file' }}</div>
               <div class="meta">
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
-                <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ p.editedat ? inspNice(p.editedat) : shortDate(p.createdat) }}</span>
+                <span v-if="!cardDate || cardDate.pid !== projectId(p)" style="color:var(--ink-soft);font-size:13px;cursor:pointer;border-bottom:1px dashed var(--line)" title="Click to change the inspection date &amp; time" @click="openCardDate(p)">&#128197; {{ p.editedat ? inspNice(p.editedat) : shortDate(p.createdat) }}</span>
+                <span v-else @click.stop style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  <input type="date" v-model="cardDate.date" style="padding:4px 6px;border:1.5px solid var(--brand);border-radius:6px;font-size:13px">
+                  <input type="time" v-model="cardDate.time" style="padding:4px 6px;border:1.5px solid var(--line);border-radius:6px;font-size:13px">
+                  <button class="btn-edit" style="padding:5px 10px;font-size:13px" :disabled="cardDate.busy || !cardDate.date" @click="saveCardDate(p)">{{ cardDate.busy ? '&#8987;' : '&#10003;' }}</button>
+                  <button class="btn-cancel" style="padding:5px 10px;font-size:13px" :disabled="cardDate.busy" @click="cardDate=null">&#10005;</button>
+                </span>
               </div>
               <div class="assignrow">
                 <!-- tag colour = the inspector's response: green ✓ accepted, red ✗ declined,
@@ -1451,6 +1457,8 @@ createApp({
       unit: null, sections: [], loadingSections: false, lightbox: null,
       // Section ordering + move-to-another-unit
       reordering: false, movingSec: null, moveTargetId: '', movingBusy: false,
+      // Inline inspection date/time editor on the project card (David, Aug 17)
+      cardDate: null,
       structTab: 'buildings',
       docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFiles: [], docProgress: '', uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
       proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
@@ -2502,6 +2510,30 @@ createApp({
     cardClick(p, event) {
       if (event.target.closest('button, select, a, input, .tag, .addr, .meta')) return;
       this.openInspect(p);
+    },
+    /* ---------- inline inspection date/time on the card (David, Aug 17) ---------- */
+    openCardDate(p) {
+      this.cardDate = { pid: this.projectId(p), date: this.toLocalDateStr(p.editedat), time: this.toLocalTimeStr(p.editedat), busy: false };
+    },
+    async saveCardDate(p) {
+      if (!this.cardDate || !this.cardDate.date) return;
+      this.cardDate.busy = true;
+      const iso = this.inspToISO(this.cardDate.date, this.cardDate.time);
+      try {
+        // Minimal merge payload. formId must ride along: the edit route forces
+        // the key to null when absent and the DAO merges, which would wipe the
+        // project's inspection form.
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)), {
+          method: 'PUT', json: { editedat: iso, formId: p.formId || null },
+        });
+        if (!res.ok) throw new Error('bad');
+        p.editedat = iso;
+        this.cardDate = null;
+        this.toast('Inspection date updated.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save the new date.', 'err');
+        if (this.cardDate) this.cardDate.busy = false;
+      }
     },
     async loadStructure() {
       this.loadingStructure = true;
