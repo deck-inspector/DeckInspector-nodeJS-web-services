@@ -61,6 +61,22 @@ async function allLocations(projectId) {
   return out;
 }
 
+// Legacy data holds ratings in TWO places that can disagree: the section doc
+// itself, and the section-summary metadata embedded in the Location doc (the
+// web tree reads the metadata). A unit is BAD if EITHER says so (David,
+// Aug 18 - "113 N. Almansor" metadata said bad while its section doc said
+// Fair). Returns the merged list of bad findings for the description.
+function mergedBadFindings(sectionDocs, locDoc) {
+  const bad = (sectionDocs || []).filter(isBadSection);
+  const badNames = new Set(bad.map((s) => String(s.name || "").toLowerCase()));
+  for (const m of ((locDoc && locDoc.sections) || [])) {
+    if (!m || !isBadSection(m)) continue;
+    if (badNames.has(String(m.name || "").toLowerCase())) continue;
+    bad.push(m); // metadata-only bad entry (carries visualreview etc.)
+  }
+  return bad;
+}
+
 async function prepare(projectId, username) {
   const debug = { locCount: 0, secCounts: [], formErr: '', projFormId: '' };
   const pRes = await projectModel.getProjectById(projectId).catch((e) => ({ err: String(e && e.message || e) }));
@@ -79,12 +95,11 @@ async function prepare(projectId, username) {
   for (const locId of locIds) {
     const secRes = await sectionService.getSectionsByParentId(locId).catch(() => null);
     const secs = (secRes && secRes.sections) || [];
-    const bad = secs.filter(isBadSection);
-    if (debug.secCounts.length < 14) debug.secCounts.push(String(locId).slice(0, 6) + ':' + secs.length + '/' + bad.length);
-    if (!bad.length) continue;
-
     const doc = await LocationDAO.getLocationById(locId).catch(() => null);
     if (!doc) continue;
+    const bad = mergedBadFindings(secs, doc);
+    if (debug.secCounts.length < 14) debug.secCounts.push(String(locId).slice(0, 6) + ':' + secs.length + '/' + bad.length);
+    if (!bad.length) continue;
     const origName = doc.frOrigName !== undefined && doc.frOrigName !== null
       ? doc.frOrigName
       : String(doc.name || "").replace(MARK, "");
