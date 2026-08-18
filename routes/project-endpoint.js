@@ -1373,11 +1373,24 @@ router.route('/qbo/summary')
         const prop = await qboDAO.getProposalByProjectId(projectId);
         if (prop && prop.form) {
           const f = prop.form;
+          const val = (i) => (f.values && (f.values[i] != null ? f.values[i] : f.values[String(i)])) || '';
+          // Inspection date = the date the office sees on the project card.
+          let inspDate = '';
+          try {
+            const pr = await projectService.getProjectById(projectId);
+            const item = pr && pr.data && pr.data.item;
+            if (item && item.editedat) inspDate = item.editedat;
+          } catch (e) { /* fall back to today */ }
           out.defaults = {
-            customerName: f.property || prop.name || '',
+            propertyName: f.property || prop.name || '',   // QBO CUSTOMER = the property
+            customerName: f.ownerMgr || '',                // BILL TO line 1 = the owner
+            phone: f.contactPhone || f.contact || '',
             email: f.contactEmail || '',
-            amount: parseMoney(f.values && (f.values[10] != null ? f.values[10] : f.values['10'])),
-            description: 'E-3 Inspection \u2014 ' + ([f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ') || f.property || ''),
+            ship: { line1: f.addressStreet || '', city: f.addressCity || '', stateZip: f.addressStateZip || '' },
+            txnDate: inspDate,
+            poNumber: 'Contract',
+            inspectionAmount: parseMoney(val(10)),        // proposal "Inspection Price"
+            reportAmount: parseMoney(val(21)),            // proposal "Report Fee"
           };
         }
       }
@@ -1404,15 +1417,23 @@ router.route('/qbo/invoice')
   .post(async function (req, res) {
     try {
       const cid = req.user && req.user.company;
-      const { projectId, amount, email, customerName, description } = req.body || {};
+      const b = req.body || {};
+      const { projectId, email, customerName, phone, poNumber, txnDate, ship, propertyName } = b;
       if (!projectId) return res.status(400).json({ message: 'projectId is required.' });
-      const amt = parseMoney(amount);
-      if (!amt || amt <= 0) return res.status(400).json({ message: 'A valid invoice amount is required.' });
+      const inspAmt = parseMoney(b.inspectionAmount);
+      const repAmt = parseMoney(b.reportAmount);
+      if (!inspAmt && !repAmt) return res.status(400).json({ message: 'A valid invoice amount is required.' });
       const existing = await qboDAO.getInvoiceRef(projectId);
       if (existing && existing.invoiceId) return res.status(409).json({ message: 'An invoice already exists for this project (#' + (existing.docNumber || existing.invoiceId) + ').' });
+      const when = txnDate || new Date().toISOString();
+      const lines = [];
+      if (inspAmt > 0) lines.push({ amount: inspAmt, serviceDate: when });
+      if (repAmt > 0) lines.push({ amount: repAmt, serviceDate: when });
       const result = await qboService.createAndSendInvoice(cid, {
-        customerName: customerName || 'Client', email: (email || '').trim(),
-        amount: amt, description: description || 'E-3 Inspection',
+        propertyName: (propertyName || '').trim(),
+        customerName: customerName || 'Client', phone: (phone || '').trim(),
+        email: (email || '').trim(), ship: ship || {},
+        txnDate: when, poNumber: poNumber || 'Contract', lines,
       });
       await qboDAO.upsertInvoiceRef(projectId, {
         companyIdentifier: cid, invoiceId: result.invoiceId,
