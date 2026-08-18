@@ -18,6 +18,7 @@ var uploadBlob = require('../database/uploadimage');
 const projectReports = require("../model/projectReports");
 const {generateLocationReportDoc} = require("../service/projectreportgeneration");
 const FinalReportGenerator = require("../service/ReportGeneration/FinalReportGenerator.js");
+const FinalRepairsGenerator = require("../service/ReportGeneration/FinalRepairsGenerator.js");
 const ProposalGenerator = require("../service/ReportGeneration/ProposalGenerator.js");
 const proposals = require("../model/proposals");
 const locationModel = require("../model/location");
@@ -519,7 +520,14 @@ router.route('/generatereport')
             res.status(200).json({message: 'Generating report'});
            let url; let failMsg = '';
            try {
-               url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath);
+               // FINAL REPAIRS INSPECTION (Aug 18): its own generator - the
+               // originally-BAD locations + the repairs-inspection answers -
+               // instead of the Visual/Invasive section pipeline.
+               if (reportType === 'FinalRepairs') {
+                   url = await FinalRepairsGenerator.generate(projectId, companyName, projectName, uploader, reportFormat);
+               } else {
+                   url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath);
+               }
            } catch (genErr) {
                console.error('Report generation FAILED:', genErr);
                failMsg = (genErr && genErr.message) ? String(genErr.message) : String(genErr);
@@ -537,7 +545,10 @@ router.route('/generatereport')
            }
            console.log(url);
            const project_id = projectId;
-           const name = projectName;
+           // Distinct name so the list (and the email picker) can tell the
+           // repairs re-inspection apart. Deliberately does NOT contain
+           // "final report" - that phrase drives the Final Report matching.
+           const name = reportType === 'FinalRepairs' ? `${projectName} - Final Repairs Inspection` : projectName;
             let timestamp = (new Date(Date.now())).toISOString();
             projectReports.addProjectReport({
                 project_id,
