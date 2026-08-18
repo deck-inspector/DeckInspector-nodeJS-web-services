@@ -19,6 +19,7 @@ const projectReports = require("../model/projectReports");
 const {generateLocationReportDoc} = require("../service/projectreportgeneration");
 const FinalReportGenerator = require("../service/ReportGeneration/FinalReportGenerator.js");
 const FinalRepairsGenerator = require("../service/ReportGeneration/FinalRepairsGenerator.js");
+const FinalInspectionService = require("../service/finalInspectionService.js");
 const ProposalGenerator = require("../service/ReportGeneration/ProposalGenerator.js");
 const proposals = require("../model/proposals");
 const locationModel = require("../model/location");
@@ -307,6 +308,30 @@ router.route('/:id/assignmentstatus')
       catch (exception) {
         const errResponse = new newErrorResponse(500, false, exception);
         return res.status(500).json(errResponse);
+      }
+    });
+
+// FINAL INSPECTION AFTER REPAIRS - phone prep (Aug 18): mark BAD units red,
+// write original findings into their descriptions, pre-create the REPAIRS
+// records carrying the repair-form questions. cleanup restores names on
+// complete/cancel (the filled REPAIRS records stay for the report).
+router.route('/:id/finalinspection/prepare')
+    .post(async function (req, res) {
+      try {
+        const username = (req.body && req.body.username) || (req.user && req.user.username) || 'system';
+        const result = await FinalInspectionService.prepare(req.params.id, username);
+        return res.status(200).json(result);
+      } catch (exception) {
+        return res.status(500).json(new newErrorResponse(500, false, String(exception && exception.message || exception)));
+      }
+    });
+router.route('/:id/finalinspection/cleanup')
+    .post(async function (req, res) {
+      try {
+        const result = await FinalInspectionService.cleanup(req.params.id);
+        return res.status(200).json(result);
+      } catch (exception) {
+        return res.status(500).json(new newErrorResponse(500, false, String(exception && exception.message || exception)));
       }
     });
 
