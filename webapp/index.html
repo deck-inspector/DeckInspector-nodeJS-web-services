@@ -176,7 +176,7 @@ input,select{font-family:inherit;font-size:16px}
 }
 
 /* ---------- inspection browser ---------- */
-.card-btns{display:flex;gap:8px;flex-wrap:wrap}
+.card-btns{display:flex;gap:8px}
 .card-btns .btn{flex:1;padding:12px;font-size:15px}
 .btn-inspect{background:var(--charcoal);color:#fff}
 .btn-inspect:hover{background:var(--charcoal-dark)}
@@ -422,8 +422,12 @@ input,select{font-family:inherit;font-size:16px}
                 <button class="btn btn-dl" style="flex:0 0 auto;padding:12px 14px" title="Project documents" @click="openDocs(p)">&#128206;</button>
                 <button class="btn btn-dl" style="flex:0 0 auto;padding:12px 12px" :title="p.iscomplete ? 'Reopen project' : 'Mark complete'" @click="toggleComplete(p)">{{ p.iscomplete ? '&#8634;' : '&#10003;' }}</button>
                 <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete project" @click="deletingProject = p">&#128465;</button>
-                <button class="btn btn-dl" v-if="p.iscomplete" style="flex:1 1 100%;background:#1565D8;color:#fff;border-color:#1565D8" title="Put this project back on the schedule for a Final Inspection After Repairs" @click="scheduleFinalInsp(p)">&#128260; Schedule Final Inspection</button>
-                <button class="btn btn-dl" v-else-if="isFinalInsp(p)" style="flex:1 1 100%" title="Take this project back off the Final Inspection schedule and return it to Complete" @click="cancelFinalInsp(p)">&#10005; Cancel Final Inspection</button>
+              </div>
+              <!-- Final Inspection After Repairs (own full-width row so the
+                   main button row keeps its one-line layout) -->
+              <div v-if="p.iscomplete || isFinalInsp(p)" style="padding-top:8px">
+                <button class="btn btn-dl" v-if="p.iscomplete" style="width:100%;background:#1565D8;color:#fff;border-color:#1565D8" title="Put this project back on the schedule for a Final Inspection After Repairs" @click="scheduleFinalInsp(p)">&#128260; Schedule Final Inspection</button>
+                <button class="btn btn-dl" v-else style="width:100%" title="Take this project back off the Final Inspection schedule and return it to Complete" @click="cancelFinalInsp(p)">&#10005; Cancel Final Inspection</button>
               </div>
             </div>
           </div>
