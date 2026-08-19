@@ -1378,7 +1378,7 @@ router.route('/qbo/summary')
           let inspDate = '';
           try {
             const pr = await projectService.getProjectById(projectId);
-            const item = pr && pr.data && pr.data.item;
+            const item = pr && ;
             if (item && item.editedat) inspDate = item.editedat;
           } catch (e) { /* fall back to today */ }
           out.defaults = {
