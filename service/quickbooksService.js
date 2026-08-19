@@ -288,7 +288,7 @@ async function createAndSendInvoice(companyIdentifier, opts) {
   }
 
   const custom = [];
-  const poId = cfMap[norm("P.O. Number")] || cfMap[norm("PO Number")];
+  const poId = cfMap[norm("P.O. Number")] || cfMap[norm("PO Number")]; const ipId = cfMap[norm("Inspection Property")]; const ipVal = [ship.line1, ship.city].filter(Boolean).join(", "); if (ipId && ipVal) custom.push({ DefinitionId: ipId, Name: "Inspection Property", Type: "StringType", StringValue: ipVal.slice(0, 31) });
   if (poId && opts.poNumber) {
     custom.push({ DefinitionId: poId, Name: "P.O. Number", Type: "StringType", StringValue: String(opts.poNumber) });
   }
