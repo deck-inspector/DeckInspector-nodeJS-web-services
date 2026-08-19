@@ -299,10 +299,8 @@ async function createAndSendInvoice(companyIdentifier, opts) {
     CustomerRef: { value: customer.Id },
     BillEmail: opts.email ? { Address: opts.email } : undefined,
     BillAddr: billAddr.Line1 ? billAddr : undefined,
-    ShipAddr: Object.keys(shipAddr).length ? shipAddr : undefined,
     TxnDate: txn,
     DueDate: txn,                    // Due on receipt
-    ShipDate: txn,
     SalesTermRef: term ? { value: term.Id } : undefined,
     CustomField: custom.length ? custom : undefined,
     Line: lines,
