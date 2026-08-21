@@ -1081,7 +1081,7 @@ input,select{font-family:inherit;font-size:16px}
       <!-- Proposal-style: left side menu edits the fields, right pane shows the
            real branded Word document (verbatim) and updates as you edit. -->
       <template v-if="formEd.mode==='sidedoc'">
-        <div class="hint" style="margin:4px 0 12px">Edit the fields on the left — the document on the right is your actual Word file and updates as you type. <b>Save</b> keeps your entries for this project; <b>Download Word</b> gives you the exact file (use Word&#8217;s Save&nbsp;as&nbsp;PDF for a PDF copy).<span v-if="formEd.saved" style="color:#00B050;font-weight:700;margin-left:8px">&#10003; Auto-saved</span></div>
+        <div class="hint" style="margin:4px 0 12px">Edit the fields on the left — the document on the right is your actual Word file and updates as you type. <b>Save</b> keeps your entries for this project; <b>Download Word</b> gives you the exact file; <b>Save PDF</b> downloads a PDF.<span v-if="formEd.saved" style="color:#00B050;font-weight:700;margin-left:8px">&#10003; Auto-saved</span></div>
         <div v-if="formEd.loading" class="empty" style="padding:40px 0">Loading the form&hellip;</div>
         <div v-else class="fc-wrap">
           <div class="fc-side">
@@ -1125,10 +1125,8 @@ input,select{font-family:inherit;font-size:16px}
       <div class="mrow" style="position:sticky;bottom:0;background:#fff;padding-top:12px;border-top:1px solid var(--line);margin-top:16px;z-index:2">
         <button class="btn-cancel" @click="formEd.open=false">Close</button>
         <button class="btn btn-primary" style="padding:12px 20px" :disabled="formEd.busy" @click="downloadFilledWord">{{ formEd.busy && formEd.busyKind==='word' ? 'Building&hellip;' : '⬇ Download Word' }}</button>
-        <!-- Save PDF removed (David, Aug 21): the LibreOffice PDF conversion
-             misaligned the report. Word is the exact file; a plain Save keeps
-             the entries without downloading anything. -->
-        <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" @click="fcSaveNow">&#128190; Save</button>
+        <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="fcSavePdf">{{ formEd.busy && formEd.busyKind==='pdf' ? 'Saving PDF&hellip;' : '⬇ Save PDF' }}</button>
+        <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:#1F7A33" @click="fcSaveNow">&#128190; Save</button>
         <button v-else class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="printFilledForm">🖨 Save / Print PDF</button>
       </div>
     </div>
@@ -2148,8 +2146,12 @@ createApp({
         const res = await this.api('/projectreports/' + encodeURIComponent(this.projectId(this.current)));
         if (res.ok) {
           const list = (await res.json()) || [];
-          const visuals = list.filter(r => r && r.name && r.name.indexOf('Final Report') === -1 && !this.isFailed(r) && r.timestamp)
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          // ORIGINAL Visual inspection = the OLDEST Visual/Invasive record.
+          // Visual records carry the bare project name; anything with 'Final'
+          // in it (Final Report, Final Repairs Inspection) is NOT the original
+          // (David, Aug 21 - the last Final Inspection kept printing here).
+          const visuals = list.filter(r => r && r.name && r.name.indexOf('Final') === -1 && !this.isFailed(r) && r.timestamp)
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
           if (visuals.length) {
             const d = new Date(visuals[0].timestamp);
             if (!isNaN(d)) origDate = fmt(d);
@@ -2333,7 +2335,7 @@ createApp({
           if (blob && blob.type && blob.type.indexOf('pdf') !== -1 && blob.size > 1000) {
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = (this.formEd.label || 'Final Report') + '.pdf';
+            a.download = ((this.current && this.current.name) ? this.current.name + ' - ' : '') + (this.formEd.label || 'Final Report') + '.pdf';
             document.body.appendChild(a); a.click();
             setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
             this.toast('PDF saved.');
@@ -2468,7 +2470,9 @@ createApp({
         const blob = await res.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = this.formEd.label + ' - completed.' + (this.formEd.ext || 'docx');
+        // File name includes the project so nothing has to be typed when
+        // saving or attaching (David, Aug 21).
+        a.download = ((this.current && this.current.name) ? this.current.name + ' - ' : '') + this.formEd.label + '.' + (this.formEd.ext || 'docx');
         document.body.appendChild(a); a.click();
         setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
         this.toast('Completed Word document downloaded.');
