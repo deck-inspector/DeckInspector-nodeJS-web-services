@@ -2160,7 +2160,11 @@ createApp({
       // project's own creation date, which is when the original inspection
       // was set up (David, Aug 21 - the date must always prepopulate).
       if (!origDate && this.current) {
-        const raw = this.current.createdat || this.current.createdAt || this.current.editedat;
+        // Only the project's creation date is a trustworthy stand-in for the
+        // original inspection - editedat moves every time anyone touches the
+        // project and printed a wrong date (David, Aug 21). If neither date
+        // exists the field stays blank for manual entry.
+        const raw = this.current.createdat || this.current.createdAt;
         if (raw) { const d = new Date(raw); if (!isNaN(d)) origDate = fmt(d); }
       }
       this.formEd.origDate = origDate;
