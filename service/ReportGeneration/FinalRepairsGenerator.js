@@ -176,11 +176,22 @@ class FinalRepairsGenerator {
   async fetchImage(url) {
     try {
       const resp = await axios.get(url, { responseType: "arraybuffer", timeout: 20000 });
-      const ext = (url.split("?")[0].match(/\.(png|jpe?g|gif)$/i) || [])[1] || "jpg";
+      const buf = Buffer.from(resp.data);
+      // Word rejects the WHOLE document ("unreadable content") when an image
+      // part's bytes do not match its declared type - phone uploads routinely
+      // carry .jpg names over HEIC/PNG bytes. Trust the BYTES, never the URL.
+      let ext = null;
+      if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) ext = ".jpg";
+      else if (buf.length > 7 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) ext = ".png";
+      else if (buf.length > 2 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) ext = ".gif";
+      if (!ext) {
+        console.log("FinalRepairs: skipping photo with unsupported bytes (not jpeg/png/gif):", url.slice(-60));
+        return null; // template renders nothing for this photo
+      }
       return {
         width: 12, height: 9, // cm
-        data: Buffer.from(resp.data),
-        extension: "." + ext.toLowerCase().replace("jpeg", "jpg"),
+        data: buf,
+        extension: ext,
       };
     } catch (e) {
       console.log("FinalRepairs: image fetch failed", url, e.message);
