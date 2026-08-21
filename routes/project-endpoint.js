@@ -1030,8 +1030,13 @@ async function buildFilledClientForm(req) {
         try {
           const a = await FinalRepairsGenerator.annexData(String(req.body.projectId));
           if (a.hadFinalInspection && a.data.locations.length) {
-            const rm = await getClientFormMaster(CLIENT_FORMS.finalrepairsmaster);
-            if (rm) { annex = a; masterBuf = rm; }
+            let rm = await getClientFormMaster(CLIENT_FORMS.finalrepairsmaster);
+            if (rm) {
+              // Defensive: an uploaded master with duplicate control ids would
+              // make Word reject every client report - repair it on load.
+              try { rm = FinalRepairsGenerator.dedupeControlIds(rm); } catch (e) { /* use as-is */ }
+              annex = a; masterBuf = rm;
+            }
             else console.error('Final Repairs master missing - plain form generated instead');
           }
         } catch (adErr) { console.error('Final Repairs annex data failed (plain form generated):', adErr && adErr.message); }
