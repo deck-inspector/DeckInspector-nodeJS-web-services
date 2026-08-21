@@ -1147,6 +1147,15 @@ async function buildFilledClientForm(req) {
       if (annex) {
         try {
           outBuf = await FinalRepairsGenerator.renderRepairsMaster(outBuf, annex);
+          // The repairs master is a plain .docx. Serving those bytes under the
+          // form's macro-enabled .docm name/type makes Word refuse the file
+          // outright ("unreadable content") - the extension MUST match the
+          // package (David, Aug 21, Virginia Gardens).
+          return {
+            outBuf, form,
+            ext: 'docx',
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          };
         } catch (renderErr) {
           console.error('Final Repairs master render failed - regenerating plain form:', renderErr && renderErr.message);
           const retryReq = { body: Object.assign({}, req.body, { includeAnnex: false }), user: req.user };
@@ -1154,7 +1163,7 @@ async function buildFilledClientForm(req) {
         }
       }
 
-      return { outBuf, form };
+      return { outBuf, form, ext: form.ext, contentType: form.contentType };
 }
 
 // Floating-anchor branding for the client blank forms. The images are anchored
@@ -1277,9 +1286,9 @@ async function convertDocxToPdf(buf, filename) {
 router.route('/clientformfill')
   .post(async function (req, res) {
     try {
-      const { outBuf, form } = await buildFilledClientForm(req);
-      res.setHeader('Content-Type', form.contentType);
-      res.setHeader('Content-Disposition', `attachment; filename="${form.label} - completed.${form.ext}"`);
+      const { outBuf, form, ext, contentType } = await buildFilledClientForm(req);
+      res.setHeader('Content-Type', contentType || form.contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${form.label} - completed.${ext || form.ext}"`);
       return res.send(outBuf);
     } catch (err) {
       if (err && err.status) return res.status(err.status).json({ message: err.message });
