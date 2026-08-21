@@ -2471,8 +2471,11 @@ createApp({
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         // File name includes the project so nothing has to be typed when
-        // saving or attaching (David, Aug 21).
-        a.download = ((this.current && this.current.name) ? this.current.name + ' - ' : '') + this.formEd.label + '.' + (this.formEd.ext || 'docx');
+        // saving or attaching (David, Aug 21). The EXTENSION must match what
+        // the server actually built: a Final-Inspection report is a plain
+        // .docx (repairs master) - naming it .docm makes Word refuse it.
+        const isDocm = (blob.type || '').indexOf('macroEnabled') !== -1;
+        a.download = ((this.current && this.current.name) ? this.current.name + ' - ' : '') + this.formEd.label + '.' + (isDocm ? 'docm' : 'docx');
         document.body.appendChild(a); a.click();
         setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
         this.toast('Completed Word document downloaded.');
