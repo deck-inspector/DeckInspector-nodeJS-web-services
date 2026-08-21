@@ -299,6 +299,41 @@ class FinalRepairsGenerator {
     };
   }
 
+  // ---- defensive hardening (David, Aug 21: Word "unreadable content") ----
+  // An admin-uploaded master can arrive with defects Word refuses: duplicate
+  // content-control ids (Word hard-fails), or a zip written by ordinary tools
+  // (directory entries / [Content_Types].xml not first - Word's OPC reader
+  // rejects both). These run on every generation so a bad upload can never
+  // corrupt client reports again.
+  dedupeControlIds(buf) {
+    const PizZip = require("pizzip");
+    const zip = new PizZip(buf);
+    let xml = zip.file("word/document.xml").asText();
+    const seen = new Set();
+    let removed = 0;
+    xml = xml.replace(/<w:id w:val="(-?\d+)"\/>/g, (m, id) => {
+      if (seen.has(id)) { removed++; return ""; }
+      seen.add(id);
+      return m;
+    });
+    if (!removed) return buf;
+    console.log("FinalRepairs: removed", removed, "duplicate control ids from the master");
+    zip.file("word/document.xml", xml);
+    return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+  }
+
+  normalizePackage(buf) {
+    const PizZip = require("pizzip");
+    const zin = new PizZip(buf);
+    const names = Object.keys(zin.files).filter((n) => !zin.files[n].dir);
+    const order = ["[Content_Types].xml", "_rels/.rels"];
+    const sorted = order.filter((n) => names.indexOf(n) !== -1)
+      .concat(names.filter((n) => order.indexOf(n) === -1));
+    const zout = new PizZip();
+    for (const n of sorted) zout.file(n, zin.file(n).asUint8Array());
+    return zout.generate({ type: "nodebuffer", compression: "DEFLATE" });
+  }
+
   // Set an editable checkbox content control (by its w:tag) checked/unchecked.
   setCheckbox(xml, tag, checked) {
     const ti = xml.indexOf('<w:tag w:val="' + tag + '"/>');
@@ -379,7 +414,7 @@ class FinalRepairsGenerator {
       }
     }
     zip.file("word/document.xml", xml);
-    return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+    return this.normalizePackage(zip.generate({ type: "nodebuffer", compression: "DEFLATE" }));
   }
 
   // Returns the blob URL of the generated report. Throws on failure so the
