@@ -1081,7 +1081,7 @@ input,select{font-family:inherit;font-size:16px}
       <!-- Proposal-style: left side menu edits the fields, right pane shows the
            real branded Word document (verbatim) and updates as you edit. -->
       <template v-if="formEd.mode==='sidedoc'">
-        <div class="hint" style="margin:4px 0 12px">Edit the fields on the left — the document on the right is your actual Word file and updates as you type. Your entries <b>auto-save</b> in this browser. <b>Download Word</b> gives you the exact file; <b>Save PDF</b> downloads a PDF (no printing needed).<span v-if="formEd.saved" style="color:#00B050;font-weight:700;margin-left:8px">&#10003; Auto-saved</span></div>
+        <div class="hint" style="margin:4px 0 12px">Edit the fields on the left — the document on the right is your actual Word file and updates as you type. <b>Save</b> keeps your entries for this project; <b>Download Word</b> gives you the exact file (use Word&#8217;s Save&nbsp;as&nbsp;PDF for a PDF copy).<span v-if="formEd.saved" style="color:#00B050;font-weight:700;margin-left:8px">&#10003; Auto-saved</span></div>
         <div v-if="formEd.loading" class="empty" style="padding:40px 0">Loading the form&hellip;</div>
         <div v-else class="fc-wrap">
           <div class="fc-side">
@@ -1125,7 +1125,10 @@ input,select{font-family:inherit;font-size:16px}
       <div class="mrow" style="position:sticky;bottom:0;background:#fff;padding-top:12px;border-top:1px solid var(--line);margin-top:16px;z-index:2">
         <button class="btn-cancel" @click="formEd.open=false">Close</button>
         <button class="btn btn-primary" style="padding:12px 20px" :disabled="formEd.busy" @click="downloadFilledWord">{{ formEd.busy && formEd.busyKind==='word' ? 'Building&hellip;' : '⬇ Download Word' }}</button>
-        <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="fcSavePdf">{{ formEd.busy && formEd.busyKind==='pdf' ? 'Saving PDF&hellip;' : '⬇ Save PDF' }}</button>
+        <!-- Save PDF removed (David, Aug 21): the LibreOffice PDF conversion
+             misaligned the report. Word is the exact file; a plain Save keeps
+             the entries without downloading anything. -->
+        <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" @click="fcSaveNow">&#128190; Save</button>
         <button v-else class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="printFilledForm">🖨 Save / Print PDF</button>
       </div>
     </div>
@@ -2152,7 +2155,14 @@ createApp({
             if (!isNaN(d)) origDate = fmt(d);
           }
         }
-      } catch (e) { /* leave original date blank if none */ }
+      } catch (e) { /* fall through to the project's own date below */ }
+      // No Visual report record (older projects) -> fall back to the
+      // project's own creation date, which is when the original inspection
+      // was set up (David, Aug 21 - the date must always prepopulate).
+      if (!origDate && this.current) {
+        const raw = this.current.createdat || this.current.createdAt || this.current.editedat;
+        if (raw) { const d = new Date(raw); if (!isNaN(d)) origDate = fmt(d); }
+      }
       this.formEd.origDate = origDate;
       // Default the report header to "FINAL REPORT UPON COMPLETION".
       if (this.formEd.controls[FC_REPORT_TITLE_REF]) setVal(FC_REPORT_TITLE_REF, FC_REPORT_TITLE_DEFAULT);
@@ -2281,13 +2291,21 @@ createApp({
         this.formEd.saved = true;
       } catch (e) { /* storage unavailable — ignore */ }
     },
+    // Explicit Save (David, Aug 21): same store the auto-save uses, with a
+    // visible confirmation - no download attached.
+    fcSaveNow() {
+      this.fcAutoSave();
+      this.toast(this.formEd.saved ? 'Saved — your entries are kept for this project.' : 'Could not save in this browser.', this.formEd.saved ? undefined : 'err');
+    },
     fcRestore() {
       try {
         const key = this.fcStoreKey(); if (!key) return false;
         const raw = localStorage.getItem(key); if (!raw) return false;
         const d = JSON.parse(raw);
         if (d && d.values) for (const k of Object.keys(d.values)) this.formEd.values[k] = d.values[k];
-        if (d && typeof d.origDate === 'string') this.formEd.origDate = d.origDate;
+        // Only restore a REAL saved date - an empty one must not wipe the
+        // auto-filled original Visual inspection date (David, Aug 21).
+        if (d && typeof d.origDate === 'string' && d.origDate.trim()) this.formEd.origDate = d.origDate;
         if (d && d.custom) this.formEd.custom = d.custom;
         this.formEd.saved = true;
         return true;
