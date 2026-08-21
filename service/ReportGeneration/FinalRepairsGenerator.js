@@ -369,7 +369,14 @@ class FinalRepairsGenerator {
       const tE = xml.indexOf("</w:tbl>", qi) + "</w:tbl>".length;
       const pS = Math.max(xml.lastIndexOf("<w:p>", mi), xml.lastIndexOf("<w:p ", mi));
       const pE = xml.indexOf("</w:p>", mi) + "</w:p>".length;
-      if (tS !== -1 && pS > tE) xml = xml.slice(0, pS) + xml.slice(tS, tE) + "<w:p/>" + xml.slice(pE);
+      if (tS !== -1 && pS > tE) {
+        // The copy must NOT reuse the originals' content-control ids -
+        // duplicate sdt ids make Word report "unreadable content" (David,
+        // Aug 21). Dropping w:id from the copy keeps the dropdown values
+        // and lets Word assign fresh ids on open.
+        const sigCopy = xml.slice(tS, tE).replace(/<w:id w:val="-?\d+"\/>/g, "");
+        xml = xml.slice(0, pS) + sigCopy + "<w:p/>" + xml.slice(pE);
+      }
     }
     zip.file("word/document.xml", xml);
     return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
