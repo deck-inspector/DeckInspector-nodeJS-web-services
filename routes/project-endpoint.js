@@ -1217,7 +1217,8 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   if (logoUrl) {
     try {
       const img = await fetchImage(logoUrl);
-      const cy = Math.round(0.75 * EMU);
+      // 0.75in scaled up 15% (David, Aug 21 - logo printed too small)
+      const cy = Math.round(0.8625 * EMU);
       const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
       zip.file('word/media/tenantlogo.' + img.ext, img.buf);
       FinalReportGenerator.ensureContentType(zip, img.ext);
@@ -1241,7 +1242,8 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
     if (footImgUrl) {
       try {
         const img = await fetchImage(footImgUrl);
-        const cy = Math.round(0.5 * EMU);
+        // 0.5in scaled up 15% (David, Aug 21 - footer badge printed too small)
+        const cy = Math.round(0.575 * EMU);
         const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
         zip.file('word/media/tenantfooter.' + img.ext, img.buf);
         FinalReportGenerator.ensureContentType(zip, img.ext);
