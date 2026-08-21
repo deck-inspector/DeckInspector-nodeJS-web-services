@@ -819,6 +819,17 @@ const CLIENT_FORMS = {
     ext: 'docx',
     contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   },
+  // Master used to GENERATE the integrated Final Report on Final-Inspection
+  // projects (one master for ALL clients; each tenant's own logo/footer and
+  // company name go in at generation time). Managed in the E3 Multi-Tennant
+  // Dashboard; internal - never offered as a fill-online form.
+  finalrepairsmaster: {
+    file: 'Deck_FinalRepairsMaster.docx',
+    label: 'Master Final Inspection Upon Completion of Repairs',
+    ext: 'docx',
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    internal: true,
+  },
 };
 
 // Resolve a form master: blob storage first (durable across code deploys),
@@ -841,6 +852,7 @@ router.route('/clientforms')
       const out = [];
       for (const key of Object.keys(CLIENT_FORMS)) {
         const form = CLIENT_FORMS[key];
+        if (form.internal) continue; // generation masters are not fill-online forms
         const buf = await getClientFormMaster(form);
         if (buf) out.push({ key, label: form.label, ext: form.ext });
       }
@@ -1004,9 +1016,30 @@ async function buildFilledClientForm(req) {
       const master = await getClientFormMaster(form);
       if (!master) throw { status: 404, message: 'That form has not been set up yet.' };
 
+      // FINAL INSPECTION AFTER REPAIRS (David, Aug 19-21 2026): a project that
+      // went through a Final Inspection generates from the admin-managed
+      // "Master Final Inspection Upon Completion of Repairs"
+      // (Deck_FinalRepairsMaster.docx - one master for ALL clients, replaced
+      // any time in the E3 Multi-Tennant Dashboard). The same web-form values
+      // fill it (the control ids match), then the annex loops render one
+      // page-set per BAD location. Missing master or no final-inspection
+      // footprint -> the plain form generates exactly as before.
+      let annex = null;
+      let masterBuf = master;
+      if (key === 'finalcompletion' && req.body && req.body.projectId && req.body.includeAnnex) {
+        try {
+          const a = await FinalRepairsGenerator.annexData(String(req.body.projectId));
+          if (a.hadFinalInspection && a.data.locations.length) {
+            const rm = await getClientFormMaster(CLIENT_FORMS.finalrepairsmaster);
+            if (rm) { annex = a; masterBuf = rm; }
+            else console.error('Final Repairs master missing - plain form generated instead');
+          }
+        } catch (adErr) { console.error('Final Repairs annex data failed (plain form generated):', adErr && adErr.message); }
+      }
+
       const PizZip = require('pizzip');
       const engine = require('../service/clientFormEngine');
-      const zip = new PizZip(master);
+      const zip = new PizZip(masterBuf);
       let xml = zip.file('word/document.xml').asText();
 
       // PRESENTATION RULE (David, Aug 14, definitive): the report must look
@@ -1014,9 +1047,12 @@ async function buildFilledClientForm(req) {
       // header, admin badge + Footer Text footer, same 0.25in header/footer
       // clearances - with each SECTION starting at the top of its page. The
       // master supplies the content/tables; the system supplies the Visual
-      // presentation.
-      xml = xml.replace(/(<w:pgMar[^>]*?\bw:header=")\d+(")/g, '$1360$2');
-      xml = xml.replace(/(<w:pgMar[^>]*?\bw:footer=")\d+(")/g, '$1360$2');
+      // presentation. EXCEPTION: the repairs master keeps its own designed
+      // 0.75in header/footer clearances (David, Aug 19).
+      if (!annex) {
+        xml = xml.replace(/(<w:pgMar[^>]*?\bw:header=")\d+(")/g, '$1360$2');
+        xml = xml.replace(/(<w:pgMar[^>]*?\bw:footer=")\d+(")/g, '$1360$2');
+      }
 
       // Text / dropdown / combo values.
       xml = engine.fillTextControls(xml, values || {});
@@ -1095,7 +1131,24 @@ async function buildFilledClientForm(req) {
         console.error('Client form fill branding failed (continuing):', brandErr && brandErr.message);
       }
 
-      const outBuf = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+      let outBuf = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+
+      // Render the repairs master's annex loops: per-location findings and
+      // photos, PASS/FAIL, editable confirmation checkboxes, the report's own
+      // signature block on the confirmation page. Branding above already
+      // stamped this tenant's Multi-Tennant header/footer and docx-templates
+      // preserves those parts. Any failure regenerates the PLAIN form so the
+      // download never breaks or ships raw template commands.
+      if (annex) {
+        try {
+          outBuf = await FinalRepairsGenerator.renderRepairsMaster(outBuf, annex);
+        } catch (renderErr) {
+          console.error('Final Repairs master render failed - regenerating plain form:', renderErr && renderErr.message);
+          const retryReq = { body: Object.assign({}, req.body, { includeAnnex: false }), user: req.user };
+          return buildFilledClientForm(retryReq);
+        }
+      }
+
       return { outBuf, form };
 }
 
