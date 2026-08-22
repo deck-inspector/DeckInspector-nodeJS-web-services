@@ -809,7 +809,7 @@ router.route('/replaceproposaltemplate')
 const CLIENT_FORMS = {
   finalcompletion: {
     file: 'Deck_FinalCompletionTemplate.docm',
-    label: 'Final Report Upon Completion',
+    label: 'Final Report Upon Visual, Owner Supplied Photos',
     ext: 'docm',
     contentType: 'application/vnd.ms-word.document.macroEnabled.12',
   },
@@ -825,7 +825,7 @@ const CLIENT_FORMS = {
   // Dashboard; internal - never offered as a fill-online form.
   finalrepairsmaster: {
     file: 'Deck_FinalRepairsMaster.docx',
-    label: 'Master Final Inspection Upon Completion of Repairs',
+    label: 'Master Final Upon Repairs, Onsite Visit',
     ext: 'docx',
     contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     internal: true,
@@ -854,8 +854,17 @@ router.route('/clientforms')
         const form = CLIENT_FORMS[key];
         if (form.internal) continue; // generation masters are not fill-online forms
         const buf = await getClientFormMaster(form);
-        if (buf) out.push({ key, label: form.label, ext: form.ext });
+        if (buf) out.push({ id: key, key, label: form.label, ext: form.ext });
       }
+      // Both final-report flavours are offered (David, Aug 22): often no
+      // on-site visit happens and only the Owner-Supplied-Photos form is
+      // used - so the ONSITE (repairs-master) report is its own entry. It
+      // reuses the finalcompletion form's values; includeAnnex makes the
+      // server generate from the repairs master.
+      try {
+        const rm = await getClientFormMaster(CLIENT_FORMS.finalrepairsmaster);
+        if (rm) out.push({ id: 'finalrepairs', key: 'finalcompletion', label: 'Final Report Upon Repairs, Onsite Visit', ext: 'docx', annex: true });
+      } catch (e) { /* repairs master unavailable - entry simply not offered */ }
       return res.status(200).json({ forms: out });
     } catch (err) {
       console.error('Error listing client forms:', err && err.message);
@@ -900,6 +909,44 @@ router.route('/clientform')
     }
   });
 
+// Admin site: per-slot upload status for the Client Forms widget - when each
+// master was last uploaded and what the uploaded file was called (David,
+// Aug 22). Falls back to the repo copy's ship date when nothing was ever
+// uploaded to blob.
+router.route('/clientformsstatus')
+  .get(async function (req, res) {
+    try {
+      const out = [];
+      for (const key of Object.keys(CLIENT_FORMS)) {
+        const form = CLIENT_FORMS[key];
+        const entry = { key, label: form.label, ext: form.ext, uploadedAt: null, fileName: null, source: 'none' };
+        try {
+          const props = await uploadBlob.getBlobProperties(form.file, 'projectreports');
+          if (props) {
+            const md = props.metadata || {};
+            entry.source = 'uploaded';
+            entry.uploadedAt = md.uploadedat || md.uploadedAt || (props.lastModified ? new Date(props.lastModified).toISOString() : null);
+            const rawName = md.originalname || md.originalName || '';
+            if (rawName) { try { entry.fileName = decodeURIComponent(rawName); } catch (e) { entry.fileName = rawName; } }
+          }
+        } catch (e) { /* fall through to repo copy */ }
+        if (entry.source === 'none') {
+          const absolute = path.join(__dirname, '..', form.file);
+          if (fs.existsSync(absolute)) {
+            entry.source = 'built-in';
+            try { entry.uploadedAt = fs.statSync(absolute).mtime.toISOString(); } catch (e) { /* leave null */ }
+            entry.fileName = form.file;
+          }
+        }
+        out.push(entry);
+      }
+      return res.status(200).json({ forms: out });
+    } catch (err) {
+      console.error('Error reading client form status:', err && err.message);
+      return res.status(500).json({ message: 'Could not read form status.' });
+    }
+  });
+
 // Admin site: upload/replace a client form master (one master for all clients,
 // like the Final Report master). formKey identifies which form.
 router.route('/replaceclientform')
@@ -927,7 +974,12 @@ router.route('/replaceclientform')
       fs.renameSync(uploadedFile.path, filePath);
       try {
         const blobResult = await uploadBlob.uploadFile('projectreports', form.file, filePath, {
-          metadata: { kind: 'clientform', formKey: key, uploadedAt: new Date().toISOString() }
+          metadata: {
+            kind: 'clientform', formKey: key, uploadedAt: new Date().toISOString(),
+            // Blob metadata must be header-safe ASCII - encode the name and
+            // decode it in /clientformsstatus.
+            originalname: encodeURIComponent(String(uploadedFile.originalname || '')).slice(0, 512),
+          }
         });
         console.log('Client form master persisted to blob:', form.file, blobResult);
       } catch (blobErr) {
