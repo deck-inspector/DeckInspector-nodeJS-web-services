@@ -360,14 +360,24 @@ router.route("/:id/reportlogosize").post(async function (req, res) {
   try {
     var errResponse;
     const tenantId = req.params.id;
-    const clamp = (v, lo, hi, dflt) => {
+    // No bounds by design (David, Aug 22): the admin decides every size.
+    // Each of the three sections carries independent width and height; a
+    // dimension left blank (null/0) means automatic.
+    const dim = (v) => {
       const n = Number(v);
-      if (!isFinite(n) || n <= 0) return dflt;
-      return Math.min(hi, Math.max(lo, n));
+      return isFinite(n) && n > 0 ? n : null;
     };
+    const b = req.body || {};
+    const sec = (o) => ({ w: dim(o && o.w), h: dim(o && o.h) });
     const sizes = {
-      headerIn: clamp(req.body && req.body.headerIn, 0.3, 2.0, 0.75),
-      footerIn: clamp(req.body && req.body.footerIn, 0.25, 1.5, 0.5),
+      brandSizes: {
+        website: sec(b.website),  // pixels on the web site
+        header: sec(b.header),    // inches on printed reports
+        footer: sec(b.footer),    // inches on printed reports
+      },
+      // legacy height-only fields (kept for older callers)
+      headerIn: dim(b.headerIn) || dim(b.header && b.header.h) || 0.75,
+      footerIn: dim(b.footerIn) || dim(b.footer && b.footer.h) || 0.5,
     };
     var result = await TenantService.updateReportLogoSizes(tenantId, sizes);
     if (result.reason) {

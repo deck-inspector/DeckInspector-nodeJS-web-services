@@ -1256,11 +1256,28 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   if (!tenant) return;
   const EMU = 914400;
   // Per-tenant logo sizing set in the Multi-Tennant admin (David, Aug 22):
-  // clients with square/round logos can be printed larger. Defaults match the
-  // Visual report's classic 0.75in header / 0.5in footer.
-  const sizes = tenant.reportLogoSizes || {};
-  const headerIn = Number(sizes.headerIn) > 0 ? Math.min(2.0, Math.max(0.3, Number(sizes.headerIn))) : 0.75;
-  const footerIn = Number(sizes.footerIn) > 0 ? Math.min(1.5, Math.max(0.25, Number(sizes.footerIn))) : 0.5;
+  // independent width/height per section, no limits. A blank dimension is
+  // automatic (aspect ratio); nothing set = the classic 0.75in / 0.5in.
+  const legacy = tenant.reportLogoSizes || {};
+  const bs = tenant.brandSizes || {};
+  const boxFor = (sec, legacyH, dfltH) => {
+    const w = sec && Number(sec.w) > 0 ? Number(sec.w) : null;
+    const h = sec && Number(sec.h) > 0 ? Number(sec.h) : null;
+    if (w || h) return { w, h };
+    const lh = Number(legacyH) > 0 ? Number(legacyH) : dfltH;
+    return { w: null, h: lh };
+  };
+  const headerBox = boxFor(bs.header, legacy.headerIn, 0.75);
+  const footerBox = boxFor(bs.footer, legacy.footerIn, 0.5);
+  // cx/cy from a box + image dims: both set = exact box; one set = other
+  // follows the image's aspect ratio.
+  const emuBox = (box, dims) => {
+    const ar = Math.max(1, dims.w) / Math.max(1, dims.h);
+    let wIn = box.w, hIn = box.h;
+    if (wIn && !hIn) hIn = wIn / ar;
+    if (hIn && !wIn) wIn = hIn * ar;
+    return { cx: Math.max(1, Math.round(wIn * EMU)), cy: Math.max(1, Math.round(hIn * EMU)) };
+  };
 
   // VISUAL-REPORT STYLE BRANDING (David, Aug 14: "The attached [Visual Report]
   // is the correct logo header and footer... This is what must occur on the
@@ -1300,10 +1317,8 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   if (logoUrl) {
     try {
       const img = await fetchImage(logoUrl);
-      // MATCH THE VISUAL REPORT (David, Aug 22, Leimert reference), scaled by
-      // the tenant's admin-set logo size (default 0.75in tall, width by aspect).
-      const cy = Math.round(headerIn * EMU);
-      const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
+      // Admin-set header box (default 0.75in tall, width by aspect).
+      const { cx, cy } = emuBox(headerBox, img.dims);
       zip.file('word/media/tenantlogo.' + img.ext, img.buf);
       FinalReportGenerator.ensureContentType(zip, img.ext);
       const rel = '<Relationship Id="rIdTenantLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantlogo.' + img.ext + '"/>';
@@ -1326,10 +1341,8 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
     if (footImgUrl) {
       try {
         const img = await fetchImage(footImgUrl);
-        // MATCH THE VISUAL REPORT (David, Aug 22, Leimert reference), scaled
-        // by the tenant's admin-set footer size (default 0.5in tall).
-        const cy = Math.round(footerIn * EMU);
-        const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
+        // Admin-set footer box (default 0.5in tall, width by aspect).
+        const { cx, cy } = emuBox(footerBox, img.dims);
         zip.file('word/media/tenantfooter.' + img.ext, img.buf);
         FinalReportGenerator.ensureContentType(zip, img.ext);
         frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + img.ext + '"/>';
