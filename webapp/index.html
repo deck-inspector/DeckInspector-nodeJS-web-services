@@ -358,7 +358,7 @@ input,select{font-family:inherit;font-size:16px}
         <button class="btn-ghost" :class="{navon: view==='users'}" @click="openUsers">&#128100; Users</button>
       </nav>
       <div class="spacer"></div>
-      <img v-if="logo" :src="logo" :alt="(user && user.companyIdentifier) || 'Company logo'" style="height:38px;margin-right:4px">
+      <img v-if="logo" :src="logo" :alt="(user && user.companyIdentifier) || 'Company logo'" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
       <div class="userchip">
         <div class="avatar">{{ initials }}</div>
         <span>{{ user.first_name || user.username }}</span>
@@ -1459,7 +1459,7 @@ createApp({
       // panel), loaded after sign-in. It must never default to another
       // company's branding - clients like West Coast Deck Inspections are
       // separate companies from Deck Inspectors.
-      logo: '', logoE3: LOGO_E3,
+      logo: '', logoW: 0, logoH: 0, logoE3: LOGO_E3,
       user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
@@ -3866,7 +3866,13 @@ createApp({
         if (!res.ok) { this.logo = ''; return; }
         const j = await res.json();
         const t = j.Tenant || j.tenant || j;
-        this.logo = (t && ((t.icons && t.icons.header) || t.logo)) || '';
+        // Website display uses the admin's "Logo for Website Display" slot
+        // (falls back to the Report Header image, then legacy logo). The
+        // admin can also set its on-screen width/height in pixels.
+        this.logo = (t && ((t.icons && (t.icons.logoUrl || t.icons.header)) || t.logo)) || '';
+        const wb = (t && t.brandSizes && t.brandSizes.website) || {};
+        this.logoW = Number(wb.w) > 0 ? Number(wb.w) : 0;
+        this.logoH = Number(wb.h) > 0 ? Number(wb.h) : 0;
         this.tenantId = (t && (t.id || t._id)) || '';
         this.brandInfo = t ? { name: t.name || '', phone: t.phone || '', website: t.website || '', footerText: t.footerText || '', signature: t.signature || null } : {};
       } catch (e) { this.logo = ''; }
