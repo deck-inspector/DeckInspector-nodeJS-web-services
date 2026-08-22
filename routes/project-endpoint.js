@@ -1387,8 +1387,41 @@ router.route('/clientformfill')
   .post(async function (req, res) {
     try {
       const { outBuf, form, ext, contentType } = await buildFilledClientForm(req);
+      const fileExt = ext || form.ext;
+
+      // DELIVER AS A URL (David, Aug 22). Building the file inside this POST
+      // and handing back bytes forces the browser to save a blob minutes after
+      // the click - Chrome classes that as an "automatic download" and demands
+      // the site permission, which is why THIS report was the only one that
+      // would not download while the Visual report (a plain link to a stored
+      // file) always worked. Store the finished file and return its URL so the
+      // web app can download it exactly the way the Visual report does.
+      if (req.body && req.body.deliver === 'url') {
+        const os = require('os');
+        const stamp = Date.now();
+        const base = String(req.body.fileName || form.label || 'Report')
+          .replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim() || 'Report';
+        const blobName = base + ' ' + stamp + '.' + fileExt;
+        const tmpPath = path.join(os.tmpdir(), 'clientform_' + stamp + '.' + fileExt);
+        fs.writeFileSync(tmpPath, outBuf);
+        try {
+          const result = await uploadBlob.uploadFile('projectreports', blobName, tmpPath, {
+            metadata: { kind: 'clientformfill', formKey: String(req.body.key || '') },
+          });
+          const parsed = JSON.parse(result);
+          if (!parsed || !parsed.url) throw new Error('upload returned no url');
+          return res.status(200).json({ url: parsed.url, fileName: base + '.' + fileExt });
+        } catch (upErr) {
+          // Storage hiccup: fall through and send the bytes as before rather
+          // than failing the download outright.
+          console.error('clientformfill URL delivery failed, sending bytes instead:', upErr && upErr.message);
+        } finally {
+          try { fs.unlinkSync(tmpPath); } catch (e) { /* temp cleanup only */ }
+        }
+      }
+
       res.setHeader('Content-Type', contentType || form.contentType);
-      res.setHeader('Content-Disposition', `attachment; filename="${form.label} - completed.${ext || form.ext}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${form.label} - completed.${fileExt}"`);
       return res.send(outBuf);
     } catch (err) {
       if (err && err.status) return res.status(err.status).json({ message: err.message });
