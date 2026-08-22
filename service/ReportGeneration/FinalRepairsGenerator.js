@@ -223,8 +223,14 @@ class FinalRepairsGenerator {
   // ------------------------------------------------------------------
 
   chunk4(arr) {
+    // Cap at 8 photos per section - more than that overflows the page
+    // (David, Aug 22: "We will cap a maximum of 8 images per section").
+    const capped = arr.slice(0, 8);
+    if (arr.length > capped.length) {
+      console.log("FinalRepairs: photo cap - rendering 8 of " + arr.length + " photos");
+    }
     const out = [];
-    for (let i = 0; i < arr.length; i += 4) out.push({ ph: arr.slice(i, i + 4) });
+    for (let i = 0; i < capped.length; i += 4) out.push({ ph: capped.slice(i, i + 4) });
     return out;
   }
 
@@ -255,6 +261,35 @@ class FinalRepairsGenerator {
     const out = {};
     for (const key of Object.keys(cats)) out[key] = cats[key].test(allAnswerText);
     return out;
+  }
+
+  // Auto-built "Additional Comments" narrative, matching the corrected
+  // sample's wording (David, Aug 22): one sentence per location - what was
+  // repaired, the issues, and whether repairs passed - so the comments box
+  // is never a mostly-empty gap.
+  narrativeFor(locations, inspDate) {
+    const parts = ["Final Repairs Inspection performed " + inspDate + " (on-site visual review)."];
+    for (const l of (locations || [])) {
+      const find = (re) => {
+        const hit = (l.answers || []).find((a) => re.test(a.q));
+        return hit ? String(hit.a).trim() : "";
+      };
+      let area = find(/location in need of repair/i)
+        || (l.badSections || []).map((s) => s.name).filter(Boolean).join(", ")
+        || "identified areas";
+      area = (area.charAt(0).toLowerCase() + area.slice(1)).replace(/\s*;\s*/g, ", ");
+      const issues = find(/issues? in need of repair/i).replace(/\s*;\s*/g, ", ");
+      const scope = area + " repairs" + (issues ? " (" + issues + ")" : "");
+      if (l.passText === "PASS") {
+        parts.push(l.num + ": " + scope + " completed and visually appear safe and operational.");
+      } else if (l.passText === "FAIL") {
+        parts.push(l.num + ": " + scope + " NOT completed - damage is visually observed; repairs remain necessary.");
+      } else {
+        parts.push(l.num + ": " + scope + " - repair inspection pending.");
+      }
+    }
+    parts.push("Original inspection performed by Deck Inspectors.");
+    return parts.join(" ");
   }
 
   async annexData(projectId) {
@@ -305,6 +340,7 @@ class FinalRepairsGenerator {
             ? "An Onsite Post-Repair Inspection has been completed by a qualified inspector. All locations previously identified in the Visual Report have been inspected, and all areas requiring repair have been repaired."
             : "An Onsite Post-Repair Inspection has been completed by a qualified inspector. All locations previously identified in the Visual Report have been inspected. Repairs remain outstanding at the location(s) marked FAIL in this annex.",
           date: today,
+          narrative: this.narrativeFor(locations, inspDate),
         },
       },
     };
