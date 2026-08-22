@@ -1129,6 +1129,7 @@ input,select{font-family:inherit;font-size:16px}
         <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:#1F7A33" @click="fcSaveNow">&#128190; Save</button>
         <button v-else class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="printFilledForm">🖨 Save / Print PDF</button>
         <button class="btn btn-primary" style="padding:12px 20px;background:var(--bg);color:var(--ink);border:1.5px solid var(--line)" :disabled="downloadingForm===formEd.key" @click="downloadClientForm({key: formEd.key, label: formEd.label, ext: formEd.ext})">&#11015; {{ downloadingForm===formEd.key ? 'Preparing&hellip;' : 'Download Blank' }}</button>
+        <a v-if="formEd.lastFileUrl" class="btn btn-primary" style="padding:12px 20px;background:#1F7A33;text-decoration:none;display:inline-flex;align-items:center" :href="formEd.lastFileUrl">&#11015; Download again</a>
       </div>
     </div>
   </div>
@@ -2182,7 +2183,7 @@ createApp({
       const mode = f.key === 'finalcompletion' ? 'sidedoc' : 'canvas';
       // annex:true = the "Onsite Visit" flavour - same form values, but the
       // server generates the integrated report from the repairs master.
-      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, annex: !!f.annex, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '', saved: false };
+      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, annex: !!f.annex, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '', saved: false, lastFileUrl: '' };
       try {
         const res = await this.api('/project/clientformlayout?key=' + encodeURIComponent(f.key));
         if (!res.ok) throw new Error('bad');
@@ -2475,14 +2476,34 @@ createApp({
     async downloadFilledWord() {
       this.formEd.busy = true; this.formEd.busyKind = 'word';
       try {
+        const wantName = ((this.current && this.current.name) ? this.current.name + ' - ' : '') + this.formEd.label;
         const res = await this.api('/project/clientformfill', {
           method: 'POST',
           // projectId + includeAnnex: Final-Inspection projects get the repairs
           // annex appended server-side (findings, photos, PASS/FAIL,
           // confirmation) with this tenant's Multi-Tennant branding throughout.
-          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex },
+          // deliver:'url' - the server stores the finished file and returns a
+          // link, so the browser downloads it the same way it downloads the
+          // Visual report. Handing back a blob minutes after the click made
+          // Chrome treat it as an "automatic download" and block it (David,
+          // Aug 22: this was the only report that would not download).
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex, deliver: 'url', fileName: wantName },
         });
         if (!res.ok) throw new Error('bad');
+        const ctype = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
+        if (ctype.indexOf('application/json') !== -1) {
+          const d = await res.json();
+          if (d && d.url) {
+            // Same route the Visual report's Download button uses: our API
+            // streams the stored file with the right name and an attachment
+            // header, so it is an ordinary download, never a blocked one.
+            const href = API + '/projectreports/downloadfile?u=' + encodeURIComponent(d.url) + '&n=' + encodeURIComponent(d.fileName || wantName);
+            this.formEd.lastFileUrl = href;      // keeps a real link on screen as a fallback
+            window.location.href = href;
+            this.toast('Report ready \u2014 downloading.');
+            return;
+          }
+        }
         const blob = await res.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
