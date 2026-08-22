@@ -354,6 +354,34 @@ router.route("/:id/increasecustomformcount/:count").post(async function (req, re
     return res.status(500).json(errResponse);
   }
 });
+// Per-tenant report logo sizing (inches). Body: { headerIn, footerIn }.
+// Clamped to sane print bounds; used by all report generators.
+router.route("/:id/reportlogosize").post(async function (req, res) {
+  try {
+    var errResponse;
+    const tenantId = req.params.id;
+    const clamp = (v, lo, hi, dflt) => {
+      const n = Number(v);
+      if (!isFinite(n) || n <= 0) return dflt;
+      return Math.min(hi, Math.max(lo, n));
+    };
+    const sizes = {
+      headerIn: clamp(req.body && req.body.headerIn, 0.3, 2.0, 0.75),
+      footerIn: clamp(req.body && req.body.footerIn, 0.25, 1.5, 0.5),
+    };
+    var result = await TenantService.updateReportLogoSizes(tenantId, sizes);
+    if (result.reason) {
+      return res.status(result.code).json(result);
+    }
+    if (result) {
+      return res.status(201).json(Object.assign({ sizes }, result));
+    }
+  } catch (exception) {
+    errResponse = new newErrorResponse(500, false, exception);
+    return res.status(500).json(errResponse);
+  }
+});
+
 router.route("/:id/upserticons").post(async function (req, res) {
   try {
     var errResponse;
