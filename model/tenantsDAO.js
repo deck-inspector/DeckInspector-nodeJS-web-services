@@ -237,6 +237,25 @@ module.exports = {
     }
   },
 
+  // Per-tenant report logo sizing (inches) - adjusted from the Multi-Tennant
+  // admin so clients with square/round logos can print larger or smaller
+  // (David, Aug 22). Applied by every report generator.
+  updateReportLogoSizes: async (id, sizes) => {
+    try {
+      const collection = await getTenantsCollection();
+      const doc = await collection.get(id);
+      doc.content.reportLogoSizes = {
+        headerIn: Number(sizes && sizes.headerIn) || 0.75,
+        footerIn: Number(sizes && sizes.footerIn) || 0.5,
+      };
+      await collection.upsert(id, doc.content);
+      return { ok: 1 };
+    } catch (error) {
+      console.error("Error updating report logo sizes:", error);
+      throw error;
+    }
+  },
+
   toggleShowFooterlogo: async (id, value) => {
     try {
       const collection = await getTenantsCollection();
