@@ -645,12 +645,6 @@ input,select{font-family:inherit;font-size:16px}
             <div class="spinner"></div>
             <div>Building your report — usually 1–3 minutes. The list below updates automatically; you can keep working.</div>
           </div>
-          <div v-if="clientForms.length" style="margin-top:12px">
-            <div v-for="f in clientForms" :key="f.key" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
-              <span style="min-width:230px;font-weight:700">&#128196; {{ f.label }}</span>
-              <button class="btn-dl" @click="openFormEditor(f)">&#9998; Open Form</button>
-            </div>
-          </div>
           <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
             <h3 style="margin:0 0 4px">Proposal</h3>
             <template v-if="reportProp">
@@ -661,10 +655,7 @@ input,select{font-family:inherit;font-size:16px}
                 <button class="btn-dl" @click="openReportProposal">&#9998; Open in Proposals</button>
               </div>
             </template>
-            <div v-else>
-              <div class="hint">No proposal is linked to this project yet. Create one here — it stays attached to <b>this</b> project (a recalled Final-Inspection project keeps its history; no duplicate project is created on accept).</div>
-              <div style="margin:8px 0"><button class="btn-dl" :disabled="propBusy" @click="newProposalForProject">&#65291; Create Proposal for this Project</button></div>
-            </div>
+            <div v-else class="hint">No proposal is linked to this project yet — proposals accepted under the <b>Proposals</b> button link here automatically.</div>
           </div>
           <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
             <h3 style="margin:0 0 4px">Email the Client (Outlook)</h3>
@@ -723,6 +714,15 @@ input,select{font-family:inherit;font-size:16px}
               </div>
               <div v-if="qbo.error" class="hint" style="color:#B00020">{{ qbo.error }}</div>
             </template>
+          </div>
+          <div v-if="clientForms.length" style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
+            <h3 style="margin:0 0 4px">Forms</h3>
+            <div class="hint">Fill these in online with your company branding, then download as Word or save/print as PDF — or download a blank copy to complete in Microsoft Word.</div>
+            <div v-for="f in clientForms" :key="f.key" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+              <span style="min-width:230px;font-weight:700">&#128196; {{ f.label }}</span>
+              <button class="btn-dl" @click="openFormEditor(f)">&#9998; Fill Online</button>
+              <button class="btn-dl" :disabled="downloadingForm===f.key" @click="downloadClientForm(f)">&#11015; {{ downloadingForm===f.key ? 'Preparing&hellip;' : 'Download Blank' }}</button>
+            </div>
           </div>
         </div>
 
@@ -1127,7 +1127,6 @@ input,select{font-family:inherit;font-size:16px}
         <button class="btn btn-primary" style="padding:12px 20px" :disabled="formEd.busy" @click="downloadFilledWord">{{ formEd.busy && formEd.busyKind==='word' ? 'Building&hellip;' : '⬇ Download Word' }}</button>
         <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="fcSavePdf">{{ formEd.busy && formEd.busyKind==='pdf' ? 'Saving PDF&hellip;' : '⬇ Save PDF' }}</button>
         <button v-if="formEd.mode==='sidedoc'" class="btn btn-primary" style="padding:12px 20px;background:#1F7A33" @click="fcSaveNow">&#128190; Save</button>
-        <button class="btn btn-primary" style="padding:12px 20px;background:var(--bg);color:var(--ink);border:1.5px solid var(--line)" :disabled="downloadingForm===formEd.key" @click="downloadClientForm({key: formEd.key, label: formEd.label, ext: formEd.ext})">&#11015; {{ downloadingForm===formEd.key ? 'Preparing&hellip;' : 'Download Blank' }}</button>
         <button v-else class="btn btn-primary" style="padding:12px 20px;background:var(--charcoal)" :disabled="formEd.busy" @click="printFilledForm">🖨 Save / Print PDF</button>
       </div>
     </div>
@@ -4154,23 +4153,6 @@ createApp({
       this.propCustom = {};
       this.prop = { id: null, status: 'draft', form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', values } };
     },
-    // Proposal ATTACHED to an existing project (David, Aug 21: a recalled
-    // Final-Inspection project like Virginia Gardens needs a new proposal on
-    // the SAME project - the only path before this created a brand-new
-    // project on accept, forcing a duplicate).
-    async newProposalForProject() {
-      const proj = this.current;
-      if (!proj) return;
-      await this.newProposal();
-      const parts = String(proj.address || '').replace(/\n+/g, ', ').split(',').map(x => x.trim()).filter(Boolean);
-      this.prop.form.property = proj.name || '';
-      this.prop.form.addressStreet = parts[0] || '';
-      this.prop.form.addressCity = parts[1] || '';
-      this.prop.form.addressStateZip = parts.slice(2).join(' ') || '';
-      this.prop.linkedProjectId = this.projectId(proj);
-      history.pushState({ v: 'proposals' }, '');
-      this.view = 'proposals';
-    },
     // Per-field switch between the template's dropdown choices and a free-typed
     // custom value (pricing or wording) for this one proposal.
     togglePropCustom(f) {
@@ -4266,19 +4248,6 @@ createApp({
       this.propConverting = true;
       try {
         await this.saveProposal(true);
-        // Already attached to an existing project (created from its Reports
-        // page)? Accept in place - never create a duplicate project.
-        if (this.prop.linkedProjectId) {
-          this.prop.status = 'accepted';
-          await this.saveProposal(true);
-          if (!this.projects.length) await this.loadProjects();
-          const linked = this.projects.find(p => this.projectId(p) === this.prop.linkedProjectId);
-          this.toast('Proposal accepted — linked to ' + ((linked && linked.name) || 'its project') + '. Now upload the signed proposal to its Documents.');
-          this.prop = null;
-          this.goHome();
-          if (linked) this.openDocs(linked);
-          return;
-        }
         const res = await this.api('/project/add', {
           method: 'POST',
           json: {
