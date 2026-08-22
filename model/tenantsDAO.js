@@ -244,9 +244,16 @@ module.exports = {
     try {
       const collection = await getTenantsCollection();
       const doc = await collection.get(id);
+      // Full per-section sizing (David, Aug 22): website logo (pixels) and
+      // report header/footer images (inches), each with independent width and
+      // height. Any dimension left null = automatic (aspect ratio / default).
+      doc.content.brandSizes = sizes && sizes.brandSizes ? sizes.brandSizes : (doc.content.brandSizes || {});
+      // Legacy height-only fields kept in sync for older readers.
+      const hh = sizes && sizes.brandSizes && sizes.brandSizes.header && sizes.brandSizes.header.h;
+      const fh = sizes && sizes.brandSizes && sizes.brandSizes.footer && sizes.brandSizes.footer.h;
       doc.content.reportLogoSizes = {
-        headerIn: Number(sizes && sizes.headerIn) || 0.75,
-        footerIn: Number(sizes && sizes.footerIn) || 0.5,
+        headerIn: Number(hh) > 0 ? Number(hh) : (Number(sizes && sizes.headerIn) || 0.75),
+        footerIn: Number(fh) > 0 ? Number(fh) : (Number(sizes && sizes.footerIn) || 0.5),
       };
       await collection.upsert(id, doc.content);
       return { ok: 1 };
