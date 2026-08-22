@@ -646,7 +646,7 @@ input,select{font-family:inherit;font-size:16px}
             <div>Building your report — usually 1–3 minutes. The list below updates automatically; you can keep working.</div>
           </div>
           <div v-if="clientForms.length" style="margin-top:12px">
-            <div v-for="f in clientForms" :key="f.key" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+            <div v-for="f in clientForms" :key="f.id || f.key" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
               <span style="min-width:230px;font-weight:700">&#128196; {{ f.label }}</span>
               <button class="btn-dl" @click="openFormEditor(f)">&#9998; Open Form</button>
             </div>
@@ -2180,7 +2180,9 @@ createApp({
       // 'sidedoc' = Proposal-style (side menu + live Word preview) for the
       // Final Upon Completion form; 'canvas' = generic renderer for the rest.
       const mode = f.key === 'finalcompletion' ? 'sidedoc' : 'canvas';
-      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '', saved: false };
+      // annex:true = the "Onsite Visit" flavour - same form values, but the
+      // server generates the integrated report from the repairs master.
+      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, annex: !!f.annex, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '', saved: false };
       try {
         const res = await this.api('/project/clientformlayout?key=' + encodeURIComponent(f.key));
         if (!res.ok) throw new Error('bad');
@@ -2329,7 +2331,7 @@ createApp({
         // method (html2pdf) reflowed pages and is kept only as a fallback.
         const res = await this.api('/project/clientformpdf', {
           method: 'POST',
-          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: true },
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex },
         });
         if (res.ok) {
           const blob = await res.blob();
@@ -2465,7 +2467,7 @@ createApp({
           // projectId + includeAnnex: Final-Inspection projects get the repairs
           // annex appended server-side (findings, photos, PASS/FAIL,
           // confirmation) with this tenant's Multi-Tennant branding throughout.
-          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: true },
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex },
         });
         if (!res.ok) throw new Error('bad');
         const blob = await res.blob();
