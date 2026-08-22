@@ -411,7 +411,10 @@ class FinalReportGenerator {
             // margin, so the body position - and the template's pagination -
             // is identical to the uploaded master. No website line here: the
             // site appears once on the page, from the admin Footer Text.
-            const cy = Math.round(0.75 * EMU);
+            // Per-tenant admin-set logo size (David, Aug 22) - default 0.75in.
+            const _hs = (tenant.reportLogoSizes && Number(tenant.reportLogoSizes.headerIn)) || 0;
+            const headerIn = _hs > 0 ? Math.min(2.0, Math.max(0.3, _hs)) : 0.75;
+            const cy = Math.round(headerIn * EMU);
             const cx = Math.max(1, Math.round(cy * dims.w / Math.max(1, dims.h)));
             zip.file('word/media/tenantlogo.' + ext, buf);
             this.ensureContentType(zip, ext);
@@ -458,7 +461,10 @@ class FinalReportGenerator {
                 const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'png';
                 const dims = this.getImageDims(buf, ext);
                 const EMU = 914400;
-                const cy = Math.round(0.5 * EMU);
+                // Per-tenant admin-set footer size (David, Aug 22) - default 0.5in.
+                const _fs = (tenant.reportLogoSizes && Number(tenant.reportLogoSizes.footerIn)) || 0;
+                const footerIn = _fs > 0 ? Math.min(1.5, Math.max(0.25, _fs)) : 0.5;
+                const cy = Math.round(footerIn * EMU);
                 const cx = Math.max(1, Math.round(cy * dims.w / Math.max(1, dims.h)));
                 zip.file('word/media/tenantfooter.' + ext, buf);
                 this.ensureContentType(zip, ext);
