@@ -411,11 +411,18 @@ class FinalReportGenerator {
             // margin, so the body position - and the template's pagination -
             // is identical to the uploaded master. No website line here: the
             // site appears once on the page, from the admin Footer Text.
-            // Per-tenant admin-set logo size (David, Aug 22) - default 0.75in.
-            const _hs = (tenant.reportLogoSizes && Number(tenant.reportLogoSizes.headerIn)) || 0;
-            const headerIn = _hs > 0 ? Math.min(2.0, Math.max(0.3, _hs)) : 0.75;
-            const cy = Math.round(headerIn * EMU);
-            const cx = Math.max(1, Math.round(cy * dims.w / Math.max(1, dims.h)));
+            // Per-tenant admin-set header box (David, Aug 22): independent
+            // width/height in inches, no limits; blank dimension follows the
+            // image's aspect ratio; nothing set = classic 0.75in tall.
+            const _sec = (tenant.brandSizes && tenant.brandSizes.header) || {};
+            let _w = Number(_sec.w) > 0 ? Number(_sec.w) : null;
+            let _h = Number(_sec.h) > 0 ? Number(_sec.h) : null;
+            if (!_w && !_h) _h = (tenant.reportLogoSizes && Number(tenant.reportLogoSizes.headerIn) > 0) ? Number(tenant.reportLogoSizes.headerIn) : 0.75;
+            const _ar = Math.max(1, dims.w) / Math.max(1, dims.h);
+            if (_w && !_h) _h = _w / _ar;
+            if (_h && !_w) _w = _h * _ar;
+            const cy = Math.max(1, Math.round(_h * EMU));
+            const cx = Math.max(1, Math.round(_w * EMU));
             zip.file('word/media/tenantlogo.' + ext, buf);
             this.ensureContentType(zip, ext);
             const content = '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>' + this.inlineImageXml('rIdTenantLogo', cx, cy, 990001, 'TenantLogo') + '</w:p>';
@@ -461,11 +468,17 @@ class FinalReportGenerator {
                 const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'png';
                 const dims = this.getImageDims(buf, ext);
                 const EMU = 914400;
-                // Per-tenant admin-set footer size (David, Aug 22) - default 0.5in.
-                const _fs = (tenant.reportLogoSizes && Number(tenant.reportLogoSizes.footerIn)) || 0;
-                const footerIn = _fs > 0 ? Math.min(1.5, Math.max(0.25, _fs)) : 0.5;
-                const cy = Math.round(footerIn * EMU);
-                const cx = Math.max(1, Math.round(cy * dims.w / Math.max(1, dims.h)));
+                // Per-tenant admin-set footer box (David, Aug 22) - same
+                // rules as the header; nothing set = classic 0.5in tall.
+                const _sec = (tenant.brandSizes && tenant.brandSizes.footer) || {};
+                let _w = Number(_sec.w) > 0 ? Number(_sec.w) : null;
+                let _h = Number(_sec.h) > 0 ? Number(_sec.h) : null;
+                if (!_w && !_h) _h = (tenant.reportLogoSizes && Number(tenant.reportLogoSizes.footerIn) > 0) ? Number(tenant.reportLogoSizes.footerIn) : 0.5;
+                const _ar = Math.max(1, dims.w) / Math.max(1, dims.h);
+                if (_w && !_h) _h = _w / _ar;
+                if (_h && !_w) _w = _h * _ar;
+                const cy = Math.max(1, Math.round(_h * EMU));
+                const cx = Math.max(1, Math.round(_w * EMU));
                 zip.file('word/media/tenantfooter.' + ext, buf);
                 this.ensureContentType(zip, ext);
                 frel = '<Relationship Id="rIdTenantFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/tenantfooter.' + ext + '"/>';
