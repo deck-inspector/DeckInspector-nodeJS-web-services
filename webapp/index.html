@@ -2311,7 +2311,20 @@ createApp({
         const key = this.fcStoreKey(); if (!key) return false;
         const raw = localStorage.getItem(key); if (!raw) return false;
         const d = JSON.parse(raw);
-        if (d && d.values) for (const k of Object.keys(d.values)) this.formEd.values[k] = d.values[k];
+        // Restore only REAL saved entries. A blank saved value must never
+        // overwrite what ffAutofill just filled in - that is what made the
+        // address (and every other auto-filled field) come up empty on the
+        // Onsite report (David, Aug 22). Same rule as origDate below.
+        if (d && d.values) for (const k of Object.keys(d.values)) {
+          const sv = d.values[k];
+          if (sv == null) continue;
+          const str = String(sv).trim();
+          if (!str || str === '\u2610') {              // blank or unchecked box
+            const cur = this.formEd.values[k];
+            if (cur != null && String(cur).trim() && String(cur).trim() !== '\u2610') continue;
+          }
+          this.formEd.values[k] = sv;
+        }
         // Only restore a REAL saved date - an empty one must not wipe the
         // auto-filled original Visual inspection date (David, Aug 21).
         if (d && typeof d.origDate === 'string' && d.origDate.trim()) this.formEd.origDate = d.origDate;
