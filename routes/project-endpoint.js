@@ -1052,15 +1052,40 @@ async function buildFilledClientForm(req) {
       // header, admin badge + Footer Text footer, same 0.25in header/footer
       // clearances - with each SECTION starting at the top of its page. The
       // master supplies the content/tables; the system supplies the Visual
-      // presentation. EXCEPTION: the repairs master keeps its own designed
-      // 0.75in header/footer clearances (David, Aug 19).
-      if (!annex) {
-        xml = xml.replace(/(<w:pgMar[^>]*?\bw:header=")\d+(")/g, '$1360$2');
-        xml = xml.replace(/(<w:pgMar[^>]*?\bw:footer=")\d+(")/g, '$1360$2');
+      // presentation. Aug 22 (David, from the Leimert reference report): the
+      // repairs report too - identical logo size and header/footer placement
+      // to the Visual report, so the clearances apply on BOTH paths.
+      xml = xml.replace(/(<w:pgMar[^>]*?\bw:header=")\d+(")/g, '$1360$2');
+      xml = xml.replace(/(<w:pgMar[^>]*?\bw:footer=")\d+(")/g, '$1360$2');
+
+      // "Additional Comments" (the tall grey box under the Review of Repairs
+      // checklist): when the operator left it blank - or it still holds the
+      // generic boilerplate sentence - print the auto-built per-location
+      // repairs narrative instead, so the box reads like David's corrected
+      // sample rather than a mostly-empty gap (David, Aug 22). An operator's
+      // own typed comments always win.
+      const fillValues = Object.assign({}, values || {});
+      if (annex && annex.data && annex.data.conf && annex.data.conf.narrative) {
+        const ai = xml.indexOf('<w:alias w:val="Additional Comments"/>');
+        if (ai !== -1) {
+          const idm = xml.slice(ai, ai + 500).match(/<w:id w:val="(-?\d+)"\/>/);
+          if (idm) {
+            const cid = idm[1];
+            const cur = fillValues[cid] == null ? '' : String(fillValues[cid]).trim();
+            if (!cur || /^All repairs are to be in accordance/i.test(cur)) {
+              fillValues[cid] = annex.data.conf.narrative;
+            }
+          }
+        }
       }
 
       // Text / dropdown / combo values.
-      xml = engine.fillTextControls(xml, values || {});
+      xml = engine.fillTextControls(xml, fillValues);
+
+      // The auto-narrative must print in the sample's red accent (the fill
+      // engine writes plain runs); style only the run we injected.
+      xml = xml.replace(/(<w:r>)(\s*<w:t[^>]*>\s*Final Repairs Inspection performed )/,
+        '$1<w:rPr><w:rStyle w:val="FinalReport"/><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi" w:cstheme="minorHAnsi"/><w:bCs/><w:color w:val="EE0000"/><w:szCs w:val="24"/></w:rPr>$2');
 
       // "Date of original inspection" (static sample in the master) -> the
       // Visual report's date. Always run so no stale sample date prints.
@@ -1217,8 +1242,11 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   if (logoUrl) {
     try {
       const img = await fetchImage(logoUrl);
-      // 0.75in scaled up 15% (David, Aug 21 - logo printed too small)
-      const cy = Math.round(0.8625 * EMU);
+      // MATCH THE VISUAL REPORT EXACTLY (David, Aug 22, from the Leimert
+      // reference: "This is the correct size and placement of both the header
+      // and footer"): 0.75in tall, width by aspect - identical to
+      // FinalReportGenerator.injectTenantLogo.
+      const cy = Math.round(0.75 * EMU);
       const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
       zip.file('word/media/tenantlogo.' + img.ext, img.buf);
       FinalReportGenerator.ensureContentType(zip, img.ext);
@@ -1242,8 +1270,9 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
     if (footImgUrl) {
       try {
         const img = await fetchImage(footImgUrl);
-        // 0.5in scaled up 15% (David, Aug 21 - footer badge printed too small)
-        const cy = Math.round(0.575 * EMU);
+        // MATCH THE VISUAL REPORT EXACTLY (David, Aug 22, Leimert reference):
+        // 0.5in tall - identical to FinalReportGenerator.injectTenantFooter.
+        const cy = Math.round(0.5 * EMU);
         const cx = Math.max(1, Math.round(cy * img.dims.w / Math.max(1, img.dims.h)));
         zip.file('word/media/tenantfooter.' + img.ext, img.buf);
         FinalReportGenerator.ensureContentType(zip, img.ext);
