@@ -74,14 +74,33 @@ class FinalRepairsGenerator {
     catch (e) { /* no repairs record yet - the template says so */ }
     const answers = [];
     const repairPhotos = [];
+    // One location can carry several repairs forms (one per section) - keep
+    // those, but drop IDENTICAL re-submissions, which printed the same repair
+    // block two and four times over (David, Aug 22: "why is there multiples of
+    // Repairs in Location 3"). A form counts as a duplicate only when every
+    // question AND answer matches one already recorded for this location.
+    const seenForms = new Set();
+    const seenPhotos = new Set();
     for (const d of dyn) {
+      const block = [];
       for (const q of (d.questions || [])) {
         const a = Array.isArray(q.multipleAnswers) && q.multipleAnswers.length
           ? q.multipleAnswers.join("; ")
           : (q.answer || "");
-        if (String(a).trim()) answers.push({ q: q.name || "Question", a: String(a).trim() });
+        if (String(a).trim()) block.push({ q: q.name || "Question", a: String(a).trim() });
       }
-      for (const url of (d.images || [])) if (url) repairPhotos.push({ url });
+      const fingerprint = block.map((x) => x.q + "=" + x.a).join("|");
+      if (fingerprint && seenForms.has(fingerprint)) {
+        console.log("FinalRepairs: skipped a duplicate repairs form for this location");
+      } else {
+        if (fingerprint) seenForms.add(fingerprint);
+        for (const x of block) answers.push(x);
+      }
+      for (const url of (d.images || [])) {
+        if (!url || seenPhotos.has(url)) continue;
+        seenPhotos.add(url);
+        repairPhotos.push({ url });
+      }
     }
     return { answers, repairPhotos };
   }
