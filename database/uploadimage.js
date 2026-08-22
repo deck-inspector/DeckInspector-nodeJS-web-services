@@ -67,5 +67,19 @@ async function streamToBuffer(readableStream) {
     readableStream.on("error", reject);
   });
 }
-module.exports = { uploadFile ,getBlobBuffer};
+// Lightweight blob properties lookup (last-modified + metadata) - used by the
+// admin Client Forms widget to show when each master was last uploaded and
+// what the uploaded file was called. Returns null when the blob is missing.
+async function getBlobProperties(blobName, containerName) {
+  try {
+    const containerClient = blobServiceClient.getContainerClient(containerName);
+    const blobClient = containerClient.getBlobClient(String(blobName).replace('%20', ' '));
+    const props = await blobClient.getProperties();
+    return { lastModified: props.lastModified || null, metadata: props.metadata || {} };
+  } catch (err) {
+    return null;
+  }
+}
+
+module.exports = { uploadFile ,getBlobBuffer, getBlobProperties};
 
