@@ -421,6 +421,10 @@ class FinalRepairsGenerator {
   // the color rules, and clones the report's own signature block over the
   // confirmation's SIG_BLOCK_MARKER. Returns the finished (un-branded) buffer.
   async renderRepairsMaster(filledBuffer, annex) {
+    const FinalReportGenerator = require("./FinalReportGenerator.js");
+    // Pixel dimensions of every photo, in the order docx-templates inserts
+    // them - consumed by cropSquares() after the render.
+    const srcDims = [];
     const buffer = await docxTemplate.createReport({
       template: filledBuffer,
       data: annex.data,
@@ -430,8 +434,18 @@ class FinalRepairsGenerator {
           if (!url) return null;
           const fetched = await this.fetchImage(url);
           if (!fetched) return null;
-          fetched.width = 4.0;   // cm - 4 per row inside the margins
-          fetched.height = 7.0;
+          // SQUARE boxes (David, Aug 22): a fixed 4x7cm rectangle stretched
+          // every photo out of shape. The box is now square and the image is
+          // CENTRE-CROPPED to fit it (see cropSquares below), so nothing is
+          // distorted - 4 per row still fits inside the margins.
+          fetched.width = 4.0;   // cm
+          fetched.height = 4.0;  // cm
+          // Remember each photo's true pixel shape, in the order Word will
+          // place them, so the crop pass knows how much to trim.
+          try {
+            const d = FinalReportGenerator.getImageDims(fetched.data, String(fetched.extension || '').replace('.', ''));
+            srcDims.push(d && d.w && d.h ? d : null);
+          } catch (e) { srcDims.push(null); }
           return fetched;
         },
       },
@@ -460,8 +474,58 @@ class FinalRepairsGenerator {
         xml = xml.slice(0, pS) + sigCopy + "<w:p/>" + xml.slice(pE);
       }
     }
+    xml = this.cropSquares(xml, srcDims);
+    // The finished report is DAVID'S document to edit - strip every content
+    // control lock so the confirmation checkboxes and all other fields can be
+    // changed in Word (David, Aug 22: "these check boxes need an override").
+    xml = xml.replace(/<w:lock w:val="[^"]*"\/>/g, "");
     zip.file("word/document.xml", xml);
+    // Same reason: the master carries a forms-restriction setting; a finished
+    // report must never open restricted.
+    try {
+      const setPath = "word/settings.xml";
+      const setFile = zip.file(setPath);
+      if (setFile) {
+        const st = setFile.asText().replace(/<w:documentProtection[^>]*\/>/g, "");
+        zip.file(setPath, st);
+      }
+    } catch (e) { /* settings missing - nothing to unlock */ }
     return this.normalizePackage(zip.generate({ type: "nodebuffer", compression: "DEFLATE" }));
+  }
+
+  // Centre-crop every inserted photo to the square box it sits in. Word does
+  // the cropping itself via a:srcRect (percent-of-edge, 1000ths of a percent),
+  // so no pixels are re-encoded and nothing is stretched. srcDims carries the
+  // photos' true pixel sizes in insertion order; the master body contains no
+  // other images, so position N in the document is photo N.
+  cropSquares(xml, srcDims) {
+    if (!srcDims || !srcDims.length) return xml;
+    let i = -1;
+    return xml.replace(/<pic:blipFill>([\s\S]*?)<\/pic:blipFill>/g, (whole, inner) => {
+      i += 1;
+      const d = srcDims[i];
+      if (!d || !d.w || !d.h) return whole;
+      if (/<a:srcRect\s+[^>]*[lrtb]=/.test(inner)) return whole; // already cropped
+      let l = 0, t = 0;
+      if (d.w > d.h) {
+        // too wide: trim the sides
+        const keep = d.h / d.w;
+        l = Math.round(((1 - keep) / 2) * 100000);
+      } else if (d.h > d.w) {
+        // too tall: trim top and bottom
+        const keep = d.w / d.h;
+        t = Math.round(((1 - keep) / 2) * 100000);
+      } else {
+        return whole; // already square
+      }
+      const srcRect = '<a:srcRect l="' + l + '" t="' + t + '" r="' + l + '" b="' + t + '"/>';
+      // docx-templates already emits an EMPTY <a:srcRect/> - fill that in;
+      // only fall back to inserting one when the element is absent.
+      const filled = inner.indexOf("<a:srcRect/>") !== -1
+        ? inner.replace("<a:srcRect/>", srcRect)
+        : inner.replace("<a:stretch>", srcRect + "<a:stretch>");
+      return "<pic:blipFill>" + filled + "</pic:blipFill>";
+    });
   }
 
   // Returns the blob URL of the generated report. Throws on failure so the
