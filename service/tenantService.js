@@ -313,6 +313,22 @@ var addUpdateAdmin = async function (tenantId, adminDetails) {
   }
 };
 
+var updateReportLogoSizes = async function (tenantId, sizes) {
+  try {
+    const result = await TenantDAO.updateReportLogoSizes(tenantId, sizes);
+    if (result.ok === 1) {
+      return { success: true };
+    }
+    return {
+      code: 401,
+      success: false,
+      reason: "No Tenant found with the given ID/failed to update.",
+    };
+  } catch (error) {
+    return handleError(error);
+  }
+};
+
 var updateAddIconsForTenant = async function (tenantId, iconsData) {
   try {
     const result = await TenantDAO.updateAddIconsForTenant(tenantId, iconsData);
@@ -522,6 +538,7 @@ module.exports = {
   increaseTenantUsers,
   increaseAllowedCustomForms,
   updateAddIconsForTenant,
+  updateReportLogoSizes,
   updateTenantsAzureStorageDataDetails,
   addCustomFormCount,
   updateTenantPhone,
