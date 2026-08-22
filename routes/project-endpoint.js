@@ -1061,6 +1061,37 @@ router.route('/clientformlayout')
 // Build the completed, branded Word buffer from the submitted field values.
 // Shared by /clientformfill (Word download) and /clientformpdf (server-side
 // PDF). Returns { outBuf, form } or throws {status, message}.
+// Split a stored project address into street / city / state / zip. Parsed
+// from the END (zip, then state, then the last comma segment as city) so it
+// copes with "1 Main St, Anytown, CA 90210" and with line breaks alike.
+function splitProjectAddress(raw) {
+  let s = String(raw || '').replace(/\r/g, '').replace(/\n+/g, ', ').replace(/\s+/g, ' ').trim();
+  let street = s, city = '', state = '', zip = '';
+  if (!s) return { street: '', city: '', state: '', zip: '' };
+  const zipM = s.match(/(\d{5}(?:-\d{4})?)\s*$/);
+  if (zipM) {
+    zip = zipM[1];
+    s = s.slice(0, zipM.index).replace(/[,\s]+$/, '');
+    const stM = s.match(/(?:^|[,\s])([A-Za-z]{2})$/);
+    if (stM) {
+      state = stM[1].toUpperCase();
+      s = s.slice(0, s.length - stM[1].length).replace(/[,\s]+$/, '');
+    }
+  }
+  const segs = s.split(',').map((x) => x.trim()).filter(Boolean);
+  if (segs.length >= 2) { city = segs[segs.length - 1]; street = segs.slice(0, -1).join(', '); }
+  else { street = s; }
+  return { street, city, state, zip };
+}
+
+// Content-control id for a given alias in the master ("Property Address" etc).
+function controlIdByAlias(xml, alias) {
+  const a = xml.indexOf('<w:alias w:val="' + alias + '"/>');
+  if (a === -1) return null;
+  const m = xml.slice(a, a + 600).match(/<w:id w:val="(-?\d+)"\/>/);
+  return m ? m[1] : null;
+}
+
 async function buildFilledClientForm(req) {
       const { key, values, photos, origDate } = req.body || {};
       const form = CLIENT_FORMS[key];
@@ -1129,6 +1160,34 @@ async function buildFilledClientForm(req) {
             }
           }
         }
+      }
+
+      // AUTO-POPULATE THE PROPERTY ADDRESS SERVER-SIDE (David, Aug 22).
+      // The address used to be filled only in the browser, so anything that
+      // left those boxes blank there - stale saved entries, a machine that had
+      // not refreshed - produced a report with an empty Subject Property
+      // Address. The project already knows its address, so fill any address
+      // control the operator left blank here, where it cannot be lost.
+      try {
+        if (req.body && req.body.projectId) {
+          const pRes = await projects.getProjectById(String(req.body.projectId));
+          const proj = (pRes && (pRes.project || (pRes.data && pRes.data.item))) || {};
+          const parts = splitProjectAddress(proj.address);
+          const map = { 'Property Address': parts.street, 'City': parts.city, 'State': parts.state, 'Zip': parts.zip };
+          for (const alias of Object.keys(map)) {
+            const val = map[alias];
+            if (!val) continue;
+            const id = controlIdByAlias(xml, alias);
+            if (!id) continue;
+            const cur = fillValues[id];
+            if (cur == null || String(cur).trim() === '') {
+              fillValues[id] = val;
+              console.log('clientform: auto-filled "%s" from the project (%s)', alias, val);
+            }
+          }
+        }
+      } catch (addrErr) {
+        console.error('clientform: project address auto-fill skipped:', addrErr && addrErr.message);
       }
 
       // Text / dropdown / combo values.
