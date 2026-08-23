@@ -74,13 +74,18 @@ class FinalRepairsGenerator {
     catch (e) { /* no repairs record yet - the template says so */ }
     const answers = [];
     const repairPhotos = [];
-    // One location can carry several repairs forms (one per section) - keep
-    // those, but drop IDENTICAL re-submissions, which printed the same repair
-    // block two and four times over (David, Aug 22: "why is there multiples of
-    // Repairs in Location 3"). A form counts as a duplicate only when every
-    // question AND answer matches one already recorded for this location.
+    const repairs = [];
+    // One location can carry several repairs forms - ONE PER REPAIRED AREA
+    // (front deck, rear deck, ...). Keep each as its OWN block so the report
+    // identifies every area with its own answers and its own photos (David,
+    // Aug 23: "If there are two locations needing repair, each must be
+    // identified and each have photos"). Drop only TRUE re-submissions: a
+    // form is a duplicate only when every question AND answer AND photo
+    // matches one already recorded - two areas with identical answers but
+    // different photos are different areas and must BOTH print (this was the
+    // Aug 22 dedupe's blind spot: it compared answers alone and silently
+    // dropped Location 3's second deck).
     const seenForms = new Set();
-    const seenPhotos = new Set();
     for (const d of dyn) {
       const block = [];
       for (const q of (d.questions || [])) {
@@ -89,20 +94,32 @@ class FinalRepairsGenerator {
           : (q.answer || "");
         if (String(a).trim()) block.push({ q: q.name || "Question", a: String(a).trim() });
       }
-      const fingerprint = block.map((x) => x.q + "=" + x.a).join("|");
-      if (fingerprint && seenForms.has(fingerprint)) {
-        console.log("FinalRepairs: skipped a duplicate repairs form for this location");
-      } else {
-        if (fingerprint) seenForms.add(fingerprint);
-        for (const x of block) answers.push(x);
-      }
+      const photos = [];
+      const seenPhotos = new Set();
       for (const url of (d.images || [])) {
         if (!url || seenPhotos.has(url)) continue;
         seenPhotos.add(url);
-        repairPhotos.push({ url });
+        photos.push({ url });
       }
+      if (!block.length && !photos.length) continue;   // untouched pre-created form
+      const fingerprint = block.map((x) => x.q + "=" + x.a).join("|")
+        + "||" + photos.map((p) => p.url).join(",");
+      if (seenForms.has(fingerprint)) {
+        console.log("FinalRepairs: skipped a true duplicate repairs form (same answers AND photos)");
+        continue;
+      }
+      seenForms.add(fingerprint);
+      // The area's identity: what the inspector answered for "location in
+      // need of repair", else the form's own name (minus the REPAIRS prefix).
+      const areaAns = block.find((x) => /location in need of repair/i.test(x.q));
+      const name = (areaAns && areaAns.a)
+        || String(d.name || "").replace(/^REPAIRS\s*-\s*/i, "").trim()
+        || ("Area " + (repairs.length + 1));
+      repairs.push({ name, answers: block, photos });
+      for (const x of block) answers.push(x);
+      for (const p of photos) repairPhotos.push(p);
     }
-    return { answers, repairPhotos };
+    return { answers, repairPhotos, repairs };
   }
 
   // Every location in the project (building units + common locations), with
@@ -322,7 +339,7 @@ class FinalRepairsGenerator {
       const sections = (secRes && secRes.sections) || [];
       const bad = this.mergedBadSections(sections, loc.meta);
       if (!bad.length) continue;
-      const { answers, repairPhotos } = await this.repairFindings(loc.id);
+      const { answers, repairPhotos, repairs } = await this.repairFindings(loc.id);
       if (answers.length || repairPhotos.length) anyRepairsRecord = true;
       const passText = this.verdictFor(answers);
       locations.push({
@@ -337,6 +354,16 @@ class FinalRepairsGenerator {
         })),
         answers,
         repairPhotoRows: this.chunk4(repairPhotos.map((p) => ({ f: p.url }))),
+        // One block PER REPAIRED AREA - the new master iterates these so each
+        // area prints with its own identity, answers, and photos. `showName`
+        // avoids a redundant header when there is only one area.
+        repairs: (repairs || []).map((r, i) => ({
+          idx: i + 1,
+          name: r.name,
+          showName: (repairs.length > 1) ? ("REPAIR " + (i + 1) + " OF " + repairs.length + " — " + r.name) : "",
+          answers: r.answers,
+          photoRows: this.chunk4(r.photos.map((p) => ({ f: p.url }))),
+        })),
         passText,
         repairsHeader: passText === "PASS" ? "REPAIRS COMPLETED"
           : (passText === "FAIL" ? "REPAIRS NOT COMPLETED" : "REPAIRS INSPECTION PENDING"),
