@@ -641,6 +641,11 @@ function applyPageBreaks(xml){
   const isCapsTitle = (p)=>{
     if(!isTitle(p)) return false;
     const t = paraText(p); if(t.length<3 || t.length>70) return false;
+    // Checklist rows ("1. \u2612 ON SITE VISUAL REVIEW") are caps and Title-styled
+    // but they are LIST ITEMS, not section headings. Treating them as headings
+    // page-broke the list away from its own red heading, orphaning
+    // "REVIEW OF REPAIRS:" at the bottom of the previous page (David, Aug 23).
+    if(/[\u2610\u2611\u2612]/.test(t) || /^\d+[.)]/.test(t)) return false;
     const letters = t.replace(/[^A-Za-z]/g,'');
     return letters.length>=3 && t===t.toUpperCase();
   };
@@ -650,6 +655,7 @@ function applyPageBreaks(xml){
     return REPAIRS_NOTATIONS(p)
         || /COMMENTS\s*-\s*RECOMMENDATIONS/.test(t)
         || /^REVIEW OF REPAIRS/.test(t)
+        || /^INSPECTIONS:/.test(t)
         || /INVASIVE INSPECTION OF REPAIRS/.test(t);
   };
   const isBlank = (p)=> paraText(p)==='' && !/<w:sdt\b/.test(p) && !/<w:drawing\b/.test(p)
@@ -733,6 +739,14 @@ function applyPageBreaks(xml){
     while(b-1>=0 && isHeadingLine(matches[b-1][0])) b--;   // topmost line of the heading block
     if(REPAIRS_NOTATIONS(m[0])){ for(let k=b;k<=i;k++) redIdx.add(k); } // redden VISUAL INSPECTION block
     if(REPAIRS_NOTATIONS(m[0]) || FRONT_FLOW(m[0])) return;            // front matter: no forced break
+    // Mid-page section labels (David's hand-formatted master, Aug 23): these
+    // headings sit mid-page with their content directly beneath them - they
+    // must NEVER force a page start, only stay attached to what follows so
+    // the label can't strand at the bottom of a page.
+    const tU = paraText(m[0]).toUpperCase();
+    if(/^REVIEW OF REPAIRS|^COMMENTS\s*-\s*RECOMMENDATIONS|INVASIVE INSPECTION OF REPAIRS/.test(tU)){
+      keepNextIdx.add(b); return;
+    }
     breakIdx.add(b);
   });
 
