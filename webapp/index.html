@@ -844,6 +844,56 @@ input,select{font-family:inherit;font-size:16px}
         <div style="display:flex;justify-content:flex-end;margin:0 0 12px">
           <button class="btn-edit" @click="openStructAdd('section', null)">&#65291; Add Inspection Point</button>
         </div>
+        <!-- ===== REPAIRS INSPECTION (Final Inspection After Repairs) - the
+             per-location repair records the mobile app creates. One card per
+             repaired area; the Onsite report prints one REPAIR block per card
+             with its own answers and photos. Web add/edit/delete (David, Aug 23). -->
+        <div class="panel" v-if="rep.loading || repRecs.length || (current && current.finalinspection)" style="border:2px solid #1F5FBF;background:#f6f9ff;margin:0 0 14px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <h3 style="color:#1F5FBF;flex:1;margin:0">&#128295; Repairs Inspection <span v-if="!rep.loading">({{ repRecs.length }})</span></h3>
+            <button class="btn-edit" :disabled="rep.loading" @click="addRepairArea">&#65291; Add Repair Area</button>
+          </div>
+          <div class="hint" style="margin:4px 0 8px">One card per repaired area. The Onsite report prints each card as its own REPAIR block with its own answers and photos &mdash; if two areas were repaired, keep two cards.</div>
+          <div class="hint" v-if="rep.loading" style="margin:6px 0">Loading repairs&hellip;</div>
+          <div class="empty" v-if="!rep.loading && !repRecs.length" style="padding:14px">No repairs recorded for this location yet &mdash; use &#65291; Add Repair Area.</div>
+          <div v-for="(r,ri) in repRecs" :key="r.id" style="border:1.5px solid #b9c9e8;border-radius:12px;padding:12px;background:#fff;margin:10px 0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+              <b style="flex:1;color:#1F5FBF">Repair {{ ri+1 }} of {{ repRecs.length }}</b>
+              <button class="btn-edit" :disabled="rep.saving===r.id" @click="saveRepair(r)">&#128190; {{ rep.saving===r.id ? 'Saving&hellip;' : 'Save' }}</button>
+              <button class="btn-edit" style="color:#C00000;border-color:#C00000" v-if="rep.deleting!==r.id" @click="rep.deleting=r.id">&#128465; Delete</button>
+              <template v-if="rep.deleting===r.id">
+                <button class="btn-del" @click="deleteRepair(r)">Confirm delete</button>
+                <button class="btn-edit" @click="rep.deleting=''">Keep</button>
+              </template>
+            </div>
+            <div class="field" v-for="q in r.qs" :key="r.id + q._id">
+              <label>{{ q.name }}</label>
+              <input v-model.trim="q.val" style="width:100%">
+            </div>
+            <div class="field"><label>Repair Photos ({{ r.images.length }})</label>
+              <div class="pgrid">
+                <div class="pgitem" v-for="(img,i) in r.images" :key="r.id+img+'-'+i">
+                  <img :src="img" loading="lazy" alt="repair photo" @click="lightbox=img">
+                  <button class="pgdel" title="Remove this photo" @click="r.images.splice(i,1)">&#10005;</button>
+                </div>
+                <label class="pgadd" title="Upload photos">
+                  <span v-if="rep.photoBusy===r.id" class="spinner" style="width:18px;height:18px"></span>
+                  <span v-else>&#65291;</span>
+                  <input type="file" accept="image/*" multiple style="display:none" :disabled="rep.photoBusy===r.id" @change="addRepPhotos($event, r)">
+                </label>
+              </div>
+              <div class="hint">Changes (answers and photos) are written when you press &#128190; Save on this card.</div>
+            </div>
+            <div class="field" v-if="repImportCandidates(r).length">
+              <label>Import photos from this unit&#8217;s visual inspection &mdash; click to add</label>
+              <div class="pgrid">
+                <div class="pgitem" v-for="img in repImportCandidates(r)" :key="'ri'+r.id+img" style="cursor:pointer;outline:2px dashed var(--line)" title="Click to add to this repair" @click="r.images.push(img)">
+                  <img :src="img" loading="lazy" alt="visual inspection photo">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="empty" v-if="loadingSections">Loading inspections&hellip;</div>
         <div class="empty" v-else-if="!sections.length">No inspection sections recorded for this unit yet.</div>
         <div class="seclist" v-else>
@@ -1494,6 +1544,7 @@ createApp({
       lifeOptions: ['0-1 Years', '1-4 Years', '4-7 Years', '7-10 Years'],
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
+      repRecs: [], rep: { loading: false, saving: '', photoBusy: '', deleting: '' },
       // Section ordering + move-to-another-unit
       reordering: false, movingSec: null, moveTargetId: '', movingBusy: false,
 
@@ -2678,6 +2729,7 @@ createApp({
       history.pushState({ v: 'unit', pid: this.projectId(this.current), loc: { locationId: loc.locationId, locationName: loc.locationName, locationType: loc.locationType } }, '');
       this.unit = loc; this.view = 'unit'; this.sections = [];
       this.loadSections();
+      this.repRecs = []; this.loadRepairs();
     },
     async loadSections() {
       this.loadingSections = true;
@@ -3106,6 +3158,150 @@ createApp({
     },
     // Create/update the InvasiveSection linked to this visual section. Returns
     // true (saved), null (nothing to save), or false (failed).
+    // ---- Repairs Inspection (per-location repair records / dynamic sections) ----
+    // The mobile app creates one record per repaired area; the Onsite report
+    // prints one REPAIR block per record. These methods give the web full
+    // add/edit/delete over them (David, Aug 23). SERVER LANDMINES respected:
+    // the PUT handler runs body.questions.forEach unconditionally (so every
+    // save sends a full questions array), and the DAO merges the body over
+    // the stored doc (so parentid/parenttype ride along for the invasive
+    // rollup the service runs after every edit).
+    async loadRepairs() {
+      this.rep.loading = true; this.rep.deleting = '';
+      try {
+        const res = await this.api('/dynamicsection/getSectionsByParentId', {
+          method: 'POST', json: { parentid: this.unit.locationId, username: (this.user && this.user.username) || 'web' },
+        });
+        if (!res.ok) { this.repRecs = []; return; }
+        const data = await res.json().catch(() => null);
+        let list = (data && (data.sections || data.dynamicSections || data.data)) || [];
+        if (!Array.isArray(list)) list = [];
+        this.repRecs = list.map((d) => this.repWrap(d));
+      } catch (e) { this.repRecs = []; }
+      finally { this.rep.loading = false; }
+    },
+    repHexId() { let s = ''; const h = '0123456789abcdef'; for (let i = 0; i < 24; i++) s += h[Math.floor(Math.random() * 16)]; return s; },
+    repWrap(d) {
+      const qs = (d.questions || []).map((q) => ({
+        _id: q._id || this.repHexId(),
+        name: q.name || 'Question',
+        useMulti: Array.isArray(q.multipleAnswers) && q.multipleAnswers.length > 0,
+        val: (Array.isArray(q.multipleAnswers) && q.multipleAnswers.length) ? q.multipleAnswers.join('; ') : (q.answer || ''),
+        raw: q,
+      }));
+      return { id: d._id || d.id, doc: d, qs, images: (d.images || []).slice() };
+    },
+    repQuestionsPayload(r) {
+      return r.qs.map((q) => ({
+        ...q.raw, _id: q._id, name: q.name,
+        answer: q.useMulti ? (q.raw.answer || '') : q.val,
+        multipleAnswers: q.useMulti ? q.val.split(';').map((x) => x.trim()).filter(Boolean) : [],
+      }));
+    },
+    async saveRepair(r) {
+      this.rep.saving = r.id;
+      try {
+        const body = {
+          parentid: r.doc.parentid || this.unit.locationId,
+          parenttype: r.doc.parenttype || 'projectlocation',
+          name: r.doc.name || ('REPAIRS - ' + this.unit.locationName),
+          questions: this.repQuestionsPayload(r),
+          images: r.images.slice(),
+          editedat: new Date().toISOString(),
+          lasteditedby: (this.user && this.user.username) || 'web',
+        };
+        const res = await this.api('/dynamicsection/' + encodeURIComponent(r.id), { method: 'PUT', json: body });
+        if (!res.ok) throw new Error('bad');
+        r.doc = { ...r.doc, ...body };
+        for (const q of r.qs) { q.useMulti = Array.isArray(q.raw.multipleAnswers) && q.useMulti; }
+        this.toast('Repair saved.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not save this repair.', 'err'); }
+      finally { this.rep.saving = ''; }
+    },
+    async deleteRepair(r) {
+      try {
+        const res = await this.api('/dynamicsection/' + encodeURIComponent(r.id), { method: 'DELETE' });
+        if (!res.ok) throw new Error('bad');
+        this.repRecs = this.repRecs.filter((x) => x.id !== r.id);
+        this.rep.deleting = '';
+        this.toast('Repair deleted.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not delete this repair.', 'err'); }
+    },
+    async addRepairArea() {
+      // Question template: clone the first record's questions (blank answers);
+      // else the Final Repairs Inspection form's questions; else the 3 knowns.
+      let qs = null;
+      if (this.repRecs.length) {
+        qs = this.repRecs[0].qs.map((q) => ({ ...q.raw, _id: q._id, name: q.name, answer: '', multipleAnswers: [] }));
+      } else {
+        try {
+          if (!this.forms.length) await this.loadForms();
+          const f = (this.forms || []).find((x) => /final\s*repairs?\s*inspection/i.test(x.name || ''));
+          if (f && Array.isArray(f.questions) && f.questions.length) {
+            qs = f.questions.map((q) => ({ ...q, _id: q._id || this.repHexId(), answer: '', multipleAnswers: [] }));
+          }
+        } catch (e) { /* fall through */ }
+      }
+      if (!qs) {
+        qs = ['What is the location in need of repair', 'What were the issues in need of repair', 'Have the repairs been completed']
+          .map((n) => ({ _id: this.repHexId(), name: n, answer: '', multipleAnswers: [] }));
+      }
+      try {
+        const res = await this.api('/dynamicsection/add', {
+          method: 'POST',
+          json: {
+            name: 'REPAIRS - ' + this.unit.locationName + (this.repRecs.length ? ' (' + (this.repRecs.length + 1) + ')' : ''),
+            additionalconsiderations: '', additionalconsiderationshtml: '',
+            furtherinvasivereviewrequired: 'false',
+            images: [], questions: qs,
+            createdby: (this.user && this.user.username) || 'web',
+            parentid: this.unit.locationId, parenttype: 'projectlocation',
+            unitUnavailable: false,
+            companyIdentifier: (this.user && this.user.companyIdentifier) || '',
+          },
+        });
+        if (!res.ok) throw new Error('bad');
+        this.toast('Repair area added.');
+        await this.loadRepairs();
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not add a repair area.', 'err'); }
+    },
+    repImportCandidates(r) {
+      const have = new Set(r.images);
+      const out = [];
+      for (const sec of (this.sections || [])) {
+        for (const img of (sec.images || [])) {
+          if (img && !have.has(img) && out.indexOf(img) === -1) out.push(img);
+        }
+      }
+      return out;
+    },
+    async addRepPhotos(e, r) {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (!files.length) return;
+      this.rep.photoBusy = r.id;
+      let failed = 0;
+      try {
+        for (const f of files) {
+          try {
+            const dot = f.name ? f.name.lastIndexOf('.') : -1;
+            const ext = dot !== -1 ? f.name.slice(dot).toLowerCase() : '.jpg';
+            const uname = 'rep-' + String(r.id || 'x').replace(/[^a-zA-Z0-9-]/g, '') + '-' + Date.now() + '-' + Math.floor(Math.random() * 10000) + ext;
+            const fd = new FormData();
+            fd.append('picture', f, uname);
+            fd.append('containerName', String((this.current && this.current.name) || 'project').replace(/\s+/g, '').toLowerCase());
+            fd.append('uploader', (this.user && this.user.username) || 'web');
+            fd.append('entityName', (this.current && this.current.name) || 'project');
+            const res = await this.api('/image/upload', { method: 'POST', body: fd });
+            if (!res.ok) { failed++; continue; }
+            const j = await res.json().catch(() => null);
+            const url = j && (j.url || (j.data && j.data.url) || j.imageUrl);
+            if (url) r.images.push(url); else failed++;
+          } catch (err) { failed++; }
+        }
+        if (failed) this.toast(failed + ' photo(s) could not be uploaded.', 'err');
+      } finally { this.rep.photoBusy = ''; }
+    },
     async saveInvasive() {
       const applicable = this.secForm.furtherinvasivereviewrequired === 'Yes' || this.inv.id;
       if (!applicable) return null;
@@ -4392,7 +4588,7 @@ createApp({
         this.current = p;
         if (st.v === 'reports') { this.view = 'reports'; this.reports = []; this.assignPick = ''; this.loadReports(); if (!this.users.length) this.loadUsers(); return; }
         if (st.v === 'inspect') { this.view = 'inspect'; this.structTab = 'buildings'; this.structure = { subProjects: [], locations: [] }; this.loadStructure(); return; }
-        this.unit = st.loc; this.view = 'unit'; this.sections = []; this.loadSections();
+        this.unit = st.loc; this.view = 'unit'; this.sections = []; this.loadSections(); this.repRecs = []; this.loadRepairs();
         if (!this.structure.subProjects.length && !this.structure.locations.length) this.loadStructure();
         return;
       }
