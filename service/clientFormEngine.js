@@ -99,6 +99,14 @@ module.exports = { parse, findSdtBlocks, parseSdtPr, currentText, xmlEscape };
 // all run/cell formatting. Sets the first <w:t> run, blanks any others, and
 // drops the placeholder marker so Word treats it as real content.
 function setSdtText(block, value) {
+  // HARDENING (David, Aug 23): depending on which program last saved the
+  // template, an empty control can arrive as <w:t/> (self-closed) or as
+  // <w:sdtContent/> (no content at all). Neither matched the patterns below,
+  // so the user's value was dropped WITHOUT ANY ERROR - the Subject Property
+  // Address printed blank while the form showed it filled. Normalise both
+  // shorthands to the explicit forms first so every template fills the same.
+  block = block.replace(/<w:sdtContent\/>/g, '<w:sdtContent></w:sdtContent>');
+  block = block.replace(/<w:t(\s[^>]*)?\/>/g, function (m, attrs) { return '<w:t' + (attrs || '') + '></w:t>'; });
   let pr = block.match(/<w:sdtPr>[\s\S]*?<\/w:sdtPr>/);
   let head = block, contentStart, contentEnd;
   const cM = block.match(/<w:sdtContent>([\s\S]*?)<\/w:sdtContent>/);
@@ -120,9 +128,13 @@ function setSdtText(block, value) {
     return a + attrs + '>' + close; // blank the rest
   });
   if (first) {
-    // no <w:t> existed - inject a run at the end of the first paragraph
+    // no <w:t> existed - inject a run at the end of the first paragraph, or,
+    // when the content has no paragraph either (inline control saved with
+    // empty content), append the run directly so the value is never dropped.
+    let injected = content.replace(/(<w:p\b[\s\S]*?<\/w:pPr>)/, '$1<w:r><w:t xml:space="preserve">' + esc + '</w:t></w:r>');
+    if (injected === content) injected = content + '<w:r><w:t xml:space="preserve">' + esc + '</w:t></w:r>';
     return block.replace('<w:sdtContent>' + content + '</w:sdtContent>',
-      '<w:sdtContent>' + content.replace(/(<w:p\b[\s\S]*?<\/w:pPr>)/, '$1<w:r><w:t xml:space="preserve">' + esc + '</w:t></w:r>') + '</w:sdtContent>');
+      '<w:sdtContent>' + injected + '</w:sdtContent>');
   }
   return block.replace('<w:sdtContent>' + content + '</w:sdtContent>', '<w:sdtContent>' + newContent + '</w:sdtContent>');
 }
