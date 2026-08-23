@@ -713,13 +713,27 @@ function applyPageBreaks(xml){
 
   // 1) Resolve section break points (walk back past the heading line group).
   const breakIdx = new Set(), redIdx = new Set();
+  // FRONT MATTER FLOWS (David, Aug 23: "notice the large gaps between sections
+  // ... Terrible!"). The Aug 13 rule broke EVERY major section onto a fresh
+  // page - but the client letter is short, so the title section jumping to
+  // page 2 left page 1 half empty, and VISUAL INSPECTION jumping to page 3
+  // left page 2 with a dead bottom third. The title heading and the VISUAL
+  // INSPECTION block now FLOW straight after the letter; forced page starts
+  // remain only for the back-half sections (Comments - Recommendations,
+  // REVIEW OF REPAIRS, INVASIVE INSPECTION OF REPAIRS) whose pages fill.
+  const FRONT_FLOW = (p)=>{
+    const t = paraText(p).toUpperCase();
+    return /^(FINAL REPORT UPON COMPLETION|REPORT OF VISUAL INSPECTION|REPORT OF INVASIVE INSPECTION|FINAL REPORT OF STATE REQUIRED INSPECTION|ADDENDUM TO VISUAL REPORT|NA)$/.test(t)
+        || /^VISUAL INSPECTION$/.test(t);
+  };
   matches.forEach((m,i)=>{
     const trig = isNamed(m[0]) || (caps[i] && !caps[i-1]);
     if(!trig) return;
     let b = i;
     while(b-1>=0 && isHeadingLine(matches[b-1][0])) b--;   // topmost line of the heading block
-    breakIdx.add(b);
     if(REPAIRS_NOTATIONS(m[0])){ for(let k=b;k<=i;k++) redIdx.add(k); } // redden VISUAL INSPECTION block
+    if(REPAIRS_NOTATIONS(m[0]) || FRONT_FLOW(m[0])) return;            // front matter: no forced break
+    breakIdx.add(b);
   });
 
   // 2) Collapse blank runs: keep the first blank of a run at its natural height,
