@@ -157,12 +157,12 @@ class FinalRepairsGenerator {
     subItems.forEach((sp, si) => {
       const kids = kidsList[si];
       for (const loc of ((kids && kids.data && kids.data.item) || [])) {
-        out.push({ id: loc.id || loc._id, title: `${sp.name} — ${this.cleanName(loc)}`, meta: loc.sections || [] });
+        out.push({ id: loc.id || loc._id, title: `${sp.name} — ${this.cleanName(loc)}`, meta: loc.sections || [], cover: loc.url || "" });
       }
     });
     const locs = await locationModel.getLocationByParentId(projectId).catch(() => null);
     for (const loc of ((locs && locs.data && locs.data.item) || [])) {
-      out.push({ id: loc.id || loc._id, title: this.cleanName(loc), meta: loc.sections || [] });
+      out.push({ id: loc.id || loc._id, title: this.cleanName(loc), meta: loc.sections || [], cover: loc.url || "" });
     }
     return out;
   }
@@ -375,6 +375,10 @@ class FinalRepairsGenerator {
       const passText = this.verdictFor(answers);
       locations.push({
         num: loc.title,
+        // APARTMENT PHOTO (David, Aug 23): the unit's own cover photo prints
+        // under the Location bar. Blank when none is synced - the template
+        // renders nothing rather than an empty box.
+        photo: /^https?:\/\//i.test(String(loc.cover || "")) ? loc.cover : "",
         badSections: bad.map((s) => ({
           name: s.name || "Inspection point",
           visualreview: s.visualreview || "—",
