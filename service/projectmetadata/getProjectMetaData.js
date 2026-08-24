@@ -75,7 +75,6 @@ async function getProjectData(projectId) {
     const projectResponse = {};
     console.log("Fetching data for project ID:", projectId);
     const projectData = await project.getProjectById(projectId);
-    console.log("Project Data:", projectData);
     
     // ✅ Handle new Couchbase response format
     let projectInfo = null;
@@ -141,10 +140,18 @@ async function getProjectWiseLocationsMetaData(projectId) {
 
 async function getSubProjectsData(projectId) {
     const subProjectsData = await subProject.getSubProjectsByParentId(projectId);
-    console.log("SubProjects Data:", subProjectsData);
     const subProjects = [];
     if (subProjectsData.data && subProjectsData.data.item) {
-        for (const subProject of subProjectsData.data.item) {
+        // SPEED (David, Aug 23): a large project has many buildings, and each
+        // building's locations were fetched ONE AT A TIME - the project page
+        // waited through every round-trip in sequence. All buildings are now
+        // fetched IN PARALLEL, so the wait is one round-trip, not N.
+        const subs = subProjectsData.data.item;
+        const childrenList = await Promise.all(
+            subs.map((sp) => location.getLocationByParentId(sp.id || sp._id).catch(() => null))
+        );
+        for (let si = 0; si < subs.length; si++) {
+            const subProject = subs[si];
             const subProjectData = {};
             // Always use 'id' in the response
             subProjectData.id = subProject.id || subProject._id;
@@ -152,9 +159,7 @@ async function getSubProjectsData(projectId) {
             subProjectData.isInvasive = subProject.isInvasive ? subProject.isInvasive : false;
             subProjectData.sequenceNo = subProject.sequenceNo;
             const subProjectLocations = [];
-            // Use id for location parent
-            const subProjectKey = subProject.id || subProject._id;
-            const subProjectChildren = await location.getLocationByParentId(subProjectKey);
+            const subProjectChildren = childrenList[si] || {};
 
             if (subProjectChildren.data && subProjectChildren.data.item) {
                 for (const loc of subProjectChildren.data.item) {
