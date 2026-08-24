@@ -207,6 +207,9 @@ input,select{font-family:inherit;font-size:16px}
 .pgitem img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;cursor:pointer;background:#e7edf2;display:block}
 .pgdel{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(10,16,20,.65);color:#fff;font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .pgdel:hover{background:var(--danger)}
+.pgrot{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(10,16,20,.65);color:#fff;font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.pgrot:hover{background:var(--accent, #1F5FBF)}
+.pgrot:disabled{opacity:.5;cursor:wait}
 .pgadd{aspect-ratio:4/3;border:2px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--ink-soft);cursor:pointer;background:var(--bg)}
 .pgadd:hover{border-color:var(--brand);color:var(--brand)}
 .ff-canvas{font-family:Calibri,Arial,sans-serif;color:#1c2733;font-size:12px}
@@ -246,8 +249,12 @@ input,select{font-family:inherit;font-size:16px}
 .ucard b{display:block}
 .ucard span{color:var(--ink-soft);font-size:13px}
 .grouphead{font-size:16px;font-weight:800;margin:22px 0 12px;color:var(--ink-soft)}
-.lightbox{position:fixed;inset:0;background:rgba(10,16,20,.92);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out}
-.lightbox img{max-width:96vw;max-height:92vh;border-radius:8px}
+.lightbox{position:fixed;inset:0;background:rgba(10,16,20,.92);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out;overflow:hidden}
+.lightbox img{max-width:96vw;max-height:88vh;border-radius:8px;transition:transform .12s ease-out;user-select:none;touch-action:none}
+.lbbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:rgba(10,16,20,.85);border:1px solid rgba(255,255,255,.25);border-radius:24px;padding:8px 14px;z-index:81;cursor:default}
+.lbbar button{background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:16px;min-width:34px;height:30px;font-size:15px;cursor:pointer;padding:0 10px}
+.lbbar button:hover{background:rgba(255,255,255,.28)}
+.lbbar span{color:#fff;font-size:13px;min-width:44px;text-align:center}
 
 /* drag & drop zone for project documents */
 .docdrop{border:2px dashed var(--line);border-radius:12px;padding:22px 14px;text-align:center;cursor:pointer;background:var(--bg);margin-bottom:12px;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center}
@@ -874,6 +881,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="pgrid">
                 <div class="pgitem" v-for="(img,i) in r.images" :key="r.id+img+'-'+i">
                   <img :src="img" loading="lazy" alt="repair photo" @click="lightbox=img">
+                  <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(r.images, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="r.images.splice(i,1)">&#10005;</button>
                 </div>
                 <label class="pgadd" title="Upload photos">
@@ -959,8 +967,24 @@ input,select{font-family:inherit;font-size:16px}
   </template>
 
   <!-- ============ LIGHTBOX ============ -->
-  <div class="lightbox" v-if="lightbox" @click="lightbox=null">
-    <img :src="lightbox" alt="photo">
+  <!-- Lightbox with ZOOM (David, Aug 23): click a photo to open; click the
+       photo to zoom in and again to zoom back out; mouse wheel zooms; drag to
+       move around while zoomed; the bar below has +/- , Fit, and Close.
+       Clicking the dark background still closes, as before. -->
+  <div class="lightbox" v-if="lightbox" @click.self="lightbox=null" @wheel.prevent="lbWheel($event)">
+    <img :src="lightbox" alt="photo" draggable="false"
+         :style="{ transform: 'translate('+lbX+'px,'+lbY+'px) scale('+lbZoom+')', cursor: lbZoom>1 ? 'grab' : 'zoom-in' }"
+         @click.stop="lbToggle()"
+         @pointerdown.prevent="lbDown($event)"
+         @pointermove="lbMove($event)"
+         @pointerup="lbUp()" @pointercancel="lbUp()">
+    <div class="lbbar" @click.stop>
+      <button title="Zoom out" @click="lbSet(lbZoom/1.5)">&#8722;</button>
+      <span>{{ Math.round(lbZoom*100) }}%</span>
+      <button title="Zoom in" @click="lbSet(lbZoom*1.5)">&#65291;</button>
+      <button title="Fit to screen" @click="lbSet(1)">Fit</button>
+      <button title="Close" @click="lightbox=null">&#10005;</button>
+    </div>
   </div>
 
   <!-- ============ DELETE CONFIRM ============ -->
@@ -1053,6 +1077,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="pgrid">
                 <div class="pgitem" v-for="(img,i) in inv.invasiveimages" :key="'inv'+img+'-'+i">
                   <img :src="img" loading="lazy" alt="invasive photo" @click="lightbox=img">
+                  <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(inv.invasiveimages, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="inv.invasiveimages.splice(i,1)">&#10005;</button>
                 </div>
                 <label class="pgadd" title="Upload photos">
@@ -1101,7 +1126,8 @@ input,select{font-family:inherit;font-size:16px}
           <div class="pgrid">
             <div class="pgitem" v-for="(img,i) in secForm.images" :key="img + '-' + i">
               <img :src="img" loading="lazy" alt="inspection photo" @click="lightbox=img">
-              <button class="pgdel" title="Remove this photo" @click="removeSecPhoto(i)">&#10005;</button>
+              <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(secForm.images, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
+                  <button class="pgdel" title="Remove this photo" @click="removeSecPhoto(i)">&#10005;</button>
             </div>
             <label class="pgadd" title="Add photos">
               <span v-if="secPhotoBusy" class="spinner" style="width:18px;height:18px"></span>
@@ -1545,6 +1571,8 @@ createApp({
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       repRecs: [], rep: { loading: false, saving: '', photoBusy: '', deleting: '' },
+      rotBusy: '',
+      lbZoom: 1, lbX: 0, lbY: 0,
       // Section ordering + move-to-another-unit
       reordering: false, movingSec: null, moveTargetId: '', movingBusy: false,
 
@@ -1555,6 +1583,9 @@ createApp({
       propBusy: false, propConverting: false, propDeleting: null,
       toasts: [], toastSeq: 0,
     };
+  },
+  watch: {
+    lightbox() { this.lbZoom = 1; this.lbX = 0; this.lbY = 0; this._lbDrag = false; this._lbMoved = false; },
   },
   computed: {
     // Every other unit in this project a section could be moved to, labelled
@@ -1728,11 +1759,20 @@ createApp({
 
     /* ---------- projects ---------- */
     async loadProjects() {
-      this.loadingProjects = true;
+      let painted = false;
+      try {
+        const cached = JSON.parse(localStorage.getItem('e3v2_projects') || 'null');
+        if (cached && Array.isArray(cached.projects) && cached.projects.length) {
+          this.projects = cached.projects; painted = true;
+        }
+      } catch (e) { /* ignore */ }
+      this.loadingProjects = !painted;
       try {
         const res = await this.api('/project/allprojects');
         const data = await res.json();
         this.projects = this.decorateCardDates((data.projects || []).filter(p => !p.isdeleted));
+        try { localStorage.setItem('e3v2_projects', JSON.stringify({ projects: this.projects, ts: Date.now() })); }
+        catch (e) { /* storage full */ }
         if (!this.users.length) this.loadUsers();
         this.sweepFinalReports();
       } catch (e) {
@@ -2712,17 +2752,35 @@ createApp({
       } finally { p._inspBusy = false; }
     },
     async loadStructure() {
-      this.loadingStructure = true;
+      // LOCAL COPY (David, Aug 23: "the E3 URL is very slow to load a large
+      // project"): the last-known structure is kept on this computer and
+      // painted INSTANTLY, then the live version is fetched behind it and
+      // both the screen and the local copy are refreshed. First-ever open of
+      // a project still shows the loading state; every open after that is
+      // immediate.
+      const pid = this.projectId(this.current);
+      const cacheKey = 'e3v2_struct_' + pid;
+      let painted = false;
       try {
-        const res = await this.api('/project/getProjectMetadata/' + encodeURIComponent(this.projectId(this.current)));
+        const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+        if (cached && cached.structure && (cached.structure.locations || cached.structure.subProjects)) {
+          this.structure = cached.structure;
+          painted = true;
+        }
+      } catch (e) { /* bad cache - ignore */ }
+      this.loadingStructure = !painted;
+      try {
+        const res = await this.api('/project/getProjectMetadata/' + encodeURIComponent(pid));
         const data = await res.json();
         const item = (data.item && data.item[0]) || {};
         this.structure = {
           subProjects: item.subProjects || [],
           locations: item.locations || [],
         };
+        try { localStorage.setItem(cacheKey, JSON.stringify({ structure: this.structure, ts: Date.now() })); }
+        catch (e) { /* storage full - live data still on screen */ }
       } catch (e) {
-        if (e.message !== 'auth') this.toast('Could not load the inspection structure.', 'err');
+        if (e.message !== 'auth' && !painted) this.toast('Could not load the inspection structure.', 'err');
       } finally { this.loadingStructure = false; }
     },
     openUnit(loc) {
@@ -3158,6 +3216,50 @@ createApp({
     },
     // Create/update the InvasiveSection linked to this visual section. Returns
     // true (saved), null (nothing to save), or false (failed).
+    // ---- Lightbox zoom + pan (David, Aug 23) ----
+    lbSet(z) {
+      this.lbZoom = Math.min(8, Math.max(1, z));
+      if (this.lbZoom === 1) { this.lbX = 0; this.lbY = 0; }
+    },
+    lbWheel(e) { this.lbSet(this.lbZoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2)); },
+    lbToggle() {
+      if (this._lbMoved) return;                    // that was a drag, not a click
+      this.lbSet(this.lbZoom > 1 ? 1 : 2.5);
+    },
+    lbDown(e) {
+      this._lbDrag = true; this._lbMoved = false;
+      this._lbSX = e.clientX; this._lbSY = e.clientY;
+      this._lbOX = this.lbX; this._lbOY = this.lbY;
+      if (e.target.setPointerCapture) { try { e.target.setPointerCapture(e.pointerId); } catch (err) { /* fine */ } }
+    },
+    lbMove(e) {
+      if (!this._lbDrag) return;
+      const dx = e.clientX - this._lbSX, dy = e.clientY - this._lbSY;
+      if (Math.abs(dx) + Math.abs(dy) > 6) this._lbMoved = true;
+      if (this.lbZoom > 1) { this.lbX = this._lbOX + dx; this.lbY = this._lbOY + dy; }
+    },
+    lbUp() { this._lbDrag = false; },
+
+    // ---- Photo rotation (David, Aug 23) ----
+    // Rotates the REAL stored image on the server (90° clockwise per click -
+    // click again to keep turning), then swaps the new photo URL into the
+    // list. Like photo add/remove, nothing is written to the record until the
+    // panel's own Save button is pressed.
+    async rotatePhoto(list, i) {
+      const url = list[i];
+      if (!url || this.rotBusy) return;
+      this.rotBusy = url;
+      try {
+        const res = await this.api('/image/rotate', { method: 'POST', json: { url, degrees: 90 } });
+        if (!res.ok) throw new Error('bad');
+        const j = await res.json().catch(() => null);
+        if (!(j && j.url)) throw new Error('bad');
+        list.splice(i, 1, j.url);
+        this.toast('Rotated 90° — press Save to keep it.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not rotate this photo.', 'err'); }
+      finally { this.rotBusy = ''; }
+    },
+
     // ---- Repairs Inspection (per-location repair records / dynamic sections) ----
     // The mobile app creates one record per repaired area; the Onsite report
     // prints one REPAIR block per record. These methods give the web full
