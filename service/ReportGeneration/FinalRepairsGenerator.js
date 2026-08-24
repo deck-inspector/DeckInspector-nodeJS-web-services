@@ -25,6 +25,24 @@ const { convertDocxToPdf } = require("../convertDocxToPdf.js");
 // reportType through five generator layers; this report has its own shape
 // and its own template (Deck_FinalRepairsTemplate.docx, repo root, default
 // +++ docx-templates syntax).
+// SPEED (David, Aug 23: Northridge, 110 units, "takes a few minutes to
+// load"): every per-location lookup below used to run ONE AT A TIME - the
+// report waited through a full database round-trip per unit, in sequence.
+// pmap runs them in parallel batches of 8: fast, without swamping Couchbase.
+async function pmap(items, fn, limit = 8) {
+  const out = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx], idx);
+    }
+  }
+  const n = Math.min(limit, items.length) || 1;
+  await Promise.all(Array.from({ length: n }, worker));
+  return out;
+}
+
 class FinalRepairsGenerator {
 
   isBadSection(s) {
@@ -135,12 +153,13 @@ class FinalRepairsGenerator {
     const out = [];
     const subs = await subProjectModel.getSubProjectsByParentId(projectId).catch(() => null);
     const subItems = (subs && subs.data && subs.data.item) || [];
-    for (const sp of subItems) {
-      const kids = await locationModel.getLocationByParentId(sp.id || sp._id).catch(() => null);
+    const kidsList = await pmap(subItems, (sp) => locationModel.getLocationByParentId(sp.id || sp._id).catch(() => null));
+    subItems.forEach((sp, si) => {
+      const kids = kidsList[si];
       for (const loc of ((kids && kids.data && kids.data.item) || [])) {
         out.push({ id: loc.id || loc._id, title: `${sp.name} — ${this.cleanName(loc)}`, meta: loc.sections || [] });
       }
-    }
+    });
     const locs = await locationModel.getLocationByParentId(projectId).catch(() => null);
     for (const loc of ((locs && locs.data && locs.data.item) || [])) {
       out.push({ id: loc.id || loc._id, title: this.cleanName(loc), meta: loc.sections || [] });
@@ -174,12 +193,18 @@ class FinalRepairsGenerator {
     const proj = (pRes && (pRes.project || (pRes.data && pRes.data.item))) || {};
     const locations = [];
     const all = await this.allLocations(projectId);
-    for (const loc of all) {
+    const perLoc = await pmap(all, async (loc) => {
       const secRes = await sectionService.getSectionsByParentId(loc.id).catch(() => null);
       const sections = (secRes && secRes.sections) || [];
       const bad = this.mergedBadSections(sections, loc.meta);
-      if (!bad.length) continue;
-      const { answers, repairPhotos } = await this.repairFindings(loc.id);
+      if (!bad.length) return null;
+      const rf = await this.repairFindings(loc.id);
+      return { loc, bad, rf };
+    });
+    for (const hit of perLoc) {
+      if (!hit) continue;
+      const { loc, bad } = hit;
+      const { answers, repairPhotos } = hit.rf;
       locations.push({
         title: "Location: " + loc.title,
         badSections: bad.map((s) => ({
@@ -334,12 +359,18 @@ class FinalRepairsGenerator {
     const locations = [];
     let anyRepairsRecord = false;
     const all = await this.allLocations(projectId);
-    for (const loc of all) {
+    const perLoc = await pmap(all, async (loc) => {
       const secRes = await sectionService.getSectionsByParentId(loc.id).catch(() => null);
       const sections = (secRes && secRes.sections) || [];
       const bad = this.mergedBadSections(sections, loc.meta);
-      if (!bad.length) continue;
-      const { answers, repairPhotos, repairs } = await this.repairFindings(loc.id);
+      if (!bad.length) return null;
+      const rf = await this.repairFindings(loc.id);
+      return { loc, bad, rf };
+    });
+    for (const hit of perLoc) {
+      if (!hit) continue;
+      const { loc, bad } = hit;
+      const { answers, repairPhotos, repairs } = hit.rf;
       if (answers.length || repairPhotos.length) anyRepairsRecord = true;
       const passText = this.verdictFor(answers);
       locations.push({
