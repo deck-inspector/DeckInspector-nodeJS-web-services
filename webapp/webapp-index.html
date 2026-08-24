@@ -207,6 +207,9 @@ input,select{font-family:inherit;font-size:16px}
 .pgitem img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;cursor:pointer;background:#e7edf2;display:block}
 .pgdel{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(10,16,20,.65);color:#fff;font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .pgdel:hover{background:var(--danger)}
+.pgrot{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(10,16,20,.65);color:#fff;font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.pgrot:hover{background:var(--accent, #1F5FBF)}
+.pgrot:disabled{opacity:.5;cursor:wait}
 .pgadd{aspect-ratio:4/3;border:2px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--ink-soft);cursor:pointer;background:var(--bg)}
 .pgadd:hover{border-color:var(--brand);color:var(--brand)}
 .ff-canvas{font-family:Calibri,Arial,sans-serif;color:#1c2733;font-size:12px}
@@ -874,6 +877,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="pgrid">
                 <div class="pgitem" v-for="(img,i) in r.images" :key="r.id+img+'-'+i">
                   <img :src="img" loading="lazy" alt="repair photo" @click="lightbox=img">
+                  <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(r.images, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="r.images.splice(i,1)">&#10005;</button>
                 </div>
                 <label class="pgadd" title="Upload photos">
@@ -1053,6 +1057,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="pgrid">
                 <div class="pgitem" v-for="(img,i) in inv.invasiveimages" :key="'inv'+img+'-'+i">
                   <img :src="img" loading="lazy" alt="invasive photo" @click="lightbox=img">
+                  <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(inv.invasiveimages, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="inv.invasiveimages.splice(i,1)">&#10005;</button>
                 </div>
                 <label class="pgadd" title="Upload photos">
@@ -1101,7 +1106,8 @@ input,select{font-family:inherit;font-size:16px}
           <div class="pgrid">
             <div class="pgitem" v-for="(img,i) in secForm.images" :key="img + '-' + i">
               <img :src="img" loading="lazy" alt="inspection photo" @click="lightbox=img">
-              <button class="pgdel" title="Remove this photo" @click="removeSecPhoto(i)">&#10005;</button>
+              <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(secForm.images, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
+                  <button class="pgdel" title="Remove this photo" @click="removeSecPhoto(i)">&#10005;</button>
             </div>
             <label class="pgadd" title="Add photos">
               <span v-if="secPhotoBusy" class="spinner" style="width:18px;height:18px"></span>
@@ -1545,6 +1551,7 @@ createApp({
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
       unit: null, sections: [], loadingSections: false, lightbox: null,
       repRecs: [], rep: { loading: false, saving: '', photoBusy: '', deleting: '' },
+      rotBusy: '',
       // Section ordering + move-to-another-unit
       reordering: false, movingSec: null, moveTargetId: '', movingBusy: false,
 
@@ -3185,6 +3192,26 @@ createApp({
     },
     // Create/update the InvasiveSection linked to this visual section. Returns
     // true (saved), null (nothing to save), or false (failed).
+    // ---- Photo rotation (David, Aug 23) ----
+    // Rotates the REAL stored image on the server (90° clockwise per click -
+    // click again to keep turning), then swaps the new photo URL into the
+    // list. Like photo add/remove, nothing is written to the record until the
+    // panel's own Save button is pressed.
+    async rotatePhoto(list, i) {
+      const url = list[i];
+      if (!url || this.rotBusy) return;
+      this.rotBusy = url;
+      try {
+        const res = await this.api('/image/rotate', { method: 'POST', json: { url, degrees: 90 } });
+        if (!res.ok) throw new Error('bad');
+        const j = await res.json().catch(() => null);
+        if (!(j && j.url)) throw new Error('bad');
+        list.splice(i, 1, j.url);
+        this.toast('Rotated 90° — press Save to keep it.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not rotate this photo.', 'err'); }
+      finally { this.rotBusy = ''; }
+    },
+
     // ---- Repairs Inspection (per-location repair records / dynamic sections) ----
     // The mobile app creates one record per repaired area; the Onsite report
     // prints one REPAIR block per record. These methods give the web full
