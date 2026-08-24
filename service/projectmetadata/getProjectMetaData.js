@@ -1,3 +1,31 @@
+// SCHEDULING ORDER (David, Aug 15, approved on the web app; applied to the
+// MOBILE-facing endpoints Aug 23: "the project order by date is jumbled up in
+// the app but on the website it works great"): upcoming inspections first -
+// furthest out down to today - then past ones most-recent first, undated at
+// the bottom. Dates partition against midnight LOS ANGELES time, same as the
+// web app on David's screen.
+function schedulingOrder(list) {
+  if (!Array.isArray(list)) return list;
+  const laNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  laNow.setHours(0, 0, 0, 0);
+  const today = laNow.getTime();
+  const when = (p) => { const v = new Date(p && p.editedat).getTime(); return isNaN(v) ? -Infinity : v; };
+  return list.slice().sort((a, b) => {
+    const wa = when(a), wb = when(b);
+    const ua = wa >= today, ub = wb >= today;
+    if (ua !== ub) return ua ? -1 : 1;
+    return wb - wa;
+  });
+}
+
+async function pmapMeta(items, fn, limit = 6) {
+  const out = new Array(items.length);
+  let i = 0;
+  async function worker() { while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx], idx); } }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) || 1 }, worker));
+  return out;
+}
+
 const project = require("../../model/project.js");
 const subProject = require("../../model/subproject.js");
 const location = require("../../model/location.js");
@@ -12,20 +40,21 @@ const getProjectHierarchyMetadata = async function(username)
         
         if(allProjects.data && allProjects.data.projects)
         {
-            for(const proj of allProjects.data.projects)
-            {
-                // ✅ FIX: Handle both Couchbase (id) and legacy (_id) formats
-                const projectId = proj.id || proj._id;
-                
-                if (!projectId || projectId === 'undefined') {
-                    console.warn("⚠️ Skipping project with undefined ID:", proj);
-                    continue;
-                }
-                
-                console.log("Processing project ID:", projectId);
-                const projectResponse = await getProjectData(projectId);
-                projects.push(projectResponse);
-            }
+            // Scheduling order first (matches the web app), then the heavy
+            // per-project builds run in parallel batches instead of one at a
+            // time - the mobile launch was waiting through every project in
+            // sequence (same pattern fixed for the web on Aug 23).
+            const srcList = schedulingOrder(allProjects.data.projects)
+                .filter((proj) => {
+                    const projectId = proj.id || proj._id;
+                    if (!projectId || projectId === 'undefined') {
+                        console.warn("⚠️ Skipping project with undefined ID:", proj);
+                        return false;
+                    }
+                    return true;
+                });
+            const built = await pmapMeta(srcList, (proj) => getProjectData(proj.id || proj._id).catch(() => null), 6);
+            for (const b of built) { if (b) projects.push(b); }
         }
 
         response = {
