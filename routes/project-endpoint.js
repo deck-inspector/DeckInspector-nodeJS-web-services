@@ -456,9 +456,10 @@ router.route('/:id/repairphotos')
         for (const r of (subs.rows || [])) for (const v of [r.metaId, r.docId]) if (v && parentIds.indexOf(v) === -1) parentIds.push(v);
         // locations under those parents
         const locs = await cluster.query(
-          `SELECT RAW META(l).id FROM \`${bucket}\`.\`${scope}\`.Location l WHERE l.parentid IN $1`,
+          `SELECT META(l).id AS lid, l.name, l.url, l.parentid, l.parenttype FROM \`${bucket}\`.\`${scope}\`.Location l WHERE l.parentid IN $1`,
           { parameters: [parentIds] });
-        const locIds = locs.rows || [];
+        const locRows = locs.rows || [];
+        const locIds = locRows.map((r) => r.lid);
         if (!locIds.length) return res.status(200).json({ sections: 0, repaired: 0, unresolved: [] });
         // section docs under those locations
         const secs = await cluster.query(
@@ -514,7 +515,56 @@ router.route('/:id/repairphotos')
             } catch (e) { /* best effort */ }
           }
         }
-        return res.status(200).json({ sections: sectionsTouched, repaired, unresolved });
+        // LOCATION COVER PHOTOS (David, Aug 23: "the Location images are not
+        // syncing... I don't think they ever did"). The Aug 17 dead-database
+        // bug hit every entity type, but this sweep only healed section
+        // photos - each Location's own cover url was left holding the
+        // phone-local path. Same cure: derive the blob name, verify the blob
+        // actually exists, rewrite only verified URLs, and refresh the parent
+        // project/building's copy of the thumbnail.
+        let locationsTouched = 0; let locationRepaired = 0; const locationUnresolved = [];
+        let projName = "";
+        try { const pdoc = await cbase.Projects.get(projectId); projName = (pdoc.content && pdoc.content.name) || ""; } catch (e) { /* fine */ }
+        const projColl = cbase.Projects, subColl = cbase.SubProjects;
+        for (const lr of locRows) {
+          const cur = String(lr.url || "");
+          if (!cur || /^https?:\/\//i.test(cur)) continue;
+          const parts = cur.split("/").filter(Boolean);
+          const file = parts[parts.length - 1];
+          const pathSeg = parts.length > 1 ? parts[parts.length - 2] : "";
+          const candidates = [];
+          for (const nm of [pathSeg, lr.name, projName]) {
+            const c = sanitize(nm);
+            if (c && c.length >= 3 && candidates.indexOf(c) === -1) candidates.push(c);
+          }
+          let fixed = null;
+          for (const c of candidates) {
+            const url = base + c + "/" + encodeURIComponent(c + "-" + file);
+            if (await exists(url)) { fixed = url; break; }
+          }
+          if (!fixed) { locationUnresolved.push((lr.name || lr.lid) + " :: " + cur); continue; }
+          try {
+            const doc = await locColl.get(lr.lid);
+            await locColl.upsert(lr.lid, Object.assign({}, doc.content, { url: fixed }));
+            locationsTouched++; locationRepaired++;
+            // parent's children[] copy carries the thumbnail the lists show
+            try {
+              const parentColl = (String(lr.parenttype || "").toLowerCase() === "project") ? projColl : subColl;
+              const pdoc = await parentColl.get(lr.parentid);
+              if (pdoc && pdoc.content && Array.isArray(pdoc.content.children)) {
+                let touched = false;
+                const children = pdoc.content.children.map((ch) => {
+                  const cid = ch && (ch.id || ch._id);
+                  if (cid === lr.lid) { touched = true; return Object.assign({}, ch, { url: fixed }); }
+                  return ch;
+                });
+                if (touched) await parentColl.upsert(lr.parentid, Object.assign({}, pdoc.content, { children }));
+              }
+            } catch (e) { /* parent copy is best effort */ }
+          } catch (e) { locationUnresolved.push((lr.name || lr.lid) + " :: save failed"); }
+        }
+        return res.status(200).json({ sections: sectionsTouched, repaired, unresolved,
+          locations: locationsTouched, locationRepaired, locationUnresolved });
       } catch (error) {
         console.log("repairphotos failed:", error);
         return res.status(500).json(new ErrorResponse(500, "Internal server error", error));
