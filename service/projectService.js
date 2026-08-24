@@ -1,3 +1,23 @@
+// SCHEDULING ORDER (David, Aug 15, approved on the web app; applied to the
+// MOBILE-facing endpoints Aug 23: "the project order by date is jumbled up in
+// the app but on the website it works great"): upcoming inspections first -
+// furthest out down to today - then past ones most-recent first, undated at
+// the bottom. Dates partition against midnight LOS ANGELES time, same as the
+// web app on David's screen.
+function schedulingOrder(list) {
+  if (!Array.isArray(list)) return list;
+  const laNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  laNow.setHours(0, 0, 0, 0);
+  const today = laNow.getTime();
+  const when = (p) => { const v = new Date(p && p.editedat).getTime(); return isNaN(v) ? -Infinity : v; };
+  return list.slice().sort((a, b) => {
+    const wa = when(a), wb = when(b);
+    const ua = wa >= today, ub = wb >= today;
+    if (ua !== ub) return ua ? -1 : 1;
+    return wb - wa;
+  });
+}
+
 "use strict";
 const ProjectDAO = require("../model/projectDAO");
 const ArchivedProjectDAO = require("../model/archivedProjectDAO");
@@ -234,7 +254,7 @@ var getProjectByAssignedToUserId = async function (userId) {
     if (result) {
       return {
         success: true,
-        projects: result,
+        projects: schedulingOrder(result),
       };
     }
     return {
