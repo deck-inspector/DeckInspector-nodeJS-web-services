@@ -831,6 +831,15 @@ input,select{font-family:inherit;font-size:16px}
         </template>
         <template v-else>
         <div class="crumb">Projects &rsaquo; <b>{{ current.name }}</b> &rsaquo; <b>{{ unit.locationName }}</b></div>
+        <!-- Apartment photo next to the name (David, Aug 23) - click opens the
+             zoom viewer. Hidden when no photo has synced yet. -->
+        <div v-if="unit.url" style="display:flex;align-items:center;gap:14px;margin:2px 0 14px">
+          <img :src="unit.url" alt="apartment photo" style="width:96px;height:96px;object-fit:cover;border-radius:12px;border:1.5px solid var(--line);cursor:zoom-in" @click="lightbox=unit.url">
+          <div>
+            <h2 style="margin:0">{{ unit.locationName }}</h2>
+            <div class="hint">Apartment photo &mdash; click to enlarge</div>
+          </div>
+        </div>
         <div class="panel">
           <h3>Create Report for {{ unit.locationName }} Only</h3>
           <div class="hint">Builds a report covering just this unit. It will appear in the project&#8217;s Reports list in a few minutes.</div>
@@ -2784,7 +2793,7 @@ createApp({
       } finally { this.loadingStructure = false; }
     },
     openUnit(loc) {
-      history.pushState({ v: 'unit', pid: this.projectId(this.current), loc: { locationId: loc.locationId, locationName: loc.locationName, locationType: loc.locationType } }, '');
+      history.pushState({ v: 'unit', pid: this.projectId(this.current), loc: { locationId: loc.locationId, locationName: loc.locationName, locationType: loc.locationType, url: loc.url || '' } }, '');
       this.unit = loc; this.view = 'unit'; this.sections = [];
       this.loadSections();
       this.repRecs = []; this.loadRepairs();
