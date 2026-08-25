@@ -511,6 +511,26 @@ class FinalRepairsGenerator {
       data: annex.data,
       processLineBreaks: true,
       additionalJsContext: {
+        // APARTMENT PHOTO, LARGE (David, Aug 24: "a little larger so that we
+        // can actually read the unit numbers in the photos"). Keeps the
+        // photo's TRUE shape - 6cm tall, width follows the aspect (max 12cm)
+        // - and stays OUT of the square-crop pass (srcDims gets a null so the
+        // crop indexes still line up with the section photos).
+        imgApt: async (url) => {
+          if (!url) return null;
+          const fetched = await this.fetchImage(url);
+          if (!fetched) return null;
+          let ar = 4 / 3;
+          try {
+            const FinalReportGenerator = require("./FinalReportGenerator.js");
+            const d = FinalReportGenerator.getImageDims(fetched.data, String(fetched.extension || '').replace('.', ''));
+            if (d && d.w && d.h) ar = d.w / d.h;
+          } catch (e) { /* default shape */ }
+          fetched.height = 6.0;                       // cm
+          fetched.width = Math.min(12.0, 6.0 * ar);   // cm
+          srcDims.push(null);                          // exempt from square-crop
+          return fetched;
+        },
         img: async (url) => {
           if (!url) return null;
           const fetched = await this.fetchImage(url);
