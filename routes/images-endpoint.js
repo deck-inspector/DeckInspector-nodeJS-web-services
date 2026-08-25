@@ -291,4 +291,58 @@ router.route('/thumb')
         }
     });
 
+// PRE-BUILD (David, Aug 24: "if I am editing 100 images, the entire system
+// slows to a crawl"). The moment a unit or section loads, the web app sends
+// its photo list here; the server answers instantly and then builds ALL the
+// missing thumbnails in the background, one at a time, respecting the same
+// build gate as on-demand requests. First view of a section shows originals
+// (page still paints); a minute later that section is permanently fast for
+// everyone. No page ever waits on this.
+async function buildThumbIfMissing(orig) {
+    let u;
+    try { u = new URL(String(orig || '')); } catch (e) { return; }
+    if (!/\.blob\.core\.windows\.net$/.test(u.hostname)) return;
+    const parts = u.pathname.split('/').filter(Boolean);
+    const container = parts.shift();
+    const blobName = decodeURIComponent(parts.join('/'));
+    const thumbName = 't320-' + blobName.replace(/\.[a-zA-Z0-9]+$/, '') + '.jpg';
+    const thumbUrl = 'https://' + u.hostname + '/' + container + '/' + encodeURIComponent(thumbName);
+    try { const head = await fetch(thumbUrl, { method: 'HEAD' }); if (head.ok) return; } catch (e) { /* build */ }
+    while (THUMB_BUILDS_ACTIVE >= 2) await new Promise((r) => setTimeout(r, 400));
+    THUMB_BUILDS_ACTIVE++;
+    try {
+        const axios = require('axios');
+        const resp = await axios.get(u.href, { responseType: 'arraybuffer', timeout: 20000 });
+        const buf = Buffer.from(resp.data);
+        if (buf.length > 15 * 1024 * 1024) return;
+        const Jimp = require('jimp');
+        const img = await new Promise((ok, bad) => Jimp.read(buf, (e, i) => (e ? bad(e) : ok(i))));
+        const w = img.bitmap.width, h = img.bitmap.height;
+        if (!w || !h || w <= 360) return;
+        img.resize(320, Math.max(1, Math.round(h * (320 / w))));
+        const out = await new Promise((ok, bad) => img.getBuffer(Jimp.MIME_JPEG, (e, b) => (e ? bad(e) : ok(b))));
+        const os = require('os'), path = require('path'), fs = require('fs');
+        const tmp = path.join(os.tmpdir(), 'thumb-' + Date.now() + '-' + Math.floor(Math.random() * 1e5) + '.jpg');
+        fs.writeFileSync(tmp, out);
+        try { await uploadBlob.uploadFile(container, thumbName, tmp, { metadata: { thumbOf: blobName }, tags: { kind: 'thumb' } }); }
+        finally { try { fs.unlinkSync(tmp); } catch (e) { /* temp */ } }
+    } catch (e) { /* skip this photo */ }
+    finally { THUMB_BUILDS_ACTIVE--; }
+}
+
+router.route('/prebuild')
+    .post(async function (req, res) {
+        const urls = Array.isArray(req.body && req.body.urls) ? req.body.urls.slice(0, 800) : [];
+        res.status(202).json({ queued: urls.length });
+        setImmediate(async () => {
+            const seen = new Set();
+            for (const raw of urls) {
+                const k = String(raw || '');
+                if (!k || seen.has(k)) continue;
+                seen.add(k);
+                try { await buildThumbIfMissing(k); } catch (e) { /* next */ }
+            }
+        });
+    });
+
 module.exports = router;
