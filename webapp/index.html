@@ -834,7 +834,7 @@ input,select{font-family:inherit;font-size:16px}
         <!-- Apartment photo next to the name (David, Aug 23) - click opens the
              zoom viewer. Hidden when no photo has synced yet. -->
         <div v-if="unit.url" style="display:flex;align-items:center;gap:14px;margin:2px 0 14px">
-          <img :src="thumb(unit.url)" alt="apartment photo" style="width:176px;height:176px;object-fit:cover;border-radius:12px;border:1.5px solid var(--line);cursor:zoom-in" @click="lightbox=unit.url">
+          <img :src="thumb(unit.url)" @error="$event.target.src=unit.url" alt="apartment photo" style="width:176px;height:176px;object-fit:cover;border-radius:12px;border:1.5px solid var(--line);cursor:zoom-in" @click="lightbox=unit.url">
           <div>
             <h2 style="margin:0">{{ unit.locationName }}</h2>
             <div class="hint">Apartment photo &mdash; click to enlarge</div>
@@ -889,7 +889,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="field"><label>Repair Photos ({{ r.images.length }})</label>
               <div class="pgrid">
                 <div class="pgitem" v-for="(img,i) in r.images" :key="r.id+img+'-'+i">
-                  <img :src="thumb(img)" loading="lazy" alt="repair photo" @click="lightbox=img">
+                  <img :src="thumb(img)" loading="lazy" alt="repair photo" @click="lightbox=img" @error="$event.target.src=img">
                   <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(r.images, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="r.images.splice(i,1)">&#10005;</button>
                 </div>
@@ -905,7 +905,7 @@ input,select{font-family:inherit;font-size:16px}
               <label>Import photos from this unit&#8217;s visual inspection &mdash; click to add</label>
               <div class="pgrid">
                 <div class="pgitem" v-for="img in repImportCandidates(r)" :key="'ri'+r.id+img" style="cursor:pointer;outline:2px dashed var(--line)" title="Click to add to this repair" @click="r.images.push(img)">
-                  <img :src="thumb(img)" loading="lazy" alt="visual inspection photo">
+                  <img :src="thumb(img)" loading="lazy" alt="visual inspection photo" @error="$event.target.src=img">
                 </div>
               </div>
             </div>
@@ -935,7 +935,7 @@ input,select{font-family:inherit;font-size:16px}
               <div v-if="secText(s.additionalconsiderations, s.additionalconsiderationshtml)" style="white-space:pre-wrap">{{ secText(s.additionalconsiderations, s.additionalconsiderationshtml) }}</div>
             </div>
             <div class="photos" v-if="(s.images||[]).length">
-              <img v-for="(img,i) in s.images" :key="i" :src="thumb(img)" loading="lazy" @click="lightbox=img" alt="inspection photo">
+              <img v-for="(img,i) in s.images" :key="i" :src="thumb(img)" loading="lazy" @click="lightbox=img" alt="inspection photo" @error="$event.target.src=img">
             </div>
             <div class="hint" v-else style="margin:0">No photos.</div>
           </div>
@@ -1085,7 +1085,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="field"><label>Invasive Photos ({{ (inv.invasiveimages||[]).length }})</label>
               <div class="pgrid">
                 <div class="pgitem" v-for="(img,i) in inv.invasiveimages" :key="'inv'+img+'-'+i">
-                  <img :src="thumb(img)" loading="lazy" alt="invasive photo" @click="lightbox=img">
+                  <img :src="thumb(img)" loading="lazy" alt="invasive photo" @click="lightbox=img" @error="$event.target.src=img">
                   <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(inv.invasiveimages, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="inv.invasiveimages.splice(i,1)">&#10005;</button>
                 </div>
@@ -1100,7 +1100,7 @@ input,select{font-family:inherit;font-size:16px}
               <label>Import photos from the visual inspection &mdash; click to add</label>
               <div class="pgrid">
                 <div class="pgitem" v-for="img in invImportCandidates" :key="'imp'+img" style="cursor:pointer;outline:2px dashed var(--line)" title="Click to add to the invasive photos" @click="inv.invasiveimages.push(img)">
-                  <img :src="thumb(img)" loading="lazy" alt="visual inspection photo">
+                  <img :src="thumb(img)" loading="lazy" alt="visual inspection photo" @error="$event.target.src=img">
                 </div>
               </div>
             </div>
@@ -1134,7 +1134,7 @@ input,select{font-family:inherit;font-size:16px}
         <div class="field"><label>Photos ({{ (secForm.images||[]).length }})</label>
           <div class="pgrid">
             <div class="pgitem" v-for="(img,i) in secForm.images" :key="img + '-' + i">
-              <img :src="thumb(img)" loading="lazy" alt="inspection photo" @click="lightbox=img">
+              <img :src="thumb(img)" loading="lazy" alt="inspection photo" @click="lightbox=img" @error="$event.target.src=img">
               <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(secForm.images, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="removeSecPhoto(i)">&#10005;</button>
             </div>
