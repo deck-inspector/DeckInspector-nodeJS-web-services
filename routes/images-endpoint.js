@@ -223,4 +223,57 @@ router.route('/rotate')
         }
     });
 
+// THUMBNAILS (David, Aug 24: opening edit "comes to a crawl and no photos
+// appear"). The grids were loading FULL multi-megabyte phone originals as
+// thumbnails; after the photo-link repair made those links live, a 25-photo
+// section meant ~100MB of downloads per edit. This endpoint makes a small
+// (320px wide) copy of a photo ONCE, stores it beside the original, and
+// redirects to it - grids load in a blink, and the full original stays one
+// click away in the zoom viewer. Any problem redirects to the original, so
+// nothing can look worse than before.
+router.route('/thumb')
+    .get(async function (req, res) {
+        const orig = String((req.query && req.query.u) || '');
+        try {
+            let u;
+            try { u = new URL(orig); } catch (e) { u = null; }
+            if (!u || !/\.blob\.core\.windows\.net$/.test(u.hostname)) {
+                return res.status(400).json(new ErrorResponse(400, 'u must be an Azure blob photo URL', ''));
+            }
+            const parts = u.pathname.split('/').filter(Boolean);
+            const container = parts.shift();
+            const blobName = decodeURIComponent(parts.join('/'));
+            const thumbName = 't320-' + blobName.replace(/\.[a-zA-Z0-9]+$/, '') + '.jpg';
+            const thumbUrl = 'https://' + u.hostname + '/' + container + '/' + encodeURIComponent(thumbName);
+            // already built? just point the browser at it
+            try {
+                const head = await fetch(thumbUrl, { method: 'HEAD' });
+                if (head.ok) return res.redirect(302, thumbUrl);
+            } catch (e) { /* fall through to build */ }
+            const axios = require('axios');
+            const resp = await axios.get(u.href, { responseType: 'arraybuffer', timeout: 30000 });
+            const buf = Buffer.from(resp.data);
+            const Jimp = require('jimp');
+            const img = await new Promise((ok, bad) => Jimp.read(buf, (e, i) => (e ? bad(e) : ok(i))));
+            const w = img.bitmap.width, h = img.bitmap.height;
+            if (!w || !h || w <= 360) return res.redirect(302, u.href);   // already small
+            const tw = 320, th = Math.max(1, Math.round(h * (320 / w)));
+            img.resize(tw, th);   // resize() verified correct on this jimp version
+            const out = await new Promise((ok, bad) => img.getBuffer(Jimp.MIME_JPEG, (e, b) => (e ? bad(e) : ok(b))));
+            const os = require('os'), path = require('path'), fs = require('fs');
+            const tmp = path.join(os.tmpdir(), 'thumb-' + Date.now() + '-' + Math.floor(Math.random() * 1e5) + '.jpg');
+            fs.writeFileSync(tmp, out);
+            try {
+                const result = await uploadBlob.uploadFile(container, thumbName, tmp, {
+                    metadata: { thumbOf: blobName }, tags: { kind: 'thumb' },
+                });
+                const parsed = JSON.parse(result);
+                return res.redirect(302, (parsed && parsed.url) || u.href);
+            } finally { try { fs.unlinkSync(tmp); } catch (e) { /* temp cleanup */ } }
+        } catch (err) {
+            console.log('thumb failed, serving original:', err && err.message);
+            return orig ? res.redirect(302, orig) : res.status(500).json(new ErrorResponse(500, 'thumb failed', ''));
+        }
+    });
+
 module.exports = router;
