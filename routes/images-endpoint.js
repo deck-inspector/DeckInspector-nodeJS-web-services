@@ -231,6 +231,13 @@ router.route('/rotate')
 // redirects to it - grids load in a blink, and the full original stays one
 // click away in the zoom viewer. Any problem redirects to the original, so
 // nothing can look worse than before.
+// STAMPEDE GATE (David, Aug 24: "none of the images are populating"): a page
+// full of photos fires dozens of thumbnail builds at once on a fresh server;
+// each build decodes a 12-megapixel photo, the CPU pegs, every request
+// queues, and NOTHING paints. At most 2 builds run at a time - every other
+// request is redirected to the original photo IMMEDIATELY, so the page always
+// paints, and the thumbnails quietly fill in across visits.
+let THUMB_BUILDS_ACTIVE = 0;
 router.route('/thumb')
     .get(async function (req, res) {
         const orig = String((req.query && req.query.u) || '');
@@ -250,9 +257,16 @@ router.route('/thumb')
                 const head = await fetch(thumbUrl, { method: 'HEAD' });
                 if (head.ok) return res.redirect(302, thumbUrl);
             } catch (e) { /* fall through to build */ }
+            if (THUMB_BUILDS_ACTIVE >= 2) return res.redirect(302, u.href);
+            THUMB_BUILDS_ACTIVE++;
+            let GATE_RELEASED = false;
+            const release = () => { if (!GATE_RELEASED) { GATE_RELEASED = true; THUMB_BUILDS_ACTIVE--; } };
+            res.on('close', release);
+            try {
             const axios = require('axios');
-            const resp = await axios.get(u.href, { responseType: 'arraybuffer', timeout: 30000 });
+            const resp = await axios.get(u.href, { responseType: 'arraybuffer', timeout: 20000 });
             const buf = Buffer.from(resp.data);
+            if (buf.length > 15 * 1024 * 1024) return res.redirect(302, u.href);  // huge original: skip
             const Jimp = require('jimp');
             const img = await new Promise((ok, bad) => Jimp.read(buf, (e, i) => (e ? bad(e) : ok(i))));
             const w = img.bitmap.width, h = img.bitmap.height;
@@ -270,6 +284,7 @@ router.route('/thumb')
                 const parsed = JSON.parse(result);
                 return res.redirect(302, (parsed && parsed.url) || u.href);
             } finally { try { fs.unlinkSync(tmp); } catch (e) { /* temp cleanup */ } }
+            } finally { release(); }
         } catch (err) {
             console.log('thumb failed, serving original:', err && err.message);
             return orig ? res.redirect(302, orig) : res.status(500).json(new ErrorResponse(500, 'thumb failed', ''));
