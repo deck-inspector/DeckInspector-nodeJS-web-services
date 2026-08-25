@@ -33,9 +33,11 @@ class LocationGenerator {
             try { dims = FinalReportGenerator.getImageDims(buf, ext); } catch (e) { dims = null; }
             const EMU = 914400;
             // 1.6in tall, width follows the photo's true shape (capped 3.2in)
-            const h = 1.6;
+            // BIGGER (David, Aug 24): large enough to read the unit numbers
+            // painted on the buildings.
+            const h = 2.6;
             const ar = (dims && dims.w && dims.h) ? (dims.w / dims.h) : 1.33;
-            const w = Math.min(3.2, h * ar);
+            const w = Math.min(4.6, h * ar);
             const cx = Math.round(w * EMU), cy = Math.round(h * EMU);
             const name = String((subprojectName ? subprojectName + " \u2014 " : "") + ((locationItem && locationItem.name) || "")).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
             const contentType = ext === "png" ? "image/png" : "image/jpeg";
