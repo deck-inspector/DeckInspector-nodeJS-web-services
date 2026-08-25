@@ -834,7 +834,7 @@ input,select{font-family:inherit;font-size:16px}
         <!-- Apartment photo next to the name (David, Aug 23) - click opens the
              zoom viewer. Hidden when no photo has synced yet. -->
         <div v-if="unit.url" style="display:flex;align-items:center;gap:14px;margin:2px 0 14px">
-          <img :src="thumb(unit.url)" @error="$event.target.src=unit.url" alt="apartment photo" style="width:176px;height:176px;object-fit:cover;border-radius:12px;border:1.5px solid var(--line);cursor:zoom-in" @click="lightbox=unit.url">
+          <img :src="thumb(unit.url)" @error="thumbErr($event, unit.url)" alt="apartment photo" style="width:176px;height:176px;object-fit:cover;border-radius:12px;border:1.5px solid var(--line);cursor:zoom-in" @click="lightbox=unit.url">
           <div>
             <h2 style="margin:0">{{ unit.locationName }}</h2>
             <div class="hint">Apartment photo &mdash; click to enlarge</div>
@@ -889,7 +889,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="field"><label>Repair Photos ({{ r.images.length }})</label>
               <div class="pgrid">
                 <div class="pgitem" v-for="(img,i) in r.images" :key="r.id+img+'-'+i">
-                  <img :src="thumb(img)" loading="lazy" alt="repair photo" @click="lightbox=img" @error="$event.target.src=img">
+                  <img :src="thumb(img)" loading="lazy" alt="repair photo" @click="lightbox=img" @error="thumbErr($event, img)">
                   <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(r.images, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="r.images.splice(i,1)">&#10005;</button>
                 </div>
@@ -905,7 +905,7 @@ input,select{font-family:inherit;font-size:16px}
               <label>Import photos from this unit&#8217;s visual inspection &mdash; click to add</label>
               <div class="pgrid">
                 <div class="pgitem" v-for="img in repImportCandidates(r)" :key="'ri'+r.id+img" style="cursor:pointer;outline:2px dashed var(--line)" title="Click to add to this repair" @click="r.images.push(img)">
-                  <img :src="thumb(img)" loading="lazy" alt="visual inspection photo" @error="$event.target.src=img">
+                  <img :src="thumb(img)" loading="lazy" alt="visual inspection photo" @error="thumbErr($event, img)">
                 </div>
               </div>
             </div>
@@ -935,7 +935,7 @@ input,select{font-family:inherit;font-size:16px}
               <div v-if="secText(s.additionalconsiderations, s.additionalconsiderationshtml)" style="white-space:pre-wrap">{{ secText(s.additionalconsiderations, s.additionalconsiderationshtml) }}</div>
             </div>
             <div class="photos" v-if="(s.images||[]).length">
-              <img v-for="(img,i) in s.images" :key="i" :src="thumb(img)" loading="lazy" @click="lightbox=img" alt="inspection photo" @error="$event.target.src=img">
+              <img v-for="(img,i) in s.images" :key="i" :src="thumb(img)" loading="lazy" @click="lightbox=img" alt="inspection photo" @error="thumbErr($event, img)">
             </div>
             <div class="hint" v-else style="margin:0">No photos.</div>
           </div>
@@ -1085,7 +1085,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="field"><label>Invasive Photos ({{ (inv.invasiveimages||[]).length }})</label>
               <div class="pgrid">
                 <div class="pgitem" v-for="(img,i) in inv.invasiveimages" :key="'inv'+img+'-'+i">
-                  <img :src="thumb(img)" loading="lazy" alt="invasive photo" @click="lightbox=img" @error="$event.target.src=img">
+                  <img :src="thumb(img)" loading="lazy" alt="invasive photo" @click="lightbox=img" @error="thumbErr($event, img)">
                   <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(inv.invasiveimages, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="inv.invasiveimages.splice(i,1)">&#10005;</button>
                 </div>
@@ -1100,7 +1100,7 @@ input,select{font-family:inherit;font-size:16px}
               <label>Import photos from the visual inspection &mdash; click to add</label>
               <div class="pgrid">
                 <div class="pgitem" v-for="img in invImportCandidates" :key="'imp'+img" style="cursor:pointer;outline:2px dashed var(--line)" title="Click to add to the invasive photos" @click="inv.invasiveimages.push(img)">
-                  <img :src="thumb(img)" loading="lazy" alt="visual inspection photo" @error="$event.target.src=img">
+                  <img :src="thumb(img)" loading="lazy" alt="visual inspection photo" @error="thumbErr($event, img)">
                 </div>
               </div>
             </div>
@@ -1134,7 +1134,7 @@ input,select{font-family:inherit;font-size:16px}
         <div class="field"><label>Photos ({{ (secForm.images||[]).length }})</label>
           <div class="pgrid">
             <div class="pgitem" v-for="(img,i) in secForm.images" :key="img + '-' + i">
-              <img :src="thumb(img)" loading="lazy" alt="inspection photo" @click="lightbox=img" @error="$event.target.src=img">
+              <img :src="thumb(img)" loading="lazy" alt="inspection photo" @click="lightbox=img" @error="thumbErr($event, img)">
               <button class="pgrot" title="Rotate 90&deg; clockwise" :disabled="rotBusy===img" @click="rotatePhoto(secForm.images, i)">{{ rotBusy===img ? '\u22EF' : '\u21BB' }}</button>
                   <button class="pgdel" title="Remove this photo" @click="removeSecPhoto(i)">&#10005;</button>
             </div>
@@ -2786,6 +2786,10 @@ createApp({
           subProjects: item.subProjects || [],
           locations: item.locations || [],
         };
+        const pb = [];
+        for (const l of this.structure.locations) if (l.url) pb.push(l.url);
+        for (const sp of this.structure.subProjects) for (const l of (sp.subProjectLocations || [])) if (l.url) pb.push(l.url);
+        this.prebuild(pb);
         try { localStorage.setItem(cacheKey, JSON.stringify({ structure: this.structure, ts: Date.now() })); }
         catch (e) { /* storage full - live data still on screen */ }
       } catch (e) {
@@ -2806,6 +2810,10 @@ createApp({
         });
         const data = await res.json();
         this.sections = data.sections || [];
+        const pb = [];
+        for (const sec of this.sections) for (const im of (sec.images || [])) pb.push(im);
+        if (this.unit && this.unit.url) pb.push(this.unit.url);
+        this.prebuild(pb);
       } catch (e) { /* empty is fine */ }
       finally { this.loadingSections = false; }
     },
@@ -3238,9 +3246,41 @@ createApp({
     // full multi-MB originals). Grids show a small server-made copy; the zoom
     // viewer still opens the full original. Non-blob URLs pass through as-is.
     thumb(u) {
-      if (!u || !/^https:\/\/[^/]*\.blob\.core\.windows\.net\//i.test(u)) return u;
-      if (!(this.user && this.user.token)) return u;
-      return API + '/image/thumb?u=' + encodeURIComponent(u) + '&token=' + encodeURIComponent(this.user.token);
+      // straight to the banked thumbnail in storage - zero server round-trip
+      // when it exists; thumbErr() ladders down when it doesn't (yet).
+      const d = this.thumbDirect(u);
+      return d || u;
+    },
+    thumbDirect(u) {
+      try {
+        if (!u || !/^https:\/\/[^/]*\.blob\.core\.windows\.net\//i.test(u)) return null;
+        const url = new URL(u);
+        const parts = url.pathname.split('/').filter(Boolean);
+        const container = parts.shift();
+        const blob = decodeURIComponent(parts.join('/'));
+        const t = 't320-' + blob.replace(/\.[a-zA-Z0-9]+$/, '') + '.jpg';
+        return 'https://' + url.hostname + '/' + container + '/' + encodeURIComponent(t);
+      } catch (e) { return null; }
+    },
+    // Tile ladder: banked thumbnail -> build-on-demand -> original. A tile can
+    // slow down, but it can never be blank.
+    thumbErr(e, orig) {
+      const el = e.target;
+      const stage = el.dataset.tstage || '0';
+      if (stage === '0' && this.user && this.user.token && /blob\.core\.windows\.net/i.test(orig || '')) {
+        el.dataset.tstage = '1';
+        el.src = API + '/image/thumb?u=' + encodeURIComponent(orig) + '&token=' + encodeURIComponent(this.user.token);
+      } else if (stage !== '2') {
+        el.dataset.tstage = '2';
+        el.src = orig;
+      }
+    },
+    // Hand a page's photo list to the server so it banks the thumbnails in
+    // the background - the NEXT open is instant.
+    prebuild(urls) {
+      const list = [...new Set((urls || []).filter((u) => /blob\.core\.windows\.net/i.test(u || '')))];
+      if (!list.length) return;
+      this.api('/image/prebuild', { method: 'POST', json: { urls: list } }).catch(() => {});
     },
 
     // ---- Lightbox zoom + pan (David, Aug 23) ----
@@ -3306,6 +3346,9 @@ createApp({
         let list = (data && (data.sections || data.dynamicSections || data.data)) || [];
         if (!Array.isArray(list)) list = [];
         this.repRecs = list.map((d) => this.repWrap(d));
+        const pb = [];
+        for (const r of this.repRecs) for (const im of (r.images || [])) pb.push(im);
+        this.prebuild(pb);
       } catch (e) { this.repRecs = []; }
       finally { this.rep.loading = false; }
     },
