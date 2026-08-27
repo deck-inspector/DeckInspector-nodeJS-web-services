@@ -54,7 +54,7 @@ var deleteLocationPermanently = async function (locationId) {
       );
       if (sectionResult.sections) {
         for (const section of sectionResult.sections) {
-          await SectionService.deleteSectionPermanently(section._id);
+          await SectionService.deleteSectionPermanently(section.id || section._id);
         }
       }
 
@@ -68,14 +68,16 @@ var deleteLocationPermanently = async function (locationId) {
 
       await updateParentHelper.removeLocationFromParent(locationId, location);
       
-      if (result.deletedCount === 1) {
+      // Couchbase DAO returns { ok: 1 } (Mongo returned deletedCount); a
+      // successful delete must not fall through to 401 (web app logs out on 401).
+      if (result && (result.ok === 1 || result.deletedCount === 1)) {
         return {
           success: true,
         };
       }
     }
     return {
-      code: 401,
+      code: 404,
       success: false,
       reason: "No Location found with the given ID",
     };

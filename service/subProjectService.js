@@ -55,7 +55,7 @@ var deleteSubProjectPermanently = async function (subProjectId) {
       );
       if (locationResult.locations) {
         for (const location of locationResult.locations) {
-          await LocationService.deleteLocationPermanently(location._id);
+          await LocationService.deleteLocationPermanently(location.id || location._id);
         }
         console.log(
           "SubProject Locations deleted successfully for subProject Id  : ",
@@ -69,15 +69,19 @@ var deleteSubProjectPermanently = async function (subProjectId) {
 
       
 
-      if (finalResult.deletedCount === 1) {
+      // Couchbase DAO returns { ok: 1 } (Mongo returned deletedCount). Checking
+      // deletedCount here made every successful delete fall through to a 401,
+      // which the web app treats as "session expired" and logs the user out.
+      if (finalResult && (finalResult.ok === 1 || finalResult.deletedCount === 1)) {
         return {
           success: true,
         };
       }
     }
 
+    // Not found (or nothing removed) is a 404 — never 401, which logs the user out.
     return {
-      code: 401,
+      code: 404,
       success: false,
       reason: "No SubProject found with the given ID",
     };
