@@ -35,7 +35,10 @@ try{
 var errResponse;
 // Get user input
 var { name, description, parentid,parenttype,isInvasive,url,assignedTo,createdBy, sequenceNo } = req.body;
-sequenceNo = String(sequenceNo);
+// The web app posts `createdby` (lower-case); mobile posts `createdBy`. Accept both.
+createdBy = createdBy || req.body.createdby || '';
+parenttype = parenttype || 'project';
+sequenceNo = (sequenceNo === undefined || sequenceNo === null) ? null : String(sequenceNo);
 // Validate user input
 if (!(name&&parentid)) {
   errResponse = new ErrorResponse(400,"Name and parentid is required","");
@@ -44,8 +47,13 @@ if (!(name&&parentid)) {
 }
 
 const parentProject = await Project.getProjectById(parentid);
-console.log("Parent Project Data:", parentProject);
-if(!parentProject || !parentProject.project || !parentProject.project._id){
+// getProjectById reads via N1QL and returns the document key as `id`; only
+// Mongo-era documents carry `_id` in the body. Projects created by the new web
+// app have no body `_id`, so requiring it rejected every "Add Building" on
+// those projects with "Invalid Parent Id" (web app showed "Could not save").
+const parentDoc = parentProject && parentProject.project;
+if(!parentDoc || !(parentDoc._id || parentDoc.id)){
+  console.log("Parent Project lookup failed for", parentid, JSON.stringify(parentProject));
   errResponse = new ErrorResponse(400,"Invalid Parent Id","");
   res.status(400).json(errResponse);
   return;
