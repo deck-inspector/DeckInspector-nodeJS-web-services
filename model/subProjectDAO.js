@@ -29,6 +29,10 @@ module.exports = {
             const collection = await getSubProjectsCollection();
             const subProjectDoc = {
                 ...subproject,
+                // The mobile app's SubProject.fromJson reads id from the BODY
+                // field `_id` (mobile-written docs carry it). Docs without it
+                // parse with a null id on the phone.
+                _id: subProjectId,
                 docType: "SubProject",
                 createdAt: new Date().toISOString(),
             };
@@ -64,7 +68,9 @@ module.exports = {
         try {
             const collection = await getSubProjectsCollection();
             const doc = await collection.get(id);
-            const updatedDoc = { ...doc.content, ...newData };
+            // Self-heal: always (re)stamp _id so pre-fix docs get repaired by
+            // any edit (mobile parses body._id).
+            const updatedDoc = { ...doc.content, ...newData, _id: id };
             await collection.upsert(id, updatedDoc);
             return { ok: 1 };
         } catch (error) {

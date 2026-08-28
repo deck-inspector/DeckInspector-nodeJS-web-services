@@ -29,6 +29,8 @@ module.exports = {
             const collection = await getLocationsCollection();
             const locationDoc = {
                 ...location,
+                // Mobile Location.fromJson reads body `_id` - required.
+                _id: locationId,
                 docType: "Location",
                 createdAt: new Date().toISOString(),
             };
@@ -85,7 +87,8 @@ module.exports = {
         try {
             const collection = await getLocationsCollection();
             const doc = await collection.get(id);
-            const updatedDoc = { ...doc.content, ...newData };
+            // Self-heal: always (re)stamp _id (mobile parses body._id).
+            const updatedDoc = { ...doc.content, ...newData, _id: id };
             await collection.upsert(id, updatedDoc);
             return { ok: 1 };
         } catch (error) {

@@ -11,7 +11,8 @@ module.exports = {
     addSection: async (section) => {
         const id = uuidv4();
         const collection = await getSectionsCollection();
-        await collection.insert(id, section);
+        // Mobile VisualSection.fromJson reads body `_id` - required.
+        await collection.insert(id, { ...section, _id: id });
         return { insertedId: id, ok: 1 };
     },
     getAllSections: async () => {
@@ -32,8 +33,9 @@ module.exports = {
         const collection = await getSectionsCollection();
         // Fetch the current document
         const doc = await collection.get(id);
-        // Merge newData into the document
-        const updatedDoc = { ...doc.content, ...newData };
+        // Merge newData into the document. Self-heal: always (re)stamp _id
+        // (the mobile app parses body._id).
+        const updatedDoc = { ...doc.content, ...newData, _id: id };
         // Replace the whole document
         await collection.replace(id, updatedDoc);
         return { ok: 1 };
