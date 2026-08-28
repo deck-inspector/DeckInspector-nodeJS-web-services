@@ -1014,11 +1014,15 @@ input,select{font-family:inherit;font-size:16px}
       <h3>{{ struct.mode==='edit' ? 'Edit' : 'Add' }} {{ struct.kind==='building' ? 'Building' : (struct.kind==='section' ? 'Inspection Point' : 'Location / Unit') }}</h3>
       <div class="field"><label>Name *</label><input v-model.trim="struct.name" placeholder="e.g. Building A, Unit 101, Private Deck"></div>
       <div class="field" v-if="struct.kind!=='section'"><label>Description</label><input v-model.trim="struct.description"></div>
+      <!-- Type choices depend on where the location lives. The mobile app shows
+           project-level commons ONLY when type is 'projectlocation', and building
+           children only as 'apartment'/'buildinglocation' - a mismatched type
+           makes the location invisible on phones (David, Aug 28). -->
       <div class="field" v-if="struct.kind==='unit'"><label>Type</label>
         <div class="kindrow" style="margin:0">
-          <button class="kind" :class="{on: struct.ltype==='apartment'}" @click="struct.ltype='apartment'">Apartment / Unit</button>
-          <button class="kind" :class="{on: struct.ltype==='buildinglocation'}" @click="struct.ltype='buildinglocation'">Building Common</button>
-          <button class="kind" :class="{on: struct.ltype==='projectlocation'}" @click="struct.ltype='projectlocation'">Project Area</button>
+          <button class="kind" v-if="struct.parenttype!=='project'" :class="{on: struct.ltype==='apartment'}" @click="struct.ltype='apartment'">Apartment / Unit</button>
+          <button class="kind" v-if="struct.parenttype!=='project'" :class="{on: struct.ltype==='buildinglocation'}" @click="struct.ltype='buildinglocation'">Building Common</button>
+          <button class="kind" v-if="struct.parenttype!=='subproject'" :class="{on: struct.ltype==='projectlocation'}" @click="struct.ltype='projectlocation'">Project Area</button>
         </div>
       </div>
       <div class="mrow">
