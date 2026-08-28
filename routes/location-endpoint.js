@@ -18,7 +18,14 @@ try{
 var errResponse;
 // Get user input
 var { name, description, createdBy,url,parentid,parenttype,type,isInvasive, sequenceNo} = req.body;
-sequenceNo = String(sequenceNo);
+// The web app posts `createdby` (lower-case); mobile posts `createdBy`. Accept both.
+// Missing createdby/lasteditedby on web-created docs crashed the mobile app
+// (grey screen) when opening the location.
+createdBy = createdBy || req.body.createdby || '';
+sequenceNo = (sequenceNo === undefined || sequenceNo === null) ? null : String(sequenceNo);
+// Mobile filters locations by type: project-level commons must be
+// 'projectlocation'; under a building, 'apartment' or 'buildinglocation'.
+if (!type) type = (parenttype === 'project') ? 'projectlocation' : 'apartment';
 // Validate user input
 if (!(name&&parentid)) {
   errResponse = new ErrorResponse(400,"Name,parenttype and parentid is required","");
@@ -37,7 +44,8 @@ try{
       "parenttype": parenttype,
       "type":type,
       "sections":[],
-      "lasteditedBy":createdBy,
+      "createdby":createdBy,
+      "lasteditedby":createdBy,
       "editedat":creationtime,
       "isInvasive":isInvasive,
       "sequenceNo": sequenceNo
@@ -90,9 +98,8 @@ router.route('/:id')
     var errResponse;
     const newData = req.body;
     const locationId = req.params.id;
-    if(newData.parentid){
-      newData.parentid = new ObjectId(newData.parentid);
-    }
+    // parentid is a Couchbase UUID string - the old Mongo ObjectId conversion
+    // threw on every PUT that included parentid (web edit merges the whole doc).
     var result = await LocationService.editLocation(locationId,newData);
     if (result.reason) {
       return res.status(result.code).json(result);
