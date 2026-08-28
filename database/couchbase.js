@@ -120,7 +120,17 @@ async function createCouchbaseCluster() {
         break;
       } catch (pingError) {
         console.warn(`KV warm-up ping attempt ${attempt} failed:`, pingError.message);
-        if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 2000));
+        } else {
+          // Aug 17 hardening TODO, built Aug 28: a KV connection that is born
+          // dead stays dead in SDK 4.6. Do NOT continue with it - throw, so
+          // index.js's 60s connect-retry loop rebuilds from scratch.
+          try { await cached.cluster.close(); } catch (e) { /* ignore */ }
+          cached.cluster = null;
+          cached.bucket = null;
+          throw new Error(`KV warm-up failed after ${attempt} attempts: ${pingError.message}`);
+        }
       }
     }
   } catch (error) {
@@ -177,3 +187,47 @@ async function connectToDatabase() {
 }
 
 module.exports.connectToDatabase = connectToDatabase;
+
+// ---------------------------------------------------------------------------
+// KV WATCHDOG (Aug 28): the network flows between the App Service and the DB
+// VM's KV port (11210) can silently die mid-life (memcached logs "reading /
+// Connection timed out" for our peer), after which EVERY KV op times out at
+// 10s while N1QL stays healthy - and SDK 4.6 never rebuilds the dead sockets.
+// Previously the only cure was a manual App Service restart. This watchdog
+// runs a REAL KV op (exists on a dummy key) every 30s; after 2 consecutive
+// failures it tears down the cached cluster and reconnects, refreshing every
+// exported collection handle. Recovery is automatic within ~1-2 minutes.
+// ---------------------------------------------------------------------------
+if (!global.__kvWatchdog) {
+  global.__kvWatchdog = { failures: 0, rebuilding: false };
+  const wd = global.__kvWatchdog;
+  setInterval(async () => {
+    if (wd.rebuilding) return;
+    const col = module.exports.Projects;
+    if (!col || !cached.cluster) return; // not connected yet
+    try {
+      await col.exists("__kv_watchdog__", { timeout: 5000 });
+      if (wd.failures > 0) console.log("KV watchdog: healthy again after", wd.failures, "failure(s)");
+      wd.failures = 0;
+    } catch (err) {
+      wd.failures += 1;
+      console.warn(`KV watchdog: probe failed (${wd.failures} consecutive):`, err.message);
+      if (wd.failures >= 2) {
+        wd.rebuilding = true;
+        console.warn("KV watchdog: rebuilding Couchbase connection...");
+        try {
+          try { await cached.cluster.close(); } catch (e) { /* ignore */ }
+          cached.cluster = null;
+          cached.bucket = null;
+          await connectToDatabase();
+          wd.failures = 0;
+          console.log("KV watchdog: connection rebuilt successfully");
+        } catch (reErr) {
+          console.error("KV watchdog: rebuild failed:", reErr.message);
+        } finally {
+          wd.rebuilding = false;
+        }
+      }
+    }
+  }, 30000).unref();
+}
