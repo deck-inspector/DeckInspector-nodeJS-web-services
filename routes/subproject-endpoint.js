@@ -134,9 +134,8 @@ router.route('/:id')
     const newData = req.body;
     const subprojectId = req.params.id;
     // Validate user input
-    if(newData.parentid){
-      newData.parentid = new ObjectId(newData.parentid);
-    }
+    // parentid is a Couchbase UUID string - the old Mongo ObjectId conversion
+    // threw on every PUT that included parentid (web edit merges the whole doc).
     var result = await SubProjectService.editSubProject(subprojectId,newData);
     if (result.reason) {
       return res.status(result.code).json(result);
