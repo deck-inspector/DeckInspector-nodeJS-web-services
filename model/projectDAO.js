@@ -51,6 +51,10 @@ async function getProjectDocByKey(id) {
   return rows.length ? rows[0] : null;
 }
 async function upsertProjectDoc(id, doc) {
+  // The mobile app's Project.fromJson reads the id from the BODY field `_id`
+  // (mobile-written docs carry it). A project doc without it parses with a
+  // null id on the phone -> "SubProject Not Found" for all its children.
+  doc = { ...doc, _id: id };
   await executeQuery(
     `UPSERT INTO \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` (KEY, VALUE) VALUES ($1, $2)`,
     [id, doc]
@@ -65,6 +69,8 @@ module.exports = {
         const projectId = generateProjectId();
         const projectWithMeta = {
           ...project,
+          // Mobile Project.fromJson reads body `_id` - required (see upsertProjectDoc).
+          _id: projectId,
           docType: "Project",
           createdAt: new Date().toISOString(),
           channels: ["Project"],
