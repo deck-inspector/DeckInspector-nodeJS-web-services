@@ -51,14 +51,12 @@ async function getProjectDocByKey(id) {
   return rows.length ? rows[0] : null;
 }
 async function upsertProjectDoc(id, doc) {
-  // The mobile app's Project.fromJson reads the id from the BODY field `_id`
-  // (mobile-written docs carry it). A project doc without it parses with a
-  // null id on the phone -> "SubProject Not Found" for all its children.
+  // Was a N1QL UPSERT (KV-timeout era); now a collection upsert so the write
+  // routes through Sync Gateway (see database/sgwWrite.js) and phones receive
+  // project edits (children[], status, dates). _id kept for mobile parsers.
   doc = { ...doc, _id: id };
-  await executeQuery(
-    `UPSERT INTO \`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.\`Project\` (KEY, VALUE) VALUES ($1, $2)`,
-    [id, doc]
-  );
+  const collection = await getProjectsCollection();
+  await collection.upsert(id, doc);
   return { ok: 1 };
 }
 

@@ -56,11 +56,14 @@ module.exports = {
         return result.rows;
     },
 
+    // mutateIn -> whole-doc upsert so writes route through Sync Gateway
+    // (see model/sectionDAO.js note).
     addImageInSection: async (sectionId, url) => {
         const collection = await getDynamicSectionsCollection();
-        await collection.mutateIn(sectionId, [
-            MutateInSpec.arrayAppend("images", url)
-        ]);
+        const doc = await collection.get(sectionId);
+        const images = Array.isArray(doc.content.images) ? doc.content.images.slice() : [];
+        images.push(url);
+        await collection.upsert(sectionId, { ...doc.content, images, _id: sectionId });
         return { modifiedCount: 1, ok: 1 };
     },
 
@@ -68,9 +71,7 @@ module.exports = {
         const collection = await getDynamicSectionsCollection();
         const doc = await collection.get(sectionId);
         const newImages = (doc.content.images || []).filter(img => img !== url);
-        await collection.mutateIn(sectionId, [
-            MutateInSpec.replace("images", newImages)
-        ]);
+        await collection.upsert(sectionId, { ...doc.content, images: newImages, _id: sectionId });
         return { modifiedCount: 1, ok: 1 };
     }
 };

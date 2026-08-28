@@ -78,20 +78,22 @@ module.exports = {
         const result = await cluster.query(query, { parameters: params });
         return { ok: 1, updated: (result.rows || []).length };
     },
+    // Photo attach/remove rewritten from mutateIn to whole-doc upsert so the
+    // write routes through Sync Gateway (mutateIn is SDK-only and its writes
+    // never reached phones - SGW CE has no import).
     addImageInSection: async (sectionId, url) => {
         const collection = await getSectionsCollection();
-        await collection.mutateIn(sectionId, [
-            MutateInSpec.arrayAppend("images", url)
-        ]);
+        const doc = await collection.get(sectionId);
+        const images = Array.isArray(doc.content.images) ? doc.content.images.slice() : [];
+        images.push(url);
+        await collection.upsert(sectionId, { ...doc.content, images, _id: sectionId });
         return { ok: 1 };
     },
     removeImageInSection: async (sectionId, url) => {
         const collection = await getSectionsCollection();
         const doc = await collection.get(sectionId);
         const newImages = (doc.content.images || []).filter(img => img !== url);
-        await collection.mutateIn(sectionId, [
-            MutateInSpec.replace("images", newImages)
-        ]);
+        await collection.upsert(sectionId, { ...doc.content, images: newImages, _id: sectionId });
         return { ok: 1 };
     }
 };
