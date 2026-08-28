@@ -1,4 +1,5 @@
 const couchbase = require("couchbase");
+const { wrapSyncedCollection, sgwEnabled } = require("./sgwWrite");
 
 // Load environment variables - ensure dotenv is loaded in index.js first
 const DB_USERNAME = process.env.DB_USERNAME;
@@ -154,27 +155,30 @@ async function connectToDatabase() {
   module.exports.scope = scope;
   module.exports.prod_scope = prod_scope;
 
-  // Collection exports - using correct collection names
-  module.exports.Projects = scope.collection("Project");
-  module.exports.SubProjects = scope.collection("SubProject");
-  module.exports.Locations = scope.collection("Location");
-  module.exports.Sections = scope.collection("VisualSection");
-  module.exports.DynamicSections = scope.collection("DynamicVisualSection");
+  // Collection exports - using correct collection names.
+  // Phone-synced collections are wrapped so writes go THROUGH Sync Gateway
+  // when SGW_USERNAME/SGW_PASSWORD are configured (see database/sgwWrite.js):
+  // SGW CE has no import, so SDK writes never reached phones.
+  if (sgwEnabled()) console.log("SGW write-through ENABLED for phone-synced collections");
+  else console.log("SGW write-through disabled (SGW_USERNAME/SGW_PASSWORD not set) - plain SDK writes");
+  module.exports.Projects = wrapSyncedCollection(scope.collection("Project"), "Project");
+  module.exports.SubProjects = wrapSyncedCollection(scope.collection("SubProject"), "SubProject");
+  module.exports.Locations = wrapSyncedCollection(scope.collection("Location"), "Location");
+  module.exports.Sections = wrapSyncedCollection(scope.collection("VisualSection"), "VisualSection");
+  module.exports.DynamicSections = wrapSyncedCollection(scope.collection("DynamicVisualSection"), "DynamicVisualSection");
   module.exports.Users = prod_scope.collection("Users");
   module.exports.ProjectDocuments = scope.collection("ProjectDocuments");
   module.exports.ProjectReports = scope.collection("ProjectReports");
-  module.exports.InvasiveSections = scope.collection("InvasiveSection");
-  module.exports.ConclusiveSections = scope.collection("ConclusiveSection");
+  module.exports.InvasiveSections = wrapSyncedCollection(scope.collection("InvasiveSection"), "InvasiveSection");
+  module.exports.ConclusiveSections = wrapSyncedCollection(scope.collection("ConclusiveSection"), "ConclusiveSection");
   module.exports.ProjectReportHashCode = scope.collection(
     "ProjectReportHashCode",
   );
   module.exports.Tenants = prod_scope.collection("Tenants");
   module.exports.SuperUsers = scope.collection("SuperUsers");
   module.exports.ArchivedProjects = scope.collection("ArchivedProjects");
-  module.exports.DynamicVisualSection = scope.collection(
-    "DynamicVisualSection",
-  );
-  module.exports.LocationsForms = scope.collection("LocationForm");
+  module.exports.DynamicVisualSection = wrapSyncedCollection(scope.collection("DynamicVisualSection"), "DynamicVisualSection");
+  module.exports.LocationsForms = wrapSyncedCollection(scope.collection("LocationForm"), "LocationForm");
 
   let dbConnection = {
     cluster,
