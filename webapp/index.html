@@ -87,6 +87,8 @@ input,select{font-family:inherit;font-size:16px}
 .rsrow input{width:18px;height:18px;accent-color:#12A344;cursor:pointer}
 .rsrow.on{color:#12A344;font-weight:700}
 .updbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1565D8;color:#fff;font-weight:700;padding:12px 18px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer;z-index:9999}
+.pfnote{font-size:11px;color:#555;padding:8px 6px 4px;border-top:1px solid #e3e3e3;margin-top:8px}
+.pfnote.pfdone{color:#1E7D34}
 .buildstamp{position:fixed;right:8px;bottom:4px;font-size:10px;color:#9aa3b2;opacity:.8;z-index:9998;pointer-events:none}
 .pcard .actions{margin-top:auto;padding-top:14px}
 .btn-reports{width:100%;background:var(--brand);color:#fff;padding:13px;font-size:16px}
@@ -801,6 +803,8 @@ input,select{font-family:inherit;font-size:16px}
               <button class="tnode" v-for="loc in structure.locations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId, badloc: loc.rating==='Bad'}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}<span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span></button>
             </div>
           </div>
+          <div class="pfnote" v-if="prefetching">&#11015; Pulling project to this computer&hellip; units {{ prefetch.done }}/{{ prefetch.total }}<span v-if="prefetch.photos"> &middot; photos {{ prefetch.photosDone }}/{{ prefetch.photos }}</span></div>
+          <div class="pfnote pfdone" v-else-if="prefetch.total && prefetch.done >= prefetch.total">&#10003; Project stored on this computer</div>
         </div>
         <div style="flex:1;min-width:0">
         <template v-if="view!=='unit'">
@@ -1504,7 +1508,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-08-29.6';
+const APP_BUILD = '2026-08-29.7';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -1602,6 +1606,7 @@ createApp({
       invPhotoBusy: false,
       lifeOptions: ['0-1 Years', '1-4 Years', '4-7 Years', '7-10 Years'],
       structure: { subProjects: [], locations: [] }, loadingStructure: false,
+      prefetching: false, prefetch: { done: 0, total: 0, photos: 0, photosDone: 0 },
       unit: null, sections: [], loadingSections: false, lightbox: null,
       repRecs: [], rep: { loading: false, saving: '', photoBusy: '', deleting: '' },
       rotBusy: '',
@@ -2838,9 +2843,104 @@ createApp({
         this.prebuild(pb);
         try { localStorage.setItem(cacheKey, JSON.stringify({ structure: this.structure, ts: Date.now() })); }
         catch (e) { /* storage full - live data still on screen */ }
+        this.prefetchProject(pid);
       } catch (e) {
         if (e.message !== 'auth' && !painted) this.toast('Could not load the inspection structure.', 'err');
       } finally { this.loadingStructure = false; }
+    },
+    // ---- Whole-project pull (David, Aug 29: "downloads all the photos and
+    // images when the project is pulled, vs. waiting for each location") ----
+    // After the structure arrives: every unit's sections are fetched in a few
+    // bulk calls (one N1QL query per 60 units) and stored locally, then every
+    // photo thumbnail is warmed into the service-worker cache. Opening a unit
+    // afterwards paints from the local copy with no wait.
+    async prefetchProject(pid) {
+      if (this._prefetchPid === pid && this.prefetching) return;
+      // a section save re-runs loadStructure; don't re-pull the whole project
+      // more than once every 10 minutes (the unit just saved is refreshed by
+      // loadSections anyway).
+      this._prefetchDoneAt = this._prefetchDoneAt || {};
+      if (this._prefetchDoneAt[pid] && Date.now() - this._prefetchDoneAt[pid] < 10 * 60 * 1000) return;
+      this._prefetchPid = pid;
+      const locIds = this.localLocationIds(pid);
+      if (!locIds.length) return;
+      this.prefetching = true;
+      this.prefetch = { done: 0, total: locIds.length, photos: 0, photosDone: 0 };
+      const photoUrls = [];
+      try {
+        for (let i = 0; i < locIds.length; i += 60) {
+          if (this._prefetchPid !== pid) return;
+          const chunk = locIds.slice(i, i + 60);
+          const res = await this.api('/section/getSectionsByParentIds', { method: 'POST', json: { parentids: chunk } });
+          const data = await res.json();
+          const byParent = data.byParent || {};
+          for (const locId of chunk) {
+            const secs = byParent[locId] || [];
+            try { localStorage.setItem('e3v2_secs_' + locId, JSON.stringify({ sections: secs, ts: Date.now() })); }
+            catch (e) { /* storage full */ }
+            for (const sec of secs) for (const im of (sec.images || [])) photoUrls.push(im);
+            // the unit that is open right now gets the fresh list too
+            if (this.view === 'unit' && this.unit && this.unit.locationId === locId && !this.secEditOpen) this.sections = secs;
+          }
+          this.prefetch.done = Math.min(locIds.length, i + chunk.length);
+        }
+        // unit cover photos
+        try {
+          const c = JSON.parse(localStorage.getItem('e3v2_struct_' + pid) || 'null');
+          const st = c && c.structure;
+          if (st) {
+            for (const l of (st.locations || [])) if (l.url) photoUrls.push(l.url);
+            for (const sp of (st.subProjects || [])) for (const l of (sp.subProjectLocations || [])) if (l.url) photoUrls.push(l.url);
+          }
+        } catch (e) { /* no copy */ }
+        // warm the photo cache: thumbnails only (what the grids show); the
+        // service worker stores each response, so this is a one-time cost.
+        const thumbs = [...new Set(photoUrls.map((u) => this.thumbDirect(u)).filter(Boolean))];
+        this.prefetch.photos = thumbs.length;
+        if (thumbs.length && navigator.serviceWorker && navigator.serviceWorker.controller) {
+          let idx = 0;
+          const worker = async () => {
+            while (idx < thumbs.length) {
+              if (this._prefetchPid !== pid) return;
+              const u = thumbs[idx++];
+              try { await fetch(u, { mode: 'cors', credentials: 'omit' }); } catch (e) { /* missing thumb - grid ladders down */ }
+              this.prefetch.photosDone++;
+            }
+          };
+          await Promise.all([worker(), worker(), worker(), worker()]);
+        }
+        this._prefetchDoneAt[pid] = Date.now();
+      } catch (e) { /* prefetch is best-effort */ }
+      finally { if (this._prefetchPid === pid) this.prefetching = false; }
+    },
+    // Same worst-of rule as the server's locConditionRollup, applied locally so
+    // the left menu changes the moment a section is saved (David, Aug 29:
+    // "takes about 15-20 seconds for the left menu to change").
+    localRollup(secs) {
+      let fair = false, good = false;
+      for (const s of (secs || [])) {
+        if (!s) continue;
+        const v = String(s.visualreview || '').toLowerCase();
+        const inv = s.furtherinvasivereviewrequired;
+        const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
+        if (v.startsWith('bad') || invYes) return 'Bad';
+        if (v.startsWith('fair')) fair = true;
+        else if (v.startsWith('good')) good = true;
+      }
+      return fair ? 'Fair' : (good ? 'Good' : '');
+    },
+    applyLocalRating(locId, secs) {
+      const rating = this.localRollup(secs);
+      const st = this.structure || {};
+      let hit = null;
+      for (const l of (st.locations || [])) if (l.locationId === locId) hit = l;
+      for (const sp of (st.subProjects || [])) for (const l of (sp.subProjectLocations || [])) if (l.locationId === locId) hit = l;
+      if (hit) hit.rating = rating;
+      if (this.unit && this.unit.locationId === locId) this.unit.rating = rating;
+      try {
+        const pid = this.projectId(this.current);
+        localStorage.setItem('e3v2_struct_' + pid, JSON.stringify({ structure: this.structure, ts: Date.now() }));
+      } catch (e) { /* ignore */ }
     },
     openUnit(loc) {
       history.pushState({ v: 'unit', pid: this.projectId(this.current), loc: { locationId: loc.locationId, locationName: loc.locationName, locationType: loc.locationType, url: loc.url || '' } }, '');
@@ -3374,6 +3474,7 @@ createApp({
         // (no refresh needed to see the change), then re-fetch from the server.
         const si = this.sections.findIndex(x => (x._id || x.id) === this.secId);
         if (si !== -1) this.sections.splice(si, 1, { ...this.sections[si], ...payload });
+        if (this.unit && this.unit.locationId) this.applyLocalRating(this.unit.locationId, this.sections);
         this.secEditOpen = false;
         this.toast(invOk === false
           ? 'Inspection saved, but the INVASIVE part failed — reopen and try again.'
