@@ -600,6 +600,11 @@ router.route('/generatereport')
                // instead of the Visual/Invasive section pipeline.
                if (reportType === 'FinalRepairs') {
                    url = await FinalRepairsGenerator.generate(projectId, companyName, projectName, uploader, reportFormat);
+               } else if (reportType === 'UnsafeConditions') {
+                   // NOTICE OF UNSAFE CONDITIONS (David, Aug 29): branded Unsafe
+                   // letter + generated findings pages for every section flagged
+                   // "Unsafe condition present" in the visual inspection.
+                   url = await FinalRepairsGenerator.generateUnsafeReport(projectId, companyName, projectName, uploader, reportFormat);
                } else {
                    url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath);
                }
@@ -623,7 +628,11 @@ router.route('/generatereport')
            // Distinct name so the list (and the email picker) can tell the
            // repairs re-inspection apart. Deliberately does NOT contain
            // "final report" - that phrase drives the Final Report matching.
-           const name = reportType === 'FinalRepairs' ? `${projectName} - Final Repairs Inspection` : projectName;
+           // Distinct names; deliberately do NOT contain "final report" (that
+           // phrase drives the Final Report email-picker matching).
+           const name = reportType === 'FinalRepairs' ? `${projectName} - Final Repairs Inspection`
+                      : reportType === 'UnsafeConditions' ? `${projectName} - Notice of Unsafe Conditions`
+                      : projectName;
             let timestamp = (new Date(Date.now())).toISOString();
             projectReports.addProjectReport({
                 project_id,

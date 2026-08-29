@@ -17,7 +17,7 @@ var errResponse;
 
 const { name, exteriorelements, waterproofingelements,additionalconsiderations,
   additionalconsiderationshtml,visualreview,visualsignsofleak,furtherinvasivereviewrequired,conditionalassessment,
-awe,eee,lbc,images,createdby,parentid,parenttype,unitUnavailable } = req.body;
+awe,eee,lbc,images,createdby,parentid,parenttype,unitUnavailable,unsafecondition } = req.body;
 
 // Validate user input
 if (!(name&&parentid)) {
@@ -44,6 +44,7 @@ var newSection = {
     "parenttype":parenttype,
     "visualreview":visualreview,
     "visualsignsofleak": visualsignsofleak.toLowerCase()==='true',
+    "unsafecondition": /^(yes|true)$/i.test(String(unsafecondition||'')),
     "waterproofingelements":waterproofingelements,
     "images":images,
     "unitUnavailable": unitUnavailable,
