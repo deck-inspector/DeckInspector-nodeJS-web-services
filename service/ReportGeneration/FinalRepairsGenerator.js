@@ -57,7 +57,9 @@ class FinalRepairsGenerator {
     const v = String(s.visualreview || "").toLowerCase();
     const inv = s.furtherinvasivereviewrequired;
     const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ""));
-    return v.startsWith("bad") || invYes;
+    // A FAILED Condition is a repair-needed finding too (David, Aug 29).
+    const condFail = String(s.conditionalassessment || "").toLowerCase().startsWith("fail");
+    return v.startsWith("bad") || invYes || condFail;
   }
 
   stripHtml(s) {
