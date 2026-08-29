@@ -102,13 +102,22 @@ async function getSingleProjectMetadata(projectId)
 // CHILD ORDER (David, Aug 29 2026 - Northridge Village HOA: "buildings and units are
 // completely random on the web and backwards on the phone"). Nearly every building /
 // unit carries sequenceNo null, so "a.sequenceNo - b.sequenceNo" was NaN and the sort
-// was arbitrary. Rule, shared with the mobile app: an explicit positive sequenceNo wins
-// (ascending); otherwise the order the items were CREATED in - which is the order they
-// sit in the parent document's children[] array (the same source the phone reads) -
-// then createdat as a last resort. Stable: ties keep their input order.
+// was arbitrary. Rule, shared with the mobile app (David's choice, same day): an
+// explicit positive sequenceNo wins (ascending); otherwise NATURAL ORDER BY NAME -
+// units 1,2,3...10,11 and buildings 8000, 8001, 8011... 18360 - regardless of the order
+// the inspector typed them in (creation order was 5,4,3,2,1 on buildings entered
+// top-down); then the parent's children[] position and createdat as tie-breakers.
+// Stable: full ties keep their input order.
 function seqOf(x) {
     const n = Number(x && x.sequenceNo);
     return Number.isFinite(n) && n > 0 ? n : null;
+}
+function naturalCompare(a, b) {
+    const sa = String(a == null ? '' : a).trim(), sb = String(b == null ? '' : b).trim();
+    if (sa === sb) return 0;
+    if (!sa) return 1;   // unnamed last
+    if (!sb) return -1;
+    return sa.localeCompare(sb, 'en', { numeric: true, sensitivity: 'base' });
 }
 function orderChildren(items, parentChildren, idOf) {
     const pos = new Map();
@@ -126,6 +135,8 @@ function orderChildren(items, parentChildren, idOf) {
                 if (b.seq === null) return -1;
                 if (a.seq !== b.seq) return a.seq - b.seq;
             }
+            const n = naturalCompare(a.it && a.it.name, b.it && b.it.name);
+            if (n !== 0) return n;
             if (a.idx !== b.idx) return a.idx - b.idx;
             if (a.t !== b.t) return a.t - b.t;
             return a.i - b.i;
