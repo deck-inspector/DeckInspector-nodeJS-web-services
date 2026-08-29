@@ -154,9 +154,9 @@ const markLocationNonInvasive = async (locationid) => {
         }
       }
       const location = await LocationDAO.getLocationById(locationid);
-      
-
-
+      // Already clear -> nothing above it can change either; stop here so a
+      // routine section save does not rewrite location, building and project.
+      if (location && !location.isInvasive) return;
       if (location) {
         location.isInvasive = false;
         await LocationDAO.editLocation(locationid, location);
@@ -188,9 +188,9 @@ const markDynamicLocationNonInvasive = async (locationid) => {
         }
       }
       const location = await LocationDAO.getLocationById(locationid);
-      
-
-
+      // Already clear -> nothing above it can change either; stop here so a
+      // routine section save does not rewrite location, building and project.
+      if (location && !location.isInvasive) return;
       if (location) {
         location.isInvasive = false;
         await LocationDAO.editLocation(locationid, location);
@@ -223,6 +223,7 @@ const markSubProjectNonInvasive = async (subProjectId) => {
       }
      
       const subProject = await SubProjectDAO.findSubProjectById(subProjectId);
+      if (subProject && !subProject.isInvasive) return;
       if (subProject) {
         subProject.isInvasive = false;
         await SubProjectDAO.editSubProject(subProjectId, subProject);
@@ -251,6 +252,7 @@ const markDynamicSubProjectNonInvasive = async (subProjectId) => {
       }
      
       const subProject = await SubProjectDAO.findSubProjectById(subProjectId);
+      if (subProject && !subProject.isInvasive) return;
       if (subProject) {
         subProject.isInvasive = false;
         await SubProjectDAO.editSubProject(subProjectId, subProject);
@@ -305,6 +307,7 @@ const markProjectNonInvasive = async (projectId) => {
         }
       }
 
+      if (!project.isInvasive) return;
       project.isInvasive = false;
       await ProjectDAO.editProject(projectId, project);
     }
@@ -350,6 +353,7 @@ const markDynamicProjectNonInvasive = async (projectId) => {
         }
       }
 
+      if (!project.isInvasive) return;
       project.isInvasive = false;
       await ProjectDAO.editProject(projectId, project);
     }

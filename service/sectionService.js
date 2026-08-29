@@ -326,11 +326,16 @@ const editSetion = async (sectionId, section) => {
       if (sectionFromDB.furtherinvasivereviewrequired) {
         await InvasiveUtil.markSectionInvasive(sectionId);
       } else {
+        // Use the stored document's parent, not the edit payload's: the web
+        // app's section edits carry no parentid, so `section.parentid` was
+        // undefined and every save logged "Key length must be >= 2" from
+        // getLocationById('') - and the parent's invasive flag never cleared.
+        const parentId = sectionFromDB.parentid || section.parentid;
         if (sectionFromDB.parenttype == "project") {
-          await InvasiveUtil.markProjectNonInvasive(section.parentid);
+          await InvasiveUtil.markProjectNonInvasive(parentId);
         }
         else {
-          await InvasiveUtil.markLocationNonInvasive(section.parentid);
+          await InvasiveUtil.markLocationNonInvasive(parentId);
         }
       }
       return {
