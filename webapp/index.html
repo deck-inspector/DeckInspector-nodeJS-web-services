@@ -2963,7 +2963,9 @@ createApp({
         const v = String(s.visualreview || '').toLowerCase();
         const inv = s.furtherinvasivereviewrequired;
         const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
-        if (v.startsWith('bad') || invYes) return 'Bad';
+        // Failed Condition counts as Bad (David, Aug 29) - keep in step with
+        // the server's locConditionRollup.
+        if (v.startsWith('bad') || invYes || String(s.conditionalassessment || '').toLowerCase().startsWith('fail')) return 'Bad';
         if (v.startsWith('fair')) fair = true;
         else if (v.startsWith('good')) good = true;
       }
@@ -2992,7 +2994,7 @@ createApp({
         const v = String(s.visualreview || '').toLowerCase();
         const inv = s.furtherinvasivereviewrequired;
         const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
-        if (v.startsWith('bad') || invYes) counts.bad++;
+        if (v.startsWith('bad') || invYes || String(s.conditionalassessment || '').toLowerCase().startsWith('fail')) counts.bad++;
         else if (v.startsWith('fair')) counts.fair++;
         else if (v.startsWith('good')) counts.good++;
         else counts.unrated++;
