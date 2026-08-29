@@ -86,6 +86,8 @@ input,select{font-family:inherit;font-size:16px}
 .rsrow{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;color:var(--ink-soft);cursor:pointer;user-select:none}
 .rsrow input{width:18px;height:18px;accent-color:#12A344;cursor:pointer}
 .rsrow.on{color:#12A344;font-weight:700}
+.updbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1565D8;color:#fff;font-weight:700;padding:12px 18px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer;z-index:9999}
+.buildstamp{position:fixed;right:8px;bottom:4px;font-size:10px;color:#9aa3b2;opacity:.8;z-index:9998;pointer-events:none}
 .pcard .actions{margin-top:auto;padding-top:14px}
 .btn-reports{width:100%;background:var(--brand);color:#fff;padding:13px;font-size:16px}
 .btn-reports:hover{background:var(--brand-dark)}
@@ -1486,6 +1488,9 @@ input,select{font-family:inherit;font-size:16px}
   <div class="toasts">
     <div class="toast" :class="t.kind" v-for="t in toasts" :key="t.id">{{ t.msg }}</div>
   </div>
+  <!-- New version available (David, Aug 29): one click reloads the app -->
+  <div v-if="updateAvailable" class="updbar" @click="location.reload()" title="Click to load the new version">&#11015; A newer version of the app is available &mdash; click here to reload (build {{ updateAvailable }})</div>
+  <div class="buildstamp" :title="'App build ' + appBuild">v{{ appBuild }}</div>
 </div>
 
 <script>
@@ -1496,6 +1501,10 @@ const GMAPS_KEY = 'AIzaSyCVpc-sHM9sgiBdtCxxoifPyp-kwv6x7kU';
 const LOGO = 'https://deckinspectors.com/wp-content/uploads/2025/07/cropped-1-DI-Logo-Stacked.jpg';
 const LOGO_E3 = 'https://deckinspectorsappdata.blob.core.windows.net/deckinspectorsincondeckinspectorscom/E3%20Logo%20for%20Inspection%20Reporting%20Solutions.jpg';
 const { createApp } = Vue;
+// Build stamp: bump on every deploy. The page checks the server for a newer
+// stamp when the tab regains focus (and every 10 min) and offers a reload -
+// so a fix is never silently missed because the page was never reloaded.
+const APP_BUILD = '2026-08-29.5';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -1606,6 +1615,7 @@ createApp({
       propCustom: {},
       propBusy: false, propConverting: false, propDeleting: null,
       toasts: [], toastSeq: 0,
+      appBuild: APP_BUILD, updateAvailable: '',
     };
   },
   watch: {
@@ -1728,6 +1738,12 @@ createApp({
     try {
       if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
     } catch (e) { /* no SW - photos simply load from storage each time */ }
+    // Version check: when the tab comes back into focus and every 10 minutes.
+    const chk = () => this.checkForUpdate();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') chk(); });
+    window.addEventListener('focus', chk);
+    setInterval(chk, 10 * 60 * 1000);
+    setTimeout(chk, 15000);
   },
   methods: {
     /* ---------- infrastructure ---------- */
@@ -1756,6 +1772,14 @@ createApp({
         throw new Error('auth');
       }
       return res;
+    },
+    async checkForUpdate() {
+      try {
+        const res = await fetch('/index.html?v=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) return;
+        const m = (await res.text()).match(/const APP_BUILD = '([^']+)'/);
+        if (m && m[1] && m[1] !== APP_BUILD) this.updateAvailable = m[1];
+      } catch (e) { /* offline - try again later */ }
     },
     toast(msg, kind = 'ok') {
       const id = ++this.toastSeq;
