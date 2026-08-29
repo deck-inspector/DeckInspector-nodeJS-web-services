@@ -658,6 +658,7 @@ input,select{font-family:inherit;font-size:16px}
             <button class="kind" :class="{on: reportKind==='Visual'}" @click="reportKind='Visual'">Visual</button>
             <button class="kind" :class="{on: reportKind==='Invasive'}" @click="reportKind='Invasive'">Invasive</button>
             <button class="kind" :class="{on: reportKind==='InvasiveOnly'}" @click="reportKind='InvasiveOnly'">Invasive Only</button>
+            <button class="kind" :class="{on: reportKind==='UnsafeConditions'}" :style="reportKind==='UnsafeConditions' ? 'background:#C62828;color:#fff;border-color:#C62828' : ''" @click="reportKind='UnsafeConditions'">Unsafe Conditions</button>
           </div>
           <!-- The standalone Final Repairs report is retired: the repairs annex
                (findings, photos, PASS/FAIL, confirmation) is now built into the
@@ -974,7 +975,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="tagrow">
               <span class="tag" :class="ratingClass(s.visualreview)" v-if="s.visualreview">Visual: {{ s.visualreview }}</span>
               <span class="tag" :class="String(s.visualsignsofleak).toLowerCase()==='yes' ? 'bad' : 'good'" v-if="s.visualsignsofleak!==undefined">Leaks: {{ s.visualsignsofleak }}</span>
-              <span class="tag" :class="String(s.furtherinvasivereviewrequired).toLowerCase()==='yes' ? 'fair' : 'good'" v-if="s.furtherinvasivereviewrequired!==undefined">Invasive: {{ s.furtherinvasivereviewrequired }}</span>
+              <span class="tag" :class="String(s.furtherinvasivereviewrequired).toLowerCase()==='yes' ? 'fair' : 'good'" v-if="s.furtherinvasivereviewrequired!==undefined">Invasive: {{ s.furtherinvasivereviewrequired }}</span><span class="tag" style="background:#C62828;color:#fff" v-if="String(s.unsafecondition).toLowerCase()==='yes'">UNSAFE</span>
             </div>
             <!-- Condition + the inspector's own comments, visible without
                  opening Edit (David, Aug 17). Hidden entirely when empty. -->
@@ -1114,6 +1115,13 @@ input,select{font-family:inherit;font-size:16px}
         <div class="field"><label>Further Invasive Review Required</label>
           <div class="kindrow" style="margin:0">
             <button class="kind" v-for="o in ['Yes','No']" :key="o" :class="{on: secForm.furtherinvasivereviewrequired===o}" @click="secForm.furtherinvasivereviewrequired=o">{{ o }}</button>
+          </div>
+        </div>
+        <!-- Unsafe Condition flag (David, Aug 29): drives the Notice of Unsafe
+             Conditions report and the mobile "Unsafe" mode. -->
+        <div class="field"><label>Unsafe Condition Present</label>
+          <div class="kindrow" style="margin:0">
+            <button class="kind" v-for="o in ['Yes','No']" :key="o" :class="{on: secForm.unsafecondition===o}" :style="o==='Yes' && secForm.unsafecondition==='Yes' ? 'background:#C62828;color:#fff;border-color:#C62828' : ''" @click="secForm.unsafecondition=o">{{ o }}</button>
           </div>
         </div>
 
@@ -1631,7 +1639,7 @@ createApp({
       assignPick: '',
       editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '', formId: null, inspDate: '', inspTime: '', url: '' },
       secEditOpen: false, loadingSec: false, savingSec: false, secOriginal: null, secId: null, secPhotoBusy: false,
-      secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '', images: [] },
+      secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', unsafecondition: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '', images: [] },
       // Invasive inspection linked to the open section (InvasiveSection record)
       inv: { id: null, loading: false, invasiveDescription: '', postinvasiverepairsrequired: 'No', invasiveimages: [] },
       invPhotoBusy: false,
@@ -1750,6 +1758,7 @@ createApp({
     },
     kindLabel() {
       if (this.reportKind === 'InvasiveOnly') return 'Invasive Only Report';
+      if (this.reportKind === 'UnsafeConditions') return 'Unsafe Conditions Report';
       return this.reportKind + ' Report';
     },
     assignedList() {
@@ -2977,7 +2986,7 @@ createApp({
       return agg;
     },
     localCounts(secs) {
-      const counts = { good: 0, fair: 0, bad: 0, unrated: 0, total: (secs || []).length };
+      const counts = { good: 0, fair: 0, bad: 0, unrated: 0, unsafe: 0, total: (secs || []).length };
       for (const s of (secs || [])) {
         if (!s) { counts.unrated++; continue; }
         const v = String(s.visualreview || '').toLowerCase();
@@ -2987,6 +2996,8 @@ createApp({
         else if (v.startsWith('fair')) counts.fair++;
         else if (v.startsWith('good')) counts.good++;
         else counts.unrated++;
+        const us = s.unsafecondition;
+        if (us === true || /^(yes|true)$/i.test(String(us || ''))) counts.unsafe++;
       }
       return counts;
     },
@@ -3460,6 +3471,7 @@ createApp({
           visualreview: doc.visualreview || '',
           visualsignsofleak: this.ynText(doc.visualsignsofleak),
           furtherinvasivereviewrequired: this.ynText(doc.furtherinvasivereviewrequired),
+          unsafecondition: this.ynText(doc.unsafecondition),
           conditionalassessment: doc.conditionalassessment || '',
           additionalconsiderations: doc.additionalconsiderations || '',
           eee: doc.eee || '', lbc: doc.lbc || '', awe: doc.awe || '',
@@ -3520,6 +3532,7 @@ createApp({
         visualreview: this.secForm.visualreview,
         visualsignsofleak: this.ynBack(o.visualsignsofleak, this.secForm.visualsignsofleak),
         furtherinvasivereviewrequired: this.ynBack(o.furtherinvasivereviewrequired, this.secForm.furtherinvasivereviewrequired),
+        unsafecondition: this.ynBack(o.unsafecondition, this.secForm.unsafecondition),
         conditionalassessment: this.secForm.conditionalassessment,
         additionalconsiderations: this.secForm.additionalconsiderations,
         eee: this.secForm.eee, lbc: this.secForm.lbc, awe: this.secForm.awe,
@@ -4045,7 +4058,7 @@ createApp({
           res = await this.api('/section/add', { method: 'POST', json: {
             name: s.name, images: [], parentid: this.unit.locationId, parenttype: 'location',
             createdby: this.user.username, exteriorelements: [], waterproofingelements: [],
-            visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No',
+            visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', unsafecondition: 'No',
             conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '',
           } });
         } else if (s.mode === 'add' && s.kind === 'building') {
