@@ -3017,6 +3017,11 @@ createApp({
     },
     openUnit(loc) {
       history.pushState({ v: 'unit', pid: this.projectId(this.current), loc: { locationId: loc.locationId, locationName: loc.locationName, locationType: loc.locationType, url: loc.url || '' } }, '');
+      // Ghost-click guard (David, Aug 29: "Edit Inspection pops up each time I
+      // open a location"): sections now paint instantly from the local copy,
+      // so the second click of a double-click can land on the freshly rendered
+      // Edit button. Ignore editor opens in the instant after opening a unit.
+      this._unitOpenedAt = Date.now();
       this.unit = loc; this.view = 'unit'; this.sections = [];
       this.loadSections();
       this.repRecs = []; this.loadRepairs();
@@ -3448,6 +3453,7 @@ createApp({
       });
     },
     async openSecEdit(s) {
+      if (Date.now() - (this._unitOpenedAt || 0) < 700) return; // ghost double-click
       this.secEditOpen = true; this.loadingSec = true;
       this.secId = s._id || s.id;
       try {
