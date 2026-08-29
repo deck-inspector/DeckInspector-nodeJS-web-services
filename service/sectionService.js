@@ -109,6 +109,28 @@ var deleteSectionPermanently = async function (sectionId) {
   }
 };
 
+// Sections for MANY parents at once, grouped by parentid, each group in the
+// same order getSectionsByParentId would return. Parents with no sections get
+// an empty list. Used by the web app to pull a whole project locally in one go.
+var getSectionsByParentIds = async function (parentIds) {
+  try {
+    const ids = (Array.isArray(parentIds) ? parentIds : []).map(String).filter(Boolean).slice(0, 500);
+    const rows = ids.length ? await SectionDAO.getSectionsByParentIds(ids) : [];
+    const byParent = {};
+    for (const id of ids) byParent[id] = [];
+    for (const section of rows) {
+      transformData(section);
+      const pid = String(section.parentid || '');
+      if (!byParent[pid]) byParent[pid] = [];
+      byParent[pid].push(section);
+    }
+    for (const pid of Object.keys(byParent)) byParent[pid] = sortSectionsBySequence(byParent[pid]);
+    return { success: true, byParent };
+  } catch (error) {
+    return handleError(error);
+  }
+};
+
 var getSectionsByParentId = async function (parentId) {
   try {
     const result = await SectionDAO.getSectionByParentId(parentId);
@@ -430,6 +452,7 @@ var convertBooleanToString = function (word) {
 
 
 module.exports = {
+  getSectionsByParentIds,
   addSection,
   getSectionById,
   deleteSectionPermanently,
