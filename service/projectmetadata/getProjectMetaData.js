@@ -196,13 +196,35 @@ function locConditionRollup(loc) {
     return fair ? 'Fair' : (good ? 'Good' : '');
 }
 
+// Per-location Good/Fair/Bad counts for the card redesign (David, Aug 29:
+// "the card shows 5 of 5 done, then Bad - a conflict. Say Inspected, then
+// Good 1, Bad 1, Fair 2"). Same classification rules as locConditionRollup:
+// a section counts as Bad if visual review is Bad OR further invasive review
+// is required; unrated sections are counted separately so the UI can tell
+// "Inspected" (nothing unrated) from "in progress".
+function locConditionCounts(loc) {
+    const secs = Array.isArray(loc && loc.sections) ? loc.sections : [];
+    const counts = { good: 0, fair: 0, bad: 0, unrated: 0, total: secs.length };
+    for (const s of secs) {
+        if (!s) { counts.unrated++; continue; }
+        const v = String(s.visualreview || '').toLowerCase();
+        const inv = s.furtherinvasivereviewrequired;
+        const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
+        if (v.startsWith('bad') || invYes) counts.bad++;
+        else if (v.startsWith('fair')) counts.fair++;
+        else if (v.startsWith('good')) counts.good++;
+        else counts.unrated++;
+    }
+    return counts;
+}
+
 async function getProjectWiseLocationsMetaData(projectId, parentChildren) {
     const locationData = await location.getLocationByParentId(projectId);
     const locations = [];
     if(locationData.data && locationData.data.item)
     {
         for (const loc of orderChildren(locationData.data.item, parentChildren, l => l.id || l._id)) {
-            locations.push({ locationId: loc.id || loc._id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo, url: loc.url || '', rating: locConditionRollup(loc)});
+            locations.push({ locationId: loc.id || loc._id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo, url: loc.url || '', rating: locConditionRollup(loc), ratingCounts: locConditionCounts(loc)});
         }
     }
     return locations;
@@ -246,7 +268,7 @@ async function getSubProjectsData(projectId, parentChildren) {
                         locationType: locType,
                         isInvasive: isInvasive,
                         url: loc.url || '',
-                        rating: locConditionRollup(loc)
+                        rating: locConditionRollup(loc), ratingCounts: locConditionCounts(loc)
                     });
                 }
             }
