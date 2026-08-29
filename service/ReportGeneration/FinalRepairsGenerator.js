@@ -45,6 +45,13 @@ async function pmap(items, fn, limit = 8) {
 
 class FinalRepairsGenerator {
 
+  // Unsafe Condition flag (David, Aug 29): drives the Notice of Unsafe
+  // Conditions findings report and the mobile "Unsafe" mode.
+  isUnsafeSection(s) {
+    const u = s && s.unsafecondition;
+    return u === true || /^(yes|true)$/i.test(String(u || ""));
+  }
+
   isBadSection(s) {
     if (!s) return false;
     const v = String(s.visualreview || "").toLowerCase();
@@ -170,11 +177,12 @@ class FinalRepairsGenerator {
   // A unit is BAD if the section DOC says so OR the location's embedded
   // section-summary metadata says so (legacy data disagrees sometimes - the
   // web tree follows the metadata, so the report must too).
-  mergedBadSections(sectionDocs, metaEntries) {
-    const bad = (sectionDocs || []).filter((s) => this.isBadSection(s));
+  mergedBadSections(sectionDocs, metaEntries, pred) {
+    const test = pred || ((x) => this.isBadSection(x));
+    const bad = (sectionDocs || []).filter((s) => test(s));
     const names = new Set(bad.map((s) => String(s.name || "").toLowerCase()));
     for (const m of (metaEntries || [])) {
-      if (!m || !this.isBadSection(m)) continue;
+      if (!m || !test(m)) continue;
       if (names.has(String(m.name || "").toLowerCase())) continue;
       bad.push({
         name: m.name,
@@ -671,5 +679,112 @@ class FinalRepairsGenerator {
     }
   }
 }
+
+FinalRepairsGenerator.prototype.buildUnsafeData = async function (projectId) {
+  const projectModelLocal = require("../../model/project.js");
+  const pRes = await projectModelLocal.getProjectById(projectId);
+  const proj = (pRes && (pRes.project || (pRes.data && pRes.data.item))) || {};
+  const locations = [];
+  const all = await this.allLocations(projectId);
+  const pred = (x) => this.isUnsafeSection(x);
+  for (const loc of all) {
+    const secRes = await require("../sectionService.js").getSectionsByParentId(loc.id).catch(() => null);
+    const sections = (secRes && secRes.sections) || [];
+    const unsafe = this.mergedBadSections(sections, loc.meta, pred);
+    if (!unsafe.length) continue;
+    locations.push({
+      title: "Location: " + loc.title,
+      badSections: unsafe.map((s) => ({
+        name: s.name || "Inspection point",
+        visualreview: s.visualreview || "\u2014",
+        flags: this.sectionFlags(s),
+        comments: this.sectionComments(s),
+        photo: (s.images && s.images[0]) || "",
+      })),
+    });
+  }
+  const assigned = Array.isArray(proj.assignedto) ? proj.assignedto.filter(Boolean).join(", ") : (proj.assignedto || "");
+  const inspDate = proj.editedat ? new Date(proj.editedat).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "America/Los_Angeles" }) : "not set";
+  return {
+    project: {
+      name: proj.name || "",
+      address: proj.address || "",
+      inspectionDate: inspDate,
+      inspectors: assigned || "\u2014",
+      originalInspector: proj.createdby || "\u2014",
+      badLocationCount: String(locations.length),
+      totalLocationCount: String(all.length),
+    },
+    locations,
+  };
+};
+
+// NOTICE OF UNSAFE CONDITIONS report (David, Aug 29): the branded Unsafe
+// letter (the client-form master, tenant logo+footer stamped) followed by
+// generated findings pages covering every unsafe-flagged section - merged
+// with docxcompose (the only merge Word accepts cleanly). If the letter or
+// the merge is unavailable, the findings document alone is produced.
+FinalRepairsGenerator.prototype.generateUnsafeReport = async function (projectId, companyIdentifier, projectName, uploader, reportFormat) {
+  const data = await this.buildUnsafeData(projectId);
+  const template = fs.readFileSync(path.join(__dirname, "..", "..", "Deck_UnsafeAnnexTemplate.docx"));
+  const buffer = await docxTemplate.createReport({
+    template,
+    data,
+    processLineBreaks: true,
+    additionalJsContext: {
+      img: async (url) => (url ? await this.fetchImage(url) : null),
+    },
+  });
+  let findings = Buffer.from(buffer);
+
+  // Branded letter in front (best-effort - findings alone still ship).
+  try {
+    const util = require("./ReportGenerationUtil.js");
+    const FinalReportGenerator = require("./FinalReportGenerator.js");
+    const PizZip = require("pizzip");
+    let letterBuf = null;
+    try { letterBuf = await uploadBlob.getBlobBuffer("Deck_UnsafeConditionsTemplate.docx", "projectreports"); } catch (e) { /* blob missing */ }
+    if (!letterBuf || !letterBuf.length) {
+      const p = path.join(__dirname, "..", "..", "Deck_UnsafeConditionsTemplate.docx");
+      if (fs.existsSync(p)) letterBuf = fs.readFileSync(p);
+    }
+    if (letterBuf && letterBuf.length) {
+      const zip = new PizZip(letterBuf);
+      try { await FinalReportGenerator.injectTenantLogo(zip, companyIdentifier); } catch (e) { /* keep master branding */ }
+      try { await FinalReportGenerator.injectTenantFooter(zip, companyIdentifier); } catch (e) { /* keep master footer */ }
+      const branded = zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+      const merged = util.mergeViaPython([branded, findings], "unsafe_" + projectId.slice(0, 8));
+      if (merged) findings = merged;
+    }
+  } catch (letterErr) {
+    console.error("Unsafe report: letter merge skipped:", letterErr && letterErr.message);
+  }
+
+  let outBuffer = findings;
+  let ext = "docx";
+  if (reportFormat === "pdf") {
+    try {
+      outBuffer = await convertDocxToPdf(outBuffer, "unsafeconditions.docx");
+      ext = "pdf";
+    } catch (e) {
+      console.log("Unsafe report: pdf conversion failed, uploading Word instead:", e.message);
+    }
+  }
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const fileName = `${projectId}_UnsafeConditions_${stamp}.${ext}`;
+  const tmpPath = path.join(os.tmpdir(), fileName);
+  fs.writeFileSync(tmpPath, outBuffer);
+  try {
+    const result = await uploadBlob.uploadFile("projectreports", fileName, tmpPath, {
+      metadata: { uploader: String(uploader || "system") },
+      tags: { id: String(projectId), reportType: "UnsafeConditions" },
+    });
+    const parsed = JSON.parse(result);
+    if (!parsed || !parsed.url) throw new Error("upload returned no url");
+    return parsed.url;
+  } finally {
+    try { fs.unlinkSync(tmpPath); } catch (e) { /* temp cleanup only */ }
+  }
+};
 
 module.exports = new FinalRepairsGenerator();
