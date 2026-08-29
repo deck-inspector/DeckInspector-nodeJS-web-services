@@ -3454,41 +3454,73 @@ createApp({
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     },
+    // Build the editor form fields from a section document.
+    secFormFrom(doc, s) {
+      return {
+        name: doc.name || (s && s.name) || '',
+        exteriorelements: this.listToText(doc.exteriorelements),
+        waterproofingelements: this.listToText(doc.waterproofingelements),
+        visualreview: doc.visualreview || '',
+        visualsignsofleak: this.ynText(doc.visualsignsofleak),
+        furtherinvasivereviewrequired: this.ynText(doc.furtherinvasivereviewrequired),
+        unsafecondition: this.ynText(doc.unsafecondition),
+        conditionalassessment: doc.conditionalassessment || '',
+        additionalconsiderations: doc.additionalconsiderations || '',
+        eee: doc.eee || '', lbc: doc.lbc || '', awe: doc.awe || '',
+        images: Array.isArray(doc.images) ? doc.images.slice() : [],
+      };
+    },
     async openSecEdit(s) {
       if (Date.now() - (this._unitOpenedAt || 0) < 700) return; // ghost double-click
-      this.secEditOpen = true; this.loadingSec = true;
+      // INSTANT OPEN (David, Aug 29: the editor sat on "Loading..." for 1-5+
+      // seconds on every open). The section list already holds the full
+      // document, so the form paints from it IMMEDIATELY; the server copy is
+      // fetched in the background and quietly refreshed field-by-field -
+      // but never over anything the inspector has already changed.
       this.secId = s._id || s.id;
+      this.secEditOpen = true;
+      const localReal = s && typeof s === 'object'
+        && (s.visualreview !== undefined || Array.isArray(s.images) || s.conditionalassessment !== undefined);
+      let painted = false;
+      if (localReal) {
+        this.secOriginal = s;
+        this.secForm = this.secFormFrom(s, s);
+        painted = true;
+        this.loadingSec = false;
+        this.loadInvasive();
+      } else {
+        this.loadingSec = true;
+      }
+      const initial = painted ? JSON.parse(JSON.stringify(this.secForm)) : null;
       try {
         const res = await this.api('/section/getSectionById', { method: 'POST', json: { sectionid: this.secId, username: this.user.username } });
-        // GUARD (David, Aug 24 screenshot: editor opened with Photos (0) on a
-        // section full of photos): under load the server can answer with an
-        // error payload; falling through used to open the editor BLANK - and
-        // saving that blank form would overwrite the real inspection. If the
-        // answer isn't a real section, refuse to open the editor at all.
+        // GUARD (David, Aug 24): under load the server can answer with an
+        // error payload; never let that produce a BLANK editor whose save
+        // would overwrite the real inspection.
         if (!res.ok) throw new Error('load');
         const data = await res.json();
         const doc = data.section || data.item || data.data || data;
         const looksReal = doc && typeof doc === 'object'
           && (doc.name || doc.visualreview || Array.isArray(doc.images) || doc.conditionalassessment !== undefined);
         if (!looksReal) throw new Error('load');
+        if (!this.secEditOpen || this.secId !== (doc._id || doc.id || this.secId)) { /* editor closed or moved on */ }
         this.secOriginal = doc;
-        this.secForm = {
-          name: doc.name || s.name || '',
-          exteriorelements: this.listToText(doc.exteriorelements),
-          waterproofingelements: this.listToText(doc.waterproofingelements),
-          visualreview: doc.visualreview || '',
-          visualsignsofleak: this.ynText(doc.visualsignsofleak),
-          furtherinvasivereviewrequired: this.ynText(doc.furtherinvasivereviewrequired),
-          unsafecondition: this.ynText(doc.unsafecondition),
-          conditionalassessment: doc.conditionalassessment || '',
-          additionalconsiderations: doc.additionalconsiderations || '',
-          eee: doc.eee || '', lbc: doc.lbc || '', awe: doc.awe || '',
-          images: Array.isArray(doc.images) ? doc.images.slice() : [],
-        };
-        await this.loadInvasive();
+        const fresh = this.secFormFrom(doc, s);
+        if (!painted) {
+          this.secForm = fresh;
+          await this.loadInvasive();
+        } else {
+          // merge: only fields the inspector has NOT touched follow the server
+          for (const k of Object.keys(fresh)) {
+            const untouched = JSON.stringify(this.secForm[k]) === JSON.stringify(initial[k]);
+            if (untouched) this.secForm[k] = fresh[k];
+          }
+        }
       } catch (e) {
-        this.secEditOpen = false;
-        if (e.message !== 'auth') this.toast('Could not load this inspection section.', 'err');
+        if (!painted) {
+          this.secEditOpen = false;
+          if (e.message !== 'auth') this.toast('Could not load this inspection section.', 'err');
+        } // painted from local copy - the background refresh failing is fine
       } finally { this.loadingSec = false; }
     },
     async loadInvasive() {
