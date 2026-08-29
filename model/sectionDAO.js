@@ -45,6 +45,19 @@ module.exports = {
         await collection.remove(id);
         return { ok: 1 };
     },
+    // Bulk variant (David, Aug 29 2026: "downloads all the photos and images
+    // when the project is pulled, vs. waiting for each location"): one N1QL
+    // round trip for every unit of a project instead of one per unit.
+    getSectionsByParentIds: async (parentIds) => {
+        const ids = (Array.isArray(parentIds) ? parentIds : []).map(String).filter(Boolean);
+        if (!ids.length) return [];
+        const bucket = process.env.DB_BUCKET_NAME;
+        const scope = process.env.DB_SCOPE_NAME || "inventory";
+        const cluster = couchbase.cluster;
+        const query = `SELECT META(s).id as id, s.* FROM \`${bucket}\`.\`${scope}\`.VisualSection s WHERE s.parentid IN $1`;
+        const result = await cluster.query(query, { parameters: [ids] });
+        return result.rows;
+    },
     getSectionByParentId: async (parentId) => {
         const bucket = process.env.DB_BUCKET_NAME;
         const scope = process.env.DB_SCOPE_NAME || "inventory";
