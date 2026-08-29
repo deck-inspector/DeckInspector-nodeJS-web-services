@@ -22,9 +22,7 @@ async function generateExcelForProject(projectId) {
     if (projectData.projecttype === "singlelevel") {
         await addSectionsForSingleLevelProject(projectId, worksheet, headerMapping);
     } else {
-        await addCommonLocations(projectId, worksheet, headerMapping);
-        await addBuildingLocations(projectId, worksheet, headerMapping);
-        await addBuildingApartments(projectId, worksheet, headerMapping);
+        await addMultiLevelRows(projectId, worksheet, headerMapping);
     }
     const cleanedFileName = projectData.name.replace(/[^\w\s]/g, '');
     const excelFileName = path.join(__dirname, `${cleanedFileName}.xlsx`);
@@ -53,60 +51,105 @@ async function addSectionsForSingleLevelProject(projectId, worksheet, headerMapp
     }
 }
 
-async function addDataByLocationType(projectId, worksheet, headerMapping, locationType, mapping) {
-    const { subprojects } = await SubProjectService.getSubProjectByParentId(projectId);
-    for (const subProject of subprojects || []) {
-        const buildingData = { [mapping.buildingKey]: subProject.name };
-        const { locations } = await LocationService.getLocationsByParentId(resolveId(subProject));
-        const filteredLocations = (locations || []).filter(location => location.type === locationType);
+/**
+ * Build the whole multi-level sheet.
+ *
+ * SPEED (David, Aug 29 2026: "the Excel sheet is not downloading" - it did, after
+ * ~5 minutes). The old shape was one database round trip per building and per unit,
+ * run one after another, AND the building pass ran TWICE (once for building
+ * locations, once for apartments). On a project the size of Northridge (37
+ * buildings, ~185 units) that is well over 300 sequential queries.
+ *
+ * Now: buildings once, every building's locations IN PARALLEL, and every unit's
+ * sections in ONE bulk query (getSectionsByParentIds, 200 parents per call) - about
+ * three round trips in total. The rows, their order and their contents are
+ * unchanged: common locations first, then building locations, then apartments.
+ */
+async function addMultiLevelRows(projectId, worksheet, headerMapping) {
+    const [projectLocationsRes, subProjectsRes] = await Promise.all([
+        LocationService.getLocationsByParentId(projectId).catch(() => ({})),
+        SubProjectService.getSubProjectByParentId(projectId).catch(() => ({})),
+    ]);
 
-        for (const location of filteredLocations) {
-            const locationData = { [mapping.locationKey]: location.name };
-            const { sections } = await SectionService.getSectionsByParentId(resolveId(location));
-            for (const section of sections || []) {
-                const sectionData = {
-                    [mapping.sectionNameKey]: section.name,
-                    ...await generateSectionDataNew(section)
-                };
-                const finalData = { ...buildingData, ...locationData, ...sectionData };
-                await addDataToWorksheet(finalData, worksheet, headerMapping);
+    const commonLocations = projectLocationsRes.locations || [];
+    const subProjects = subProjectsRes.subprojects || [];
+
+    // every building's children, fetched together instead of one at a time
+    const childrenPerBuilding = await Promise.all(
+        subProjects.map((sp) =>
+            LocationService.getLocationsByParentId(resolveId(sp)).catch(() => ({}))
+        )
+    );
+
+    // one bulk query for the sections of every location on the sheet
+    const locationIds = [];
+    for (const loc of commonLocations) locationIds.push(String(resolveId(loc)));
+    for (const res of childrenPerBuilding) {
+        for (const loc of res.locations || []) locationIds.push(String(resolveId(loc)));
+    }
+    const sectionsByParent = await fetchSectionsByParents(locationIds);
+    const sectionsOf = (loc) => sectionsByParent[String(resolveId(loc))] || [];
+
+    // 1. the project's own common locations
+    for (const location of commonLocations) {
+        const commonLocationData = { cLoc: location.name };
+        for (const section of sectionsOf(location)) {
+            const finalData = {
+                ...commonLocationData,
+                cLocName: section.name,
+                ...await generateSectionDataNew(section)
+            };
+            await addDataToWorksheet(finalData, worksheet, headerMapping);
+        }
+    }
+
+    // 2. building locations, then 3. apartments - same order as before
+    const passes = [
+        { type: LocationType.BUILDINGLOCATION, locationKey: 'bldLoc', sectionNameKey: 'bldLocName' },
+        { type: LocationType.APARTMENT, locationKey: 'bldApt', sectionNameKey: 'bldAptName' },
+    ];
+    for (const pass of passes) {
+        for (let i = 0; i < subProjects.length; i++) {
+            const subProject = subProjects[i];
+            const buildingData = { bld: subProject.name };
+            const locations = (childrenPerBuilding[i].locations || [])
+                .filter((location) => location.type === pass.type);
+            for (const location of locations) {
+                for (const section of sectionsOf(location)) {
+                    const finalData = {
+                        ...buildingData,
+                        [pass.locationKey]: location.name,
+                        [pass.sectionNameKey]: section.name,
+                        ...await generateSectionDataNew(section)
+                    };
+                    await addDataToWorksheet(finalData, worksheet, headerMapping);
+                }
             }
         }
     }
 }
 
-async function addCommonLocations(projectId, worksheet, headerMapping) {
-    const { locations } = await LocationService.getLocationsByParentId(projectId);
-    for (const location of locations || []) {
-        const commonLocationData = { 'cLoc': location.name };
-        const { sections } = await SectionService.getSectionsByParentId(resolveId(location));
-        for (const section of sections || []) {
-            const sectionData = {
-                'cLocName': section.name,
-                ...await generateSectionDataNew(section)
-            };
-            const finalData = { ...commonLocationData, ...sectionData };
-            await addDataToWorksheet(finalData, worksheet, headerMapping);
+/**
+ * Sections for many parents, in chunks. Falls back to one-at-a-time only if the
+ * bulk call is unavailable, so an older deployment still produces a sheet.
+ */
+async function fetchSectionsByParents(parentIds) {
+    const ids = [...new Set((parentIds || []).filter(Boolean))];
+    const byParent = {};
+    if (!ids.length) return byParent;
+    if (typeof SectionService.getSectionsByParentIds === 'function') {
+        for (let i = 0; i < ids.length; i += 200) {
+            const chunk = ids.slice(i, i + 200);
+            const res = await SectionService.getSectionsByParentIds(chunk);
+            Object.assign(byParent, (res && res.byParent) || {});
         }
+        return byParent;
     }
-}
-
-async function addBuildingLocations(projectId, worksheet, headerMapping) {
-    const mapping = {
-        buildingKey: 'bld',
-        locationKey: 'bldLoc',
-        sectionNameKey: 'bldLocName'
-    };
-    await addDataByLocationType(projectId, worksheet, headerMapping, LocationType.BUILDINGLOCATION, mapping);
-}
-
-async function addBuildingApartments(projectId, worksheet, headerMapping) {
-    const mapping = {
-        buildingKey: 'bld',
-        locationKey: 'bldApt',
-        sectionNameKey: 'bldAptName'
-    };
-    await addDataByLocationType(projectId, worksheet, headerMapping, LocationType.APARTMENT, mapping);
+    for (const id of ids) {
+        const res = await SectionService.getSectionsByParentId(id);
+        byParent[id] = (res && res.sections) || [];
+    }
+    return byParent;
 }
 
 async function generateSectionDataNew(sectionData) {
