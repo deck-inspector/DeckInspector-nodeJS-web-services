@@ -823,6 +823,10 @@ input,select{font-family:inherit;font-size:16px}
         <template v-else>
           <div class="tabbar">
             <button class="tabbtn" :class="{on: structTab==='buildings'}" @click="structTab='buildings'">Project Buildings ({{ structure.subProjects.length }})</button>
+            <!-- Unit totals beside the building count (David, Aug 29: "we need
+                 a unit count on our inspection cards - total of all units
+                 inspected - next to total building count"). -->
+            <span class="rc prog" style="align-self:center;white-space:nowrap" v-if="unitTotals.total">Units: {{ unitTotals.inspected }} of {{ unitTotals.total }} inspected</span>
             <button class="tabbtn" :class="{on: structTab==='locations'}" @click="structTab='locations'">Project Common Locations ({{ structure.locations.length }})</button>
             <button class="tabadd" :title="structTab==='buildings' ? 'Add building' : 'Add common location'" @click="structTab==='buildings' ? openStructAdd('building', null) : openStructAdd('unit', null)">&#65291;</button>
           </div>
@@ -1668,6 +1672,19 @@ createApp({
   computed: {
     // Every other unit in this project a section could be moved to, labelled
     // "Building › Unit" so identically-named units stay tellable apart.
+    // Total units across every building, and how many are fully inspected
+    // (every section rated - matches the card's "Inspected" chip rule).
+    unitTotals() {
+      let total = 0, inspected = 0;
+      for (const sp of (this.structure.subProjects || [])) {
+        for (const loc of (sp.subProjectLocations || [])) {
+          total++;
+          const rc = loc.ratingCounts;
+          if (rc && rc.total > 0 && !rc.unrated) inspected++;
+        }
+      }
+      return { total, inspected };
+    },
     moveTargets() {
       const here = this.unit ? String(this.unit.locationId) : '';
       const out = [];
