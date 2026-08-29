@@ -99,6 +99,40 @@ async function getSingleProjectMetadata(projectId)
     }
 }
 
+// CHILD ORDER (David, Aug 29 2026 - Northridge Village HOA: "buildings and units are
+// completely random on the web and backwards on the phone"). Nearly every building /
+// unit carries sequenceNo null, so "a.sequenceNo - b.sequenceNo" was NaN and the sort
+// was arbitrary. Rule, shared with the mobile app: an explicit positive sequenceNo wins
+// (ascending); otherwise the order the items were CREATED in - which is the order they
+// sit in the parent document's children[] array (the same source the phone reads) -
+// then createdat as a last resort. Stable: ties keep their input order.
+function seqOf(x) {
+    const n = Number(x && x.sequenceNo);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+function orderChildren(items, parentChildren, idOf) {
+    const pos = new Map();
+    (Array.isArray(parentChildren) ? parentChildren : []).forEach((c, i) => {
+        const cid = c && (c._id || c.id);
+        if (cid !== undefined && cid !== null && !pos.has(String(cid))) pos.set(String(cid), i);
+    });
+    const BIG = Number.MAX_SAFE_INTEGER;
+    return items
+        .map((it, i) => ({ it, i, seq: seqOf(it), idx: pos.has(String(idOf(it))) ? pos.get(String(idOf(it))) : BIG,
+                           t: Date.parse(it && it.createdat) || BIG }))
+        .sort((a, b) => {
+            if (a.seq !== null || b.seq !== null) {
+                if (a.seq === null) return 1;
+                if (b.seq === null) return -1;
+                if (a.seq !== b.seq) return a.seq - b.seq;
+            }
+            if (a.idx !== b.idx) return a.idx - b.idx;
+            if (a.t !== b.t) return a.t - b.t;
+            return a.i - b.i;
+        })
+        .map(x => x.it);
+}
+
 
 async function getProjectData(projectId) {
     const projectResponse = {};
@@ -124,8 +158,8 @@ async function getProjectData(projectId) {
     projectResponse.name = projectInfo.name || "";
     projectResponse.isInvasive = projectInfo.isInvasive ? projectInfo.isInvasive : false;
     projectResponse.projectType = projectInfo.projecttype || projectInfo.projectType || "";
-    projectResponse.subProjects = await getSubProjectsData(projectId);
-    projectResponse.locations = await getProjectWiseLocationsMetaData(projectId);
+    projectResponse.subProjects = await getSubProjectsData(projectId, projectInfo.children);
+    projectResponse.locations = await getProjectWiseLocationsMetaData(projectId, projectInfo.children);
     
     return projectResponse;
 }
@@ -151,23 +185,20 @@ function locConditionRollup(loc) {
     return fair ? 'Fair' : (good ? 'Good' : '');
 }
 
-async function getProjectWiseLocationsMetaData(projectId) {
+async function getProjectWiseLocationsMetaData(projectId, parentChildren) {
     const locationData = await location.getLocationByParentId(projectId);
     const locations = [];
     if(locationData.data && locationData.data.item)
     {
-        for (const loc of locationData.data.item) {
+        for (const loc of orderChildren(locationData.data.item, parentChildren, l => l.id || l._id)) {
             locations.push({ locationId: loc.id || loc._id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo, url: loc.url || '', rating: locConditionRollup(loc)});
         }
     }
-    locations.sort(function(loc1,loc2){
-        return (loc1.sequenceNo-loc2.sequenceNo)
-    });
     return locations;
 }
 
 
-async function getSubProjectsData(projectId) {
+async function getSubProjectsData(projectId, parentChildren) {
     const subProjectsData = await subProject.getSubProjectsByParentId(projectId);
     const subProjects = [];
     if (subProjectsData.data && subProjectsData.data.item) {
@@ -175,7 +206,7 @@ async function getSubProjectsData(projectId) {
         // building's locations were fetched ONE AT A TIME - the project page
         // waited through every round-trip in sequence. All buildings are now
         // fetched IN PARALLEL, so the wait is one round-trip, not N.
-        const subs = subProjectsData.data.item;
+        const subs = orderChildren(subProjectsData.data.item, parentChildren, x => x.id || x._id);
         const childrenList = await Promise.all(
             subs.map((sp) => location.getLocationByParentId(sp.id || sp._id).catch(() => null))
         );
@@ -191,7 +222,7 @@ async function getSubProjectsData(projectId) {
             const subProjectChildren = childrenList[si] || {};
 
             if (subProjectChildren.data && subProjectChildren.data.item) {
-                for (const loc of subProjectChildren.data.item) {
+                for (const loc of orderChildren(subProjectChildren.data.item, subProject.children, l => l.id || l._id)) {
                     const locId = loc.id || loc._id;
                     const locName = loc.name;
                     const locType = loc.type;
@@ -208,16 +239,11 @@ async function getSubProjectsData(projectId) {
                     });
                 }
             }
-            subProjectData.subProjectLocations = subProjectLocations.sort(function (subProj1, subProj2) {
-                return (subProj1.sequenceNo - subProj2.sequenceNo)
-            });
+            subProjectData.subProjectLocations = subProjectLocations; // already in child order
             subProjects.push(subProjectData);
         }
     }
-    subProjects.sort(function (subProj1, subProj2) {
-        return (subProj1.sequenceNo - subProj2.sequenceNo)
-    });
-    return subProjects;
+    return subProjects; // already in child order
 }
 
 
