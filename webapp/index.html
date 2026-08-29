@@ -3604,16 +3604,21 @@ createApp({
         lasteditedby: this.user.username,
       };
       if (o.additionalconsiderationshtml !== undefined) payload.additionalconsiderationshtml = this.secForm.additionalconsiderations;
+      // OPTIMISTIC SAVE (David, Aug 29: "is there any reason we have to deal
+      // with the delay from the save button" - no). The card, the rating and
+      // the left menu repaint NOW and the editor closes NOW; the server write
+      // runs in the background. If it fails, the change is rolled back with a
+      // clear red toast so nothing quietly pretends to be saved.
+      const si = this.sections.findIndex(x => (x._id || x.id) === this.secId);
+      const before = si !== -1 ? this.sections[si] : null;
+      if (si !== -1) this.sections.splice(si, 1, { ...this.sections[si], ...payload });
+      if (this.unit && this.unit.locationId) this.applyLocalRating(this.unit.locationId, this.sections);
+      this.secEditOpen = false;
+      const savedId = this.secId;
       try {
-        const res = await this.api('/section/' + encodeURIComponent(this.secId), { method: 'PUT', json: payload });
+        const res = await this.api('/section/' + encodeURIComponent(savedId), { method: 'PUT', json: payload });
         if (!res.ok) throw new Error('bad');
         const invOk = await this.saveInvasive();
-        // Update the on-screen section card IMMEDIATELY from what was just saved
-        // (no refresh needed to see the change), then re-fetch from the server.
-        const si = this.sections.findIndex(x => (x._id || x.id) === this.secId);
-        if (si !== -1) this.sections.splice(si, 1, { ...this.sections[si], ...payload });
-        if (this.unit && this.unit.locationId) this.applyLocalRating(this.unit.locationId, this.sections);
-        this.secEditOpen = false;
         this.toast(invOk === false
           ? 'Inspection saved, but the INVASIVE part failed — reopen and try again.'
           : 'Inspection updated — it will print this way on the next report.', invOk === false ? 'err' : undefined);
@@ -3624,7 +3629,13 @@ createApp({
         // fetch, which until now only ran when the project was opened.
         this.loadStructure();
       } catch (e) {
-        if (e.message !== 'auth') this.toast('Could not save the inspection.', 'err');
+        if (e.message !== 'auth') {
+          // Roll the optimistic paint back so the screen tells the truth.
+          const ri = this.sections.findIndex(x => (x._id || x.id) === savedId);
+          if (ri !== -1 && before) this.sections.splice(ri, 1, before);
+          if (this.unit && this.unit.locationId) this.applyLocalRating(this.unit.locationId, this.sections);
+          this.toast('Could not save the inspection — your change did NOT stick. Please reopen and save again.', 'err');
+        }
       } finally { this.savingSec = false; }
     },
     // Create/update the InvasiveSection linked to this visual section. Returns
