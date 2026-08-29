@@ -203,6 +203,7 @@ input,select{font-family:inherit;font-size:16px}
 .trate.good{background:#E3F5E8;color:#0E7A33}
 .trate.fair{background:#FFF3D6;color:#9A6D00}
 .trate.bad{background:#FBDCDC;color:#C62828}
+.trate.failedc{background:#C62828;color:#fff}
 /* Rating breakdown row on unit/location cards (David, Aug 29): status chip
    (Inspected / n of N rated) + Good/Fair/Bad counts, replacing the ambiguity
    of a lone worst-of label. */
@@ -213,6 +214,7 @@ input,select{font-family:inherit;font-size:16px}
 .rc.good{background:#E3F5E8;color:#0E7A33}
 .rc.fair{background:#FFF3D6;color:#9A6D00}
 .rc.bad{background:#FBDCDC;color:#C62828}
+.rc.failedc{background:#C62828;color:#fff}
 .tnode.badloc{color:#C62828;font-weight:800}
 .seccmts{margin:2px 0 12px;font-size:14.5px;line-height:1.5;color:var(--ink)}
 .seccmts b{color:var(--brand);font-weight:700;margin-right:4px}
@@ -806,12 +808,12 @@ input,select{font-family:inherit;font-size:16px}
             <template v-for="sp in structure.subProjects" :key="'t'+sp.id">
               <button class="tnode" :class="{on: view==='inspect' && structTab==='buildings'}" @click="gotoTab('buildings')">&#127970; {{ sp.name }}</button>
               <div class="tkids">
-                <button class="tnode" v-for="loc in sp.subProjectLocations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId, badloc: loc.rating==='Bad'}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}<span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span></button>
+                <button class="tnode" v-for="loc in sp.subProjectLocations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId, badloc: loc.rating==='Bad'}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}<span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span><span class="trate failedc" v-if="loc.ratingCounts && loc.ratingCounts.failed" title="Failed conditional assessment">FAIL</span></button>
               </div>
             </template>
             <button class="tnode" :class="{on: view==='inspect' && structTab==='locations'}" @click="gotoTab('locations')">&#128205; Common Locations</button>
             <div class="tkids">
-              <button class="tnode" v-for="loc in structure.locations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId, badloc: loc.rating==='Bad'}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}<span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span></button>
+              <button class="tnode" v-for="loc in structure.locations" :key="'t'+loc.locationId" :class="{on: view==='unit' && unit && unit.locationId===loc.locationId, badloc: loc.rating==='Bad'}" @click="openUnit(loc)">&#128682; {{ loc.locationName }}<span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span><span class="trate failedc" v-if="loc.ratingCounts && loc.ratingCounts.failed" title="Failed conditional assessment">FAIL</span></button>
             </div>
           </div>
           <div class="pfnote" v-if="prefetching">&#11015; Pulling project to this computer&hellip; units {{ prefetch.done }}/{{ prefetch.total }}<span v-if="prefetch.photos"> &middot; photos {{ prefetch.photosDone }}/{{ prefetch.photos }}</span></div>
@@ -840,6 +842,7 @@ input,select{font-family:inherit;font-size:16px}
                 <span class="rc good" v-if="bldgCounts(sp).good">Good {{ bldgCounts(sp).good }}</span>
                 <span class="rc fair" v-if="bldgCounts(sp).fair">Fair {{ bldgCounts(sp).fair }}</span>
                 <span class="rc bad" v-if="bldgCounts(sp).bad">Bad {{ bldgCounts(sp).bad }}</span>
+                <span class="rc failedc" v-if="bldgCounts(sp).failed">Failed {{ bldgCounts(sp).failed }}</span>
               </template>
               <button class="btn-dl" style="padding:4px 10px;font-size:12px" @click="openStructEdit('building', sp)">&#9998;</button>
               <button class="btn-dl" style="padding:4px 10px;font-size:12px" @click="openStructAdd('unit', sp)">&#65291; Unit</button>
@@ -855,6 +858,7 @@ input,select{font-family:inherit;font-size:16px}
                     <span class="rc good" v-if="loc.ratingCounts.good">Good {{ loc.ratingCounts.good }}</span>
                     <span class="rc fair" v-if="loc.ratingCounts.fair">Fair {{ loc.ratingCounts.fair }}</span>
                     <span class="rc bad" v-if="loc.ratingCounts.bad">Bad {{ loc.ratingCounts.bad }}</span>
+                    <span class="rc failedc" v-if="loc.ratingCounts.failed">Failed {{ loc.ratingCounts.failed }}</span>
                   </div></div>
                 <span class="btn-dl" style="padding:4px 9px;font-size:12px" @click.stop="openStructEdit('unit', loc)">&#9998;</span>
                 <span class="btn-del" style="padding:4px 9px;font-size:12px" @click.stop="structDelete = { kind: 'unit', id: loc.locationId, name: loc.locationName }">&#128465;</span>
@@ -874,6 +878,7 @@ input,select{font-family:inherit;font-size:16px}
                     <span class="rc good" v-if="loc.ratingCounts.good">Good {{ loc.ratingCounts.good }}</span>
                     <span class="rc fair" v-if="loc.ratingCounts.fair">Fair {{ loc.ratingCounts.fair }}</span>
                     <span class="rc bad" v-if="loc.ratingCounts.bad">Bad {{ loc.ratingCounts.bad }}</span>
+                    <span class="rc failedc" v-if="loc.ratingCounts.failed">Failed {{ loc.ratingCounts.failed }}</span>
                   </div></div>
                 <span class="btn-dl" style="padding:4px 9px;font-size:12px" @click.stop="openStructEdit('unit', loc)">&#9998;</span>
                 <span class="btn-del" style="padding:4px 9px;font-size:12px" @click.stop="structDelete = { kind: 'unit', id: loc.locationId, name: loc.locationName }">&#128465;</span>
@@ -2980,9 +2985,9 @@ createApp({
         const v = String(s.visualreview || '').toLowerCase();
         const inv = s.furtherinvasivereviewrequired;
         const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
-        // Failed Condition counts as Bad (David, Aug 29) - keep in step with
-        // the server's locConditionRollup.
-        if (v.startsWith('bad') || invYes || String(s.conditionalassessment || '').toLowerCase().startsWith('fail')) return 'Bad';
+        // A failed Condition does NOT force Bad - a deck can be Fair with a
+        // bad/failed condition (David, Aug 29). Failed shows as its own tag.
+        if (v.startsWith('bad') || invYes) return 'Bad';
         if (v.startsWith('fair')) fair = true;
         else if (v.startsWith('good')) good = true;
       }
@@ -2995,23 +3000,24 @@ createApp({
     // (David, Aug 29: "Open Northridge and we see each of the buildings or
     // locations - this is where we should see Good 1, Fair 2, Bad 3").
     bldgCounts(sp) {
-      const agg = { good: 0, fair: 0, bad: 0, unrated: 0, total: 0 };
+      const agg = { good: 0, fair: 0, bad: 0, unrated: 0, failed: 0, total: 0 };
       for (const l of (sp && sp.subProjectLocations || [])) {
         const c = l && l.ratingCounts;
         if (!c) continue;
         agg.good += c.good || 0; agg.fair += c.fair || 0; agg.bad += c.bad || 0;
-        agg.unrated += c.unrated || 0; agg.total += c.total || 0;
+        agg.unrated += c.unrated || 0; agg.failed += c.failed || 0; agg.total += c.total || 0;
       }
       return agg;
     },
     localCounts(secs) {
-      const counts = { good: 0, fair: 0, bad: 0, unrated: 0, unsafe: 0, total: (secs || []).length };
+      const counts = { good: 0, fair: 0, bad: 0, unrated: 0, unsafe: 0, failed: 0, total: (secs || []).length };
       for (const s of (secs || [])) {
         if (!s) { counts.unrated++; continue; }
         const v = String(s.visualreview || '').toLowerCase();
         const inv = s.furtherinvasivereviewrequired;
         const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
-        if (v.startsWith('bad') || invYes || String(s.conditionalassessment || '').toLowerCase().startsWith('fail')) counts.bad++;
+        if (String(s.conditionalassessment || '').toLowerCase().startsWith('fail')) counts.failed++;
+        if (v.startsWith('bad') || invYes) counts.bad++;
         else if (v.startsWith('fair')) counts.fair++;
         else if (v.startsWith('good')) counts.good++;
         else counts.unrated++;
