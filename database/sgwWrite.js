@@ -45,9 +45,12 @@ function authHeader() {
   return "Basic " + Buffer.from(USER + ":" + PASS).toString("base64");
 }
 
+// 5s (was 20s): a hung SGW must not hold the user's Save hostage - the SDK
+// fallback takes over quickly and the save completes (David, Aug 29: "long
+// save" 80% of the time).
 async function sgwFetch(method, path, body) {
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 20000);
+  const timer = setTimeout(() => ctl.abort(), 5000);
   try {
     const res = await fetch(SGW_URL + path, {
       method,
@@ -77,6 +80,19 @@ function cleanBody(doc) {
   return out;
 }
 
+// In-memory revision cache: every successful SGW write returns the doc's new
+// rev, so the NEXT save of the same doc can go straight to PUT with no GET
+// round-trip (halves the SGW chatter on the busy save path - David, Aug 29,
+// slow saves). A stale entry just costs one 409 + re-fetch, same as before.
+const revCache = new Map();
+const REV_CACHE_MAX = 5000;
+function revKey(colName, id) { return colName + "/" + id; }
+function rememberRev(colName, id, rev) {
+  if (!rev) return;
+  if (revCache.size >= REV_CACHE_MAX) revCache.clear();
+  revCache.set(revKey(colName, id), rev);
+}
+
 // Current revision of a doc as SGW knows it, or null when SGW has never seen
 // it. GET is the normal path; _all_docs is the fallback because docs that CE
 // half-imported can 404 on GET while still carrying a rev in _all_docs.
@@ -94,20 +110,29 @@ async function sgwGetRev(colName, id) {
 // Write (create or update) one doc through SGW. Retries revision races twice.
 async function sgwUpsert(colName, id, doc) {
   const body = cleanBody(doc);
-  let rev = await sgwGetRev(colName, id);
+  let rev = revCache.get(revKey(colName, id));
+  if (rev === undefined) rev = await sgwGetRev(colName, id);
   for (let attempt = 1; attempt <= 3; attempt++) {
     const path = keyspacePath(colName, id) + (rev ? "?rev=" + encodeURIComponent(rev) : "");
     const r = await sgwFetch("PUT", path, body);
-    if (r.status === 200 || r.status === 201) return { ok: 1, rev: r.json && r.json.rev };
+    if (r.status === 200 || r.status === 201) {
+      rememberRev(colName, id, r.json && r.json.rev);
+      return { ok: 1, rev: r.json && r.json.rev };
+    }
     if (r.status === 409) { rev = await sgwGetRev(colName, id); continue; }
+    revCache.delete(revKey(colName, id));
     throw new Error("SGW upsert failed (" + r.status + ") for " + colName + "/" + id);
   }
+  revCache.delete(revKey(colName, id));
   throw new Error("SGW upsert conflict persisted for " + colName + "/" + id);
 }
 
 async function sgwInsert(colName, id, doc) {
   const r = await sgwFetch("PUT", keyspacePath(colName, id), cleanBody(doc));
-  if (r.status === 200 || r.status === 201) return { ok: 1, rev: r.json && r.json.rev };
+  if (r.status === 200 || r.status === 201) {
+    rememberRev(colName, id, r.json && r.json.rev);
+    return { ok: 1, rev: r.json && r.json.rev };
+  }
   if (r.status === 409) {
     const err = new Error("document exists: " + colName + "/" + id);
     err.name = "DocumentExistsError";
@@ -117,6 +142,7 @@ async function sgwInsert(colName, id, doc) {
 }
 
 async function sgwRemove(colName, id) {
+  revCache.delete(revKey(colName, id));
   let rev = await sgwGetRev(colName, id);
   if (!rev) {
     const err = new Error("document not found: " + colName + "/" + id);
