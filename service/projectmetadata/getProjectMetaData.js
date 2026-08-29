@@ -189,7 +189,11 @@ function locConditionRollup(loc) {
         const v = String(s.visualreview || '').toLowerCase();
         const inv = s.furtherinvasivereviewrequired;
         const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
-        if (v.startsWith('bad') || invYes) return 'Bad';
+        // A FAILED Condition counts as Bad even when the visual review says
+        // Good/Fair (David, Aug 29 - 18361 unit 2: Visual Good, Condition
+        // Fail, tree stayed GOOD).
+        const condFail = String(s.conditionalassessment || '').toLowerCase().startsWith('fail');
+        if (v.startsWith('bad') || invYes || condFail) return 'Bad';
         if (v.startsWith('fair')) fair = true;
         else if (v.startsWith('good')) good = true;
     }
@@ -210,7 +214,8 @@ function locConditionCounts(loc) {
         const v = String(s.visualreview || '').toLowerCase();
         const inv = s.furtherinvasivereviewrequired;
         const invYes = inv === true || /^(yes|true)$/i.test(String(inv || ''));
-        if (v.startsWith('bad') || invYes) counts.bad++;
+        const condFail2 = String(s.conditionalassessment || '').toLowerCase().startsWith('fail');
+        if (v.startsWith('bad') || invYes || condFail2) counts.bad++;
         else if (v.startsWith('fair')) counts.fair++;
         else if (v.startsWith('good')) counts.good++;
         else counts.unrated++;
