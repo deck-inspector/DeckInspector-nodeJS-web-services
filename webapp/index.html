@@ -3240,6 +3240,11 @@ createApp({
           ? 'Inspection saved, but the INVASIVE part failed — reopen and try again.'
           : 'Inspection updated — it will print this way on the next report.', invOk === false ? 'err' : undefined);
         this.loadSections();
+        // Refresh the left-hand structure too (David, Aug 29 - Northridge: a unit
+        // rated Bad kept showing Fair in the menu until the project was
+        // reopened). The menu's condition rollup comes from the structure
+        // fetch, which until now only ran when the project was opened.
+        this.loadStructure();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not save the inspection.', 'err');
       } finally { this.savingSec = false; }
