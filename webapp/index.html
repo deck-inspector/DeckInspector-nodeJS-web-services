@@ -83,6 +83,9 @@ input,select{font-family:inherit;font-size:16px}
 .chip{font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px}
 .chip.open{background:var(--brand-soft);color:var(--brand)}
 .chip.done{background:#e8eaf6;color:#3949ab}
+.rsrow{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;color:var(--ink-soft);cursor:pointer;user-select:none}
+.rsrow input{width:18px;height:18px;accent-color:#12A344;cursor:pointer}
+.rsrow.on{color:#12A344;font-weight:700}
 .pcard .actions{margin-top:auto;padding-top:14px}
 .btn-reports{width:100%;background:var(--brand);color:#fff;padding:13px;font-size:16px}
 .btn-reports:hover{background:var(--brand-dark)}
@@ -420,6 +423,14 @@ input,select{font-family:inherit;font-size:16px}
                   </template>
                 </span>
               </div>
+              <!-- Report sent to client (David, Aug 29): tick when the report has gone
+                   out. The card stays and its data stays on this computer; only the
+                   PHOTOS are released from the local cache until the project is opened
+                   again, when they are recalled. -->
+              <label class="rsrow" :class="{on: p.reportsent}" @click.stop :title="p.reportsent ? ('Report sent ' + toLocalDT(p.reportsentat)) : 'Tick when the inspection report has been completed and sent to the client'">
+                <input type="checkbox" :checked="!!p.reportsent" :disabled="p._rsBusy" @change="toggleReportSent(p, $event)">
+                <span>&#10003; Report sent to client<span v-if="p.reportsent && p.reportsentat"> &middot; {{ toLocalDT(p.reportsentat) }}</span></span>
+              </label>
               <div class="assignrow">
                 <!-- tag colour = the inspector's response: green ✓ accepted, red ✗ declined,
                      no colour = not yet responded. The inspector clicks THEIR OWN name to
@@ -1711,6 +1722,12 @@ createApp({
     } catch (e) { /* ignore */ }
     history.replaceState({ v: 'projects' }, '');
     window.addEventListener('popstate', (e) => this.onPop(e));
+    // LOCAL PHOTO CACHE (David, Aug 29): a service worker keeps every photo
+    // this computer has loaded until the project is completed or its report
+    // is marked sent. It caches photos ONLY - never the app or API data.
+    try {
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+    } catch (e) { /* no SW - photos simply load from storage each time */ }
   },
   methods: {
     /* ---------- infrastructure ---------- */
@@ -2727,6 +2744,7 @@ createApp({
         p._inspD = this.toLocalDateStr(p.editedat);
         p._inspT = this.toLocalTimeStr(p.editedat);
         p._inspBusy = false;
+        p._rsBusy = false;
       }
       return list;
     },
@@ -2807,19 +2825,112 @@ createApp({
       this.repRecs = []; this.loadRepairs();
     },
     async loadSections() {
-      this.loadingSections = true;
+      // LOCAL COPY of the unit's inspection data (David, Aug 29: "the
+      // inspection information ... was supposed to load one time and stay
+      // local"). Same pattern as the structure: paint the last-known sections
+      // instantly, fetch the live version behind it, keep the copy current.
+      const locId = this.unit && this.unit.locationId;
+      const secKey = 'e3v2_secs_' + locId;
+      let painted = false;
+      try {
+        const cached = JSON.parse(localStorage.getItem(secKey) || 'null');
+        if (cached && Array.isArray(cached.sections)) { this.sections = cached.sections; painted = true; }
+      } catch (e) { /* bad cache - ignore */ }
+      this.loadingSections = !painted;
       try {
         const res = await this.api('/section/getSectionsByParentId', {
-          method: 'POST', json: { parentid: this.unit.locationId, username: this.user.username },
+          method: 'POST', json: { parentid: locId, username: this.user.username },
         });
         const data = await res.json();
         this.sections = data.sections || [];
+        try { localStorage.setItem(secKey, JSON.stringify({ sections: this.sections, ts: Date.now() })); }
+        catch (e) { /* storage full - live data still on screen */ }
         const pb = [];
         for (const sec of this.sections) for (const im of (sec.images || [])) pb.push(im);
         if (this.unit && this.unit.url) pb.push(this.unit.url);
         this.prebuild(pb);
       } catch (e) { /* empty is fine */ }
       finally { this.loadingSections = false; }
+    },
+
+    /* ---------- local data + photo cache management (David, Aug 29) ----------
+       Rules: everything a project loads stays on this computer.
+       - "Report sent to client" ticked  -> photos released, data kept, card kept.
+         Opening the project again recalls the photos (they re-cache on load).
+       - Marked Complete                  -> photos AND local data released.
+       - Deleted                          -> everything released.                */
+    photoStem(u) {
+      try {
+        if (!u || !/blob\.core\.windows\.net/i.test(u)) return null;
+        const name = decodeURIComponent(new URL(u).pathname.split('/').pop() || '');
+        const base = name.replace(/^t\d+-/i, '').replace(/\.[a-zA-Z0-9]+$/, '');
+        return base || null;
+      } catch (e) { return null; }
+    },
+    localLocationIds(pid) {
+      const ids = [];
+      try {
+        const c = JSON.parse(localStorage.getItem('e3v2_struct_' + pid) || 'null');
+        const st = c && c.structure;
+        if (st) {
+          for (const l of (st.locations || [])) if (l.locationId) ids.push(l.locationId);
+          for (const sp of (st.subProjects || [])) for (const l of (sp.subProjectLocations || [])) if (l.locationId) ids.push(l.locationId);
+        }
+      } catch (e) { /* no local copy */ }
+      return ids;
+    },
+    projectPhotoStems(pid) {
+      const stems = new Set();
+      const add = (u) => { const st = this.photoStem(u); if (st) stems.add(st); };
+      try {
+        const c = JSON.parse(localStorage.getItem('e3v2_struct_' + pid) || 'null');
+        const st = c && c.structure;
+        if (st) {
+          for (const l of (st.locations || [])) add(l.url);
+          for (const sp of (st.subProjects || [])) for (const l of (sp.subProjectLocations || [])) add(l.url);
+        }
+      } catch (e) { /* no local copy */ }
+      for (const locId of this.localLocationIds(pid)) {
+        try {
+          const c = JSON.parse(localStorage.getItem('e3v2_secs_' + locId) || 'null');
+          for (const sec of ((c && c.sections) || [])) for (const im of (sec.images || [])) add(im);
+        } catch (e) { /* skip */ }
+      }
+      return [...stems];
+    },
+    releasePhotos(pid) {
+      const stems = this.projectPhotoStems(pid);
+      try {
+        if (stems.length && navigator.serviceWorker && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: 'evict', stems });
+        }
+      } catch (e) { /* no SW */ }
+      return stems.length;
+    },
+    releaseLocalData(pid) {
+      for (const locId of this.localLocationIds(pid)) { try { localStorage.removeItem('e3v2_secs_' + locId); } catch (e) { /* ignore */ } }
+      try { localStorage.removeItem('e3v2_struct_' + pid); } catch (e) { /* ignore */ }
+    },
+    async toggleReportSent(p, ev) {
+      const on = !!(ev && ev.target && ev.target.checked);
+      if (p._rsBusy) return;
+      p._rsBusy = true;
+      const pid = this.projectId(p);
+      try {
+        const body = { reportsent: on, reportsentat: on ? new Date().toISOString() : null, formId: p.formId || null };
+        const res = await this.api('/project/' + encodeURIComponent(pid), { method: 'PUT', json: body });
+        if (!res.ok) throw new Error('bad');
+        p.reportsent = on; p.reportsentat = body.reportsentat;
+        if (on) {
+          const n = this.releasePhotos(pid);
+          this.toast('Report marked as sent.' + (n ? ' Photos released from this computer - they come back when the project is opened.' : ''));
+        } else {
+          this.toast('Report marked as not sent.');
+        }
+      } catch (e) {
+        if (ev && ev.target) ev.target.checked = !!p.reportsent;
+        if (e.message !== 'auth') this.toast('Could not update the project.', 'err');
+      } finally { p._rsBusy = false; }
     },
 
     /* ---------- section order (this is the order the report prints in) ---------- */
@@ -2934,6 +3045,9 @@ createApp({
             try { await this.api('/project/' + encodeURIComponent(this.projectId(p)) + '/finalinspection/cleanup', { method: 'POST' }); } catch (e) { /* best-effort */ }
           }
         }
+        // Completing releases the project's photos and local data from this
+        // computer (David, Aug 29). Reopening reloads them on the next open.
+        if (p.iscomplete) { try { this.releasePhotos(this.projectId(p)); this.releaseLocalData(this.projectId(p)); } catch (e) { /* best-effort */ } }
         this.toast(p.iscomplete ? 'Project marked complete.' : 'Project reopened.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not update the project.', 'err');
@@ -3038,6 +3152,7 @@ createApp({
       try {
         const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)), { method: 'DELETE' });
         if (!res.ok) throw new Error('bad');
+        try { this.releasePhotos(this.projectId(p)); this.releaseLocalData(this.projectId(p)); } catch (e) { /* best-effort */ }
         this.projects = this.projects.filter(x => this.projectId(x) !== this.projectId(p));
         this.view = 'projects';
         this.toast('Project deleted.');
