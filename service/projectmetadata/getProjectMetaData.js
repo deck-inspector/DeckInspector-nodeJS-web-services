@@ -204,7 +204,7 @@ function locConditionRollup(loc) {
 // "Inspected" (nothing unrated) from "in progress".
 function locConditionCounts(loc) {
     const secs = Array.isArray(loc && loc.sections) ? loc.sections : [];
-    const counts = { good: 0, fair: 0, bad: 0, unrated: 0, total: secs.length };
+    const counts = { good: 0, fair: 0, bad: 0, unrated: 0, unsafe: 0, total: secs.length };
     for (const s of secs) {
         if (!s) { counts.unrated++; continue; }
         const v = String(s.visualreview || '').toLowerCase();
@@ -214,6 +214,8 @@ function locConditionCounts(loc) {
         else if (v.startsWith('fair')) counts.fair++;
         else if (v.startsWith('good')) counts.good++;
         else counts.unrated++;
+        const us = s.unsafecondition;
+        if (us === true || /^(yes|true)$/i.test(String(us || ''))) counts.unsafe++;
     }
     return counts;
 }
