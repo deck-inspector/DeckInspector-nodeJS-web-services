@@ -39,7 +39,9 @@ self.addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const hit = await cache.match(req.url, { ignoreVary: true, ignoreSearch: false });
-    if (hit) return hit;
+    // An opaque (pre-CORS) entry can only satisfy a no-cors request (<img>);
+    // a CORS-mode request would reject it, so refetch and replace it instead.
+    if (hit && !(hit.type === 'opaque' && req.mode === 'cors')) return hit;
     // Prefer a readable (CORS) response so we can tell 200 from 404.
     let res = null;
     if (BLOB_RE.test(req.url)) {
