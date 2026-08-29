@@ -425,6 +425,9 @@ var transformData = function(section) {
   section.visualreview = capitalizeWords(section.visualreview);
   section.visualsignsofleak = capitalizeWords(convertBooleanToString(section.visualsignsofleak));
   section.furtherinvasivereviewrequired = capitalizeWords(convertBooleanToString((section.furtherinvasivereviewrequired)));
+  // Unsafe Condition flag (David, Aug 29): drives the Notice of Unsafe
+  // Conditions report + the mobile "Unsafe" mode. Old docs lack the field.
+  section.unsafecondition = capitalizeWords(convertBooleanToString(section.unsafecondition === undefined ? false : section.unsafecondition));
   section.conditionalassessment = section.conditionalassessment != null ? capitalizeWords(section.conditionalassessment.toString()) : '';
   // Web-edited sections store display labels ("0-1 Years"), not the mobile
   // codes RatingMapping knows - pass unknown values through unchanged so
