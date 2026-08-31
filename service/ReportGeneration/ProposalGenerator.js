@@ -77,6 +77,16 @@ class ProposalGenerator {
                 return fs.readFileSync(absolute);
             }
         }
+        // The ALL-CLIENTS proposal master, uploaded from the dashboard's Master
+        // Forms panel. Blob first (the app folder is wiped on every deploy),
+        // then the repo copy. Per-tenant templates above still take priority.
+        try {
+            const buf = await getBlobBuffer('Deck_ProposalTemplate.docx', 'projectreports');
+            if (buf && buf.length > 0) {
+                console.log('Proposal: using the all-clients master template from blob storage');
+                return buf;
+            }
+        } catch (e) { /* no master uploaded yet - fall back to the repo copy */ }
         console.log('Proposal: no tenant template found for', rawClean, '- using default Deck proposal template');
         return fs.readFileSync(path.join(__dirname, '..', '..', 'Deck_ProposalTemplate.docx'));
     }
