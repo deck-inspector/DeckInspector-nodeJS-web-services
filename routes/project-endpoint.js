@@ -456,10 +456,9 @@ router.route('/:id/repairphotos')
         for (const r of (subs.rows || [])) for (const v of [r.metaId, r.docId]) if (v && parentIds.indexOf(v) === -1) parentIds.push(v);
         // locations under those parents
         const locs = await cluster.query(
-          `SELECT META(l).id AS lid, l.name, l.url, l.parentid, l.parenttype FROM \`${bucket}\`.\`${scope}\`.Location l WHERE l.parentid IN $1`,
+          `SELECT RAW META(l).id FROM \`${bucket}\`.\`${scope}\`.Location l WHERE l.parentid IN $1`,
           { parameters: [parentIds] });
-        const locRows = locs.rows || [];
-        const locIds = locRows.map((r) => r.lid);
+        const locIds = locs.rows || [];
         if (!locIds.length) return res.status(200).json({ sections: 0, repaired: 0, unresolved: [] });
         // section docs under those locations
         const secs = await cluster.query(
@@ -515,56 +514,7 @@ router.route('/:id/repairphotos')
             } catch (e) { /* best effort */ }
           }
         }
-        // LOCATION COVER PHOTOS (David, Aug 23: "the Location images are not
-        // syncing... I don't think they ever did"). The Aug 17 dead-database
-        // bug hit every entity type, but this sweep only healed section
-        // photos - each Location's own cover url was left holding the
-        // phone-local path. Same cure: derive the blob name, verify the blob
-        // actually exists, rewrite only verified URLs, and refresh the parent
-        // project/building's copy of the thumbnail.
-        let locationsTouched = 0; let locationRepaired = 0; const locationUnresolved = [];
-        let projName = "";
-        try { const pdoc = await cbase.Projects.get(projectId); projName = (pdoc.content && pdoc.content.name) || ""; } catch (e) { /* fine */ }
-        const projColl = cbase.Projects, subColl = cbase.SubProjects;
-        for (const lr of locRows) {
-          const cur = String(lr.url || "");
-          if (!cur || /^https?:\/\//i.test(cur)) continue;
-          const parts = cur.split("/").filter(Boolean);
-          const file = parts[parts.length - 1];
-          const pathSeg = parts.length > 1 ? parts[parts.length - 2] : "";
-          const candidates = [];
-          for (const nm of [pathSeg, lr.name, projName]) {
-            const c = sanitize(nm);
-            if (c && c.length >= 3 && candidates.indexOf(c) === -1) candidates.push(c);
-          }
-          let fixed = null;
-          for (const c of candidates) {
-            const url = base + c + "/" + encodeURIComponent(c + "-" + file);
-            if (await exists(url)) { fixed = url; break; }
-          }
-          if (!fixed) { locationUnresolved.push((lr.name || lr.lid) + " :: " + cur); continue; }
-          try {
-            const doc = await locColl.get(lr.lid);
-            await locColl.upsert(lr.lid, Object.assign({}, doc.content, { url: fixed }));
-            locationsTouched++; locationRepaired++;
-            // parent's children[] copy carries the thumbnail the lists show
-            try {
-              const parentColl = (String(lr.parenttype || "").toLowerCase() === "project") ? projColl : subColl;
-              const pdoc = await parentColl.get(lr.parentid);
-              if (pdoc && pdoc.content && Array.isArray(pdoc.content.children)) {
-                let touched = false;
-                const children = pdoc.content.children.map((ch) => {
-                  const cid = ch && (ch.id || ch._id);
-                  if (cid === lr.lid) { touched = true; return Object.assign({}, ch, { url: fixed }); }
-                  return ch;
-                });
-                if (touched) await parentColl.upsert(lr.parentid, Object.assign({}, pdoc.content, { children }));
-              }
-            } catch (e) { /* parent copy is best effort */ }
-          } catch (e) { locationUnresolved.push((lr.name || lr.lid) + " :: save failed"); }
-        }
-        return res.status(200).json({ sections: sectionsTouched, repaired, unresolved,
-          locations: locationsTouched, locationRepaired, locationUnresolved });
+        return res.status(200).json({ sections: sectionsTouched, repaired, unresolved });
       } catch (error) {
         console.log("repairphotos failed:", error);
         return res.status(500).json(new ErrorResponse(500, "Internal server error", error));
@@ -600,11 +550,6 @@ router.route('/generatereport')
                // instead of the Visual/Invasive section pipeline.
                if (reportType === 'FinalRepairs') {
                    url = await FinalRepairsGenerator.generate(projectId, companyName, projectName, uploader, reportFormat);
-               } else if (reportType === 'UnsafeConditions') {
-                   // NOTICE OF UNSAFE CONDITIONS (David, Aug 29): branded Unsafe
-                   // letter + generated findings pages for every section flagged
-                   // "Unsafe condition present" in the visual inspection.
-                   url = await FinalRepairsGenerator.generateUnsafeReport(projectId, companyName, projectName, uploader, reportFormat);
                } else {
                    url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath);
                }
@@ -628,11 +573,7 @@ router.route('/generatereport')
            // Distinct name so the list (and the email picker) can tell the
            // repairs re-inspection apart. Deliberately does NOT contain
            // "final report" - that phrase drives the Final Report matching.
-           // Distinct names; deliberately do NOT contain "final report" (that
-           // phrase drives the Final Report email-picker matching).
-           const name = reportType === 'FinalRepairs' ? `${projectName} - Final Repairs Inspection`
-                      : reportType === 'UnsafeConditions' ? `${projectName} - Notice of Unsafe Conditions`
-                      : projectName;
+           const name = reportType === 'FinalRepairs' ? `${projectName} - Final Repairs Inspection` : projectName;
             let timestamp = (new Date(Date.now())).toISOString();
             projectReports.addProjectReport({
                 project_id,
@@ -832,8 +773,13 @@ router.route('/replaceproposaltemplate')
         if (!companyName) {
           return res.status(400).json({ message: 'Company name is missing.' });
         }
+        // "master" = the ALL-CLIENTS proposal template (the dashboard's Master
+        // Forms slot). It is stored as the same Deck_ProposalTemplate.docx the
+        // generator already falls back to for every client, so per-tenant
+        // templates keep their existing priority and nothing is re-mapped.
+        const isMaster = String(companyName).trim().toLowerCase() === 'master';
         const cleanName = companyName.replaceAll(/\s/g, "").replace('.ondeckinspectors.com','').toLowerCase();
-        const existingFileName = `${cleanName}_ProposalTemplate.docx`;
+        const existingFileName = isMaster ? 'Deck_ProposalTemplate.docx' : `${cleanName}_ProposalTemplate.docx`;
         const filePath = path.join(__dirname, '..', existingFileName);
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
@@ -976,8 +922,16 @@ router.route('/clientformsstatus')
   .get(async function (req, res) {
     try {
       const out = [];
-      for (const key of Object.keys(CLIENT_FORMS)) {
-        const form = CLIENT_FORMS[key];
+      // The dashboard's Master Forms panel shows all five masters, so the two
+      // that are not CLIENT_FORMS entries (the Visual/Final report master and
+      // the all-clients proposal) report their upload status here too.
+      const EXTRA_MASTERS = {
+        visualmaster: { file: 'Deck_FinalTemplate.docx', label: 'Visual Inspection Report', ext: 'docx' },
+        proposalmaster: { file: 'Deck_ProposalTemplate.docx', label: 'Proposal Document', ext: 'docx' },
+      };
+      const ALL = Object.assign({}, CLIENT_FORMS, EXTRA_MASTERS);
+      for (const key of Object.keys(ALL)) {
+        const form = ALL[key];
         const entry = { key, label: form.label, ext: form.ext, uploadedAt: null, fileName: null, source: 'none' };
         try {
           const props = await uploadBlob.getBlobProperties(form.file, 'projectreports');
