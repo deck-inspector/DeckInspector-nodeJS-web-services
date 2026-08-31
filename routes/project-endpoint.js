@@ -918,6 +918,56 @@ router.route('/clientform')
 // master was last uploaded and what the uploaded file was called (David,
 // Aug 22). Falls back to the repo copy's ship date when nothing was ever
 // uploaded to blob.
+// Every master the dashboard's Master Forms panel manages, by slot key.
+// CLIENT_FORMS entries plus the two standalone masters.
+function masterFileForKey(key) {
+  const EXTRA = {
+    visualmaster: { file: 'Deck_FinalTemplate.docx', label: 'Visual Inspection Report', ext: 'docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    proposalmaster: { file: 'Deck_ProposalTemplate.docx', label: 'Proposal Document', ext: 'docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  };
+  return CLIENT_FORMS[key] || EXTRA[key] || null;
+}
+
+// The Word document's OWN dates, read from docProps/core.xml inside the file.
+// This is what actually identifies a version - blob upload time only says when
+// it was put there, not when the document itself was last edited (David,
+// Aug 31: "I don't know what version they are").
+function docDatesOf(buf) {
+  try {
+    const PizZip = require('pizzip');
+    const zip = new PizZip(buf);
+    const core = zip.file('docProps/core.xml');
+    if (!core) return {};
+    const xml = core.asText();
+    const created = (xml.match(/<dcterms:created[^>]*>([^<]+)<\/dcterms:created>/) || [])[1] || null;
+    const modified = (xml.match(/<dcterms:modified[^>]*>([^<]+)<\/dcterms:modified>/) || [])[1] || null;
+    const by = (xml.match(/<cp:lastModifiedBy>([^<]*)<\/cp:lastModifiedBy>/) || [])[1] || null;
+    return { docCreated: created, docModified: modified, lastModifiedBy: by };
+  } catch (e) { return {}; }
+}
+
+// Admin: download the CURRENT master for a slot, exactly as stored - no tenant
+// branding, no filling. David edits this copy and uploads it back into the same
+// slot, so a new form is never created (David, Aug 31).
+router.route('/masterform')
+  .get(async function (req, res) {
+    try {
+      const key = (req.query.key || '').toString();
+      const form = masterFileForKey(key);
+      if (!form) return res.status(404).json({ message: 'Unknown form.' });
+      const buf = await getClientFormMaster(form);
+      if (!buf) return res.status(404).json({ message: 'That master has not been set up yet.' });
+      res.setHeader('Content-Type', form.contentType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${form.label}.${form.ext}"`);
+      return res.send(buf);
+    } catch (err) {
+      console.error('Error serving master form:', err && err.message);
+      return res.status(500).json({ message: 'Could not download that master.' });
+    }
+  });
+
 router.route('/clientformsstatus')
   .get(async function (req, res) {
     try {
@@ -932,7 +982,8 @@ router.route('/clientformsstatus')
       const ALL = Object.assign({}, CLIENT_FORMS, EXTRA_MASTERS);
       for (const key of Object.keys(ALL)) {
         const form = ALL[key];
-        const entry = { key, label: form.label, ext: form.ext, uploadedAt: null, fileName: null, source: 'none' };
+        const entry = { key, label: form.label, ext: form.ext, uploadedAt: null, fileName: null,
+                        source: 'none', bytes: null, docCreated: null, docModified: null, lastModifiedBy: null };
         try {
           const props = await uploadBlob.getBlobProperties(form.file, 'projectreports');
           if (props) {
@@ -951,6 +1002,15 @@ router.route('/clientformsstatus')
             entry.fileName = form.file;
           }
         }
+        // Read the document itself so every slot can show a real version date,
+        // whether it came from an upload or shipped with the app.
+        try {
+          const buf = await getClientFormMaster(form);
+          if (buf) {
+            entry.bytes = buf.length;
+            Object.assign(entry, docDatesOf(buf));
+          }
+        } catch (e) { /* dates are informational only */ }
         out.push(entry);
       }
       return res.status(200).json({ forms: out });
