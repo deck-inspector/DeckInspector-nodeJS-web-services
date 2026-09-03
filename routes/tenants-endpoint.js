@@ -572,6 +572,33 @@ router.route("/:id/diskwarning").get(async function (req, res) {
   }
 });
 
+// Reset an existing admin's password (Multi-Tennant admin, David Sep 3).
+// Body: { username, password }. Updates the Users doc (bcrypt) and the
+// tenant's Admin Details entry.
+router.route("/:id/resetAdminPassword").post(async function (req, res) {
+  try {
+    const tenantId = req.params.id;
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).send("username and password are required");
+    }
+    const tenant = await TenantService.getTenantById(tenantId);
+    if (!tenant || !tenant.Tenant) {
+      return res.status(404).send("Tenant not found");
+    }
+    try {
+      await users.resetUserPassword(username, tenant.Tenant.companyIdentifier, password);
+    } catch (err) {
+      return res.status(err.status || 400).send(err.message || "Failed to reset password");
+    }
+    await tenantsDAO.updateAdminPassword(tenantId, username, password);
+    return res.status(201).json({ success: true });
+  } catch (exception) {
+    console.log(exception);
+    return res.status(500).json(new newErrorResponse(500, false, exception));
+  }
+});
+
 router.route("/:id/registerAdmin").post(async function (req, res) {
   try {
     // console.log("tenant-endpoint");
