@@ -220,6 +220,19 @@ router
 //     return res.status(500).json(errResponse);
 //   }
 // });
+// Restore a soft-deleted tenant (clears isDeleted so its users can log in again).
+router.route("/:id/restore").post(async function (req, res) {
+  try {
+    var result = await TenantService.restoreTenant(req.params.id);
+    if (result.reason) {
+      return res.status(result.code).json(result);
+    }
+    return res.status(201).json(result);
+  } catch (exception) {
+    return res.status(500).json(new newErrorResponse(500, false, exception));
+  }
+});
+
 router.route("/:id/toggletenantstatus/:state").post(async function (req, res) {
   try {
     var errResponse;
