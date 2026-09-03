@@ -114,6 +114,18 @@ var editTenant = async function (tenantId, newData) {
   }
 };
 
+var restoreTenant = async function (tenantId) {
+  try {
+    const result = await TenantDAO.restoreTenant(tenantId);
+    if (result.ok === 1) {
+      return { success: true };
+    }
+    return { code: 401, success: false, reason: "No Tenant found with the given ID" };
+  } catch (error) {
+    return handleError(error);
+  }
+};
+
 var deleteTenant = async function (tenantId) {
   try {
     const result = await TenantDAO.deleteTenant(tenantId);
@@ -526,6 +538,7 @@ const handleError = (error) => {
 module.exports = {
   addTenant,
   deleteTenant,
+  restoreTenant,
   getTenantById,
   getDiskWarning,
   deleteTenantPermanently,
