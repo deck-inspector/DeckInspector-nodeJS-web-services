@@ -224,6 +224,21 @@ module.exports = {
     }
   },
 
+  // Undo a soft delete (Delete Tenant only flags isDeleted; login refuses
+  // flagged tenants even when isActive is true).
+  restoreTenant: async (id) => {
+    try {
+      const collection = await getTenantsCollection();
+      const doc = await collection.get(id);
+      doc.content.isDeleted = false;
+      await collection.upsert(id, doc.content);
+      return { ok: 1 };
+    } catch (error) {
+      console.error("Error restoring tenant:", error);
+      throw error;
+    }
+  },
+
   toggleTenantAccess: async (id, isActive) => {
     try {
       const collection = await getTenantsCollection();
