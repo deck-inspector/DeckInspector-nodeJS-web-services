@@ -403,26 +403,18 @@ var registerAdmin = async function (
       );
     }
     
-    // Check if user already exists by email
-    try {
-      await getUser(email);
+    // Check if user already exists by email / username.
+    // getUser / getUserbyUsername return null when nothing matches (they do
+    // not throw), so test the result — the old try/throw pattern rejected
+    // EVERY registration with "already exists".
+    const existingByEmail = await getUser(email.toLowerCase());
+    if (existingByEmail) {
       throw new Error("User with this email already exists. Please Login");
-    } catch (err) {
-      if (err.message.includes("already exists")) {
-        throw err;
-      }
-      // User not found, continue
     }
 
-    // Check if username already exists
-    try {
-      await getUserbyUsername(username);
+    const existingByUsername = await getUserbyUsername(username);
+    if (existingByUsername) {
       throw new Error("Username already exists. Please choose a different username");
-    } catch (err) {
-      if (err.message.includes("already exists")) {
-        throw err;
-      }
-      // User not found, continue
     }
 
     const encryptedPassword = await bcrypt.hash(password, 10);
