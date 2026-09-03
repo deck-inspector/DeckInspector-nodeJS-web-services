@@ -92,24 +92,34 @@ router.route("/login").post(async function (req, res) {
     }
 
     if (isMobile) {
-      try {
-        const collection = couchbaseDb.Users;
-        const userId = record.id || record._id;
+      const userId = record.id || record._id;
+      const incomingDeviceId = typeof deviceId === "string" ? deviceId.trim() : "";
 
-        if (!record.deviceId) {
-          // KV was timing out against the degraded data service; write through the healthy query service instead.
-          const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.deviceId = $2`;
-          await couchbaseDb.cluster.query(updateQuery, { parameters: [userId, deviceId] });
-        } else if (record.deviceId !== deviceId) {
-          return res
-            .status(401)
-            .send(
-              "User is registered with a different device, please contact administrator to unregister your device.",
-            );
+      if (record.deviceId && incomingDeviceId && record.deviceId !== incomingDeviceId) {
+        return res
+          .status(401)
+          .send(
+            "User is registered with a different device, please contact administrator to unregister your device.",
+          );
+      }
+
+      // Record the phone's device id the first time we see a real one. This
+      // must NEVER hold the login hostage: the phone gives up after 20 s and
+      // silently drops into offline mode (Shahn/Vital, Sep 3 2026 - his record
+      // had an empty deviceId so this UPDATE ran on every login and stalled).
+      // Hard 4 s cap; on timeout/error log it and let the login through.
+      if (!record.deviceId && incomingDeviceId) {
+        const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.deviceId = $2`;
+        const update = couchbaseDb.cluster.query(updateQuery, { parameters: [userId, incomingDeviceId] });
+        const cap = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("deviceId update timed out (4s)")), 4000),
+        );
+        try {
+          await Promise.race([update, cap]);
+        } catch (err) {
+          console.error("Device ID update skipped for", username, "-", err && err.message);
+          update.catch(() => {}); // keep a late failure from surfacing as unhandled
         }
-      } catch (err) {
-        console.error("Device ID update error:", err);
-        return res.status(500).send("Internal server error");
       }
     }
 
