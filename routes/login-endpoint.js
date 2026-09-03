@@ -17,7 +17,7 @@ async function getCouchbaseUser(usernameOrEmail) {
     const cluster = couchbaseDb.cluster;
     if (!cluster) throw new Error("Couchbase not initialized");
 
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.Users u WHERE u.username = $1 OR u.email = $1 LIMIT 1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.Users u WHERE LOWER(u.username) = LOWER($1) OR LOWER(u.email) = LOWER($1) LIMIT 1`;
     const result = await cluster.query(query, {
       parameters: [usernameOrEmail],
     });
@@ -35,7 +35,7 @@ async function getCouchbaseSuperUser(usernameOrEmail) {
     const cluster = couchbaseDb.cluster;
     if (!cluster) throw new Error("Couchbase not initialized");
 
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.SuperUsers u WHERE u.username = $1 OR u.email = $1 LIMIT 1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.SuperUsers u WHERE LOWER(u.username) = LOWER($1) OR LOWER(u.email) = LOWER($1) LIMIT 1`;
     const result = await cluster.query(query, {
       parameters: [usernameOrEmail],
     });
