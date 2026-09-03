@@ -323,6 +323,33 @@ var updateUser = async function (user) {
   }
 };
 
+// Reset a tenant user's password from the Multi-Tennant admin. Scoped to the
+// tenant's companyIdentifier so one tenant can never touch another's users.
+// Writes through the query service (KV has timed out against the data service).
+var resetUserPassword = async function (username, companyIdentifier, newPassword) {
+  try {
+    if (!username || !newPassword) {
+      throw new Error("username and password are required");
+    }
+    const query = `SELECT META(u).id as id, u.companyIdentifier FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE LOWER(u.username) = LOWER($1)`;
+    const results = await executeQuery(query, [username]);
+    if (results.length === 0) {
+      const e = new Error("No user found with that username."); e.status = 404; throw e;
+    }
+    const match = results.find((r) => r.companyIdentifier === companyIdentifier) || null;
+    if (!match) {
+      const e = new Error("That user does not belong to this client."); e.status = 403; throw e;
+    }
+    const hash = await bcrypt.hash(String(newPassword), 10);
+    const updateQuery = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.password = $2, u.passwordResetAt = $3`;
+    await executeQuery(updateQuery, [match.id, hash, new Date().toISOString()]);
+    return { ok: 1, id: match.id };
+  } catch (error) {
+    console.error("resetUserPassword error:", error);
+    throw error;
+  }
+};
+
 var getAllUser = async function () {
   try {
     const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u LIMIT 500`;
@@ -477,6 +504,7 @@ module.exports = {
   getUserbyMobile,
   updateUser,
   registerAdmin,
+  resetUserPassword,
   getSuperUserbyUsername,
   getSuperUser,
   addSuperUser,

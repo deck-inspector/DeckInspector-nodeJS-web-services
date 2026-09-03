@@ -263,6 +263,28 @@ module.exports = {
     }
   },
 
+  // Keep the Admin Details entry in step with a password reset so the
+  // admin page's reveal shows the current value.
+  updateAdminPassword: async (id, username, password) => {
+    try {
+      const collection = await getTenantsCollection();
+      const doc = await collection.get(id);
+      const list = Array.isArray(doc.content.adminDetails) ? doc.content.adminDetails : [];
+      let touched = 0;
+      list.forEach((a) => {
+        if (a && String(a.username || "").toLowerCase() === String(username).toLowerCase()) {
+          a.password = password; touched++;
+        }
+      });
+      doc.content.adminDetails = list;
+      await collection.upsert(id, doc.content);
+      return { ok: 1, touched };
+    } catch (error) {
+      console.error("Error updating admin password:", error);
+      throw error;
+    }
+  },
+
   toggleShowFooterlogo: async (id, value) => {
     try {
       const collection = await getTenantsCollection();
