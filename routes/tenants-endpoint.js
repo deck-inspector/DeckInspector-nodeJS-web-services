@@ -583,48 +583,50 @@ router.route("/:id/registerAdmin").post(async function (req, res) {
     const { password, ...adminDetails } = req.body;
     var appSecret = process.env.APP_SECRET;
     //create admin in users collection
-    users.registerAdmin(
-      first_name,
-      last_name,
-      username,
-      email,
-      mobile,
-      password,
-      appSecret,
-      companyIdentifier,
-      function (err, result) {
-        if (err) {
-          res.status(err.status).send(err.message);
-        } else {
-          const user = result;
-          // Create token
-          const token = jwt.sign(
-            { user_id: user._id, email, company: companyIdentifier },
-            process.env.TOKEN_KEY,
-            {
-              expiresIn: "30d",
-            }
-          );
-          // save user token
-          user.token = token;
+    // NOTE: users.registerAdmin is an async function (returns a Promise) — it does
+    // NOT take a Node-style (err, result) callback. Passing one here used to be
+    // silently ignored: the callback never fired, so success or failure alike
+    // fell through with no response until the client eventually saw a null-body
+    // error. Await it directly and handle both outcomes explicitly.
+    let user;
+    try {
+      user = await users.registerAdmin(
+        first_name,
+        last_name,
+        username,
+        email,
+        mobile,
+        password,
+        appSecret,
+        companyIdentifier
+      );
+    } catch (err) {
+      const status = err.status || 400;
+      return res.status(status).send(err.message || "Failed to register admin");
+    }
 
-          TenantService.addUpdateAdmin(tenantId, req.body)
-            .then((result) => {
-              if (result.reason) {
-                return res.status(result.code).json(result);
-              }
-              if (result) {
-                return res.status(201).json(result);
-              }
-            })
-            .catch((error) => {
-              console.log(error);
-              errResponse = new newErrorResponse(500, false, error);
-              return res.status(500).json(errResponse);
-            });
-        }
+    // Create token
+    const token = jwt.sign(
+      { user_id: user.insertedId, email, company: companyIdentifier },
+      process.env.TOKEN_KEY,
+      {
+        expiresIn: "30d",
       }
     );
+    // save user token
+    user.token = token;
+
+    try {
+      const tenantResult = await TenantService.addUpdateAdmin(tenantId, req.body);
+      if (tenantResult && tenantResult.reason) {
+        return res.status(tenantResult.code).json(tenantResult);
+      }
+      return res.status(201).json(tenantResult);
+    } catch (error) {
+      console.log(error);
+      errResponse = new newErrorResponse(500, false, error);
+      return res.status(500).json(errResponse);
+    }
   } catch (exception) {
     console.log(exception);
     errResponse = new newErrorResponse(500, false, exception);
