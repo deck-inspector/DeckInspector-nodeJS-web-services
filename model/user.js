@@ -104,7 +104,7 @@ var addAdmin = async function (user) {
 var getUser = async function (emailId) {
   try {
     const collection = await getUsersCollection();
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.email = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE LOWER(u.email) = LOWER($1)`;
     const results = await executeQuery(query, [emailId]);
     
     if (results.length === 0) {
@@ -138,7 +138,7 @@ var getUserbyUsername = async function (username) {
     }
     const collection = await getUsersCollection();
     
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE u.username = $1`;
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u WHERE LOWER(u.username) = LOWER($1)`;
     const results = await executeQuery(query, [username]);
     
     if (results.length === 0) {
