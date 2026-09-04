@@ -81,10 +81,17 @@ router.route('/downloadfile')
     }
     // sanitize the filename for all platforms
     n = n.replace(/[\\/:*?"<>|]/g, '.').replace(/\s+/g, ' ').trim().slice(0, 150);
-    const ext = (u.split('?')[0].match(/\.(docx|pdf|xlsx)$/i) || [,'docx'])[1].toLowerCase();
-    if (!n.toLowerCase().endsWith('.' + ext)) n = n + '.' + ext;
+    // .docm MUST stay .docm (David, Sep 4): the Owner-Supplied-Photos form is
+    // macro-enabled; serving it as .docx made Word refuse the file outright
+    // ("Word was unable to read this document"). Also strip a wrong extension
+    // the caller may have appended so names never end ".docm.docx".
+    const ext = (u.split('?')[0].match(/\.(docx|docm|doc|pdf|xlsx)$/i) || [,'docx'])[1].toLowerCase();
+    n = n.replace(/\.(docx|docm|doc|pdf|xlsx)$/i, '');
+    n = n + '.' + ext;
     const types = {
       docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      docm: 'application/vnd.ms-word.document.macroEnabled.12',
+      doc: 'application/msword',
       pdf: 'application/pdf',
       xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     };
@@ -128,8 +135,8 @@ router.route('/downloadpdf')
     if (!allowedHosts.includes(dlHost)) {
       return res.status(400).send('Invalid file location.');
     }
-    n = n.replace(/[\\/:*?"<>|]/g, '.').replace(/\s+/g, ' ').trim().slice(0, 150).replace(/\.(docx|doc|pdf)$/i, '');
-    const ext = (u.split('?')[0].match(/\.(docx|doc|pdf)$/i) || [, 'docx'])[1].toLowerCase();
+    n = n.replace(/[\\/:*?"<>|]/g, '.').replace(/\s+/g, ' ').trim().slice(0, 150).replace(/\.(docx|docm|doc|pdf)$/i, '');
+    const ext = (u.split('?')[0].match(/\.(docx|docm|doc|pdf)$/i) || [, 'docx'])[1].toLowerCase();
 
     const resp = await axios.get(u, { responseType: 'arraybuffer', timeout: 120000 });
     let out = Buffer.from(resp.data);
