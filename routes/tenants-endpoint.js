@@ -110,6 +110,48 @@ router.route("/alltenants").get(async function (req, res) {
   }
 });
 
+// ---- PER-CLIENT REPORT SIGNERS (David, Sep 4 2026) ----
+// The Inspector Name / Qualifying Title / License # lists for generated
+// reports. Scoped to the CALLER'S OWN tenant (req.user.company from the JWT),
+// never by id - one client can never read or change another client's
+// signers or license numbers. GET returns the list; POST replaces it.
+function cleanSigners(raw) {
+  const crypto = require("crypto");
+  const out = [];
+  for (const s of (Array.isArray(raw) ? raw : []).slice(0, 50)) {
+    if (!s || typeof s !== "object") continue;
+    const name = String(s.name || "").trim().slice(0, 120);
+    const title = String(s.title || "").trim().slice(0, 160);
+    const license = String(s.license || "").trim().slice(0, 120);
+    if (!name && !title && !license) continue;
+    const id = /^[A-Za-z0-9_-]{4,40}$/.test(String(s.id || "")) ? String(s.id) : crypto.randomBytes(6).toString("hex");
+    out.push({ id, name, title, license });
+  }
+  return out;
+}
+router.route("/signers/mine")
+  .get(async function (req, res) {
+    try {
+      const tenant = await tenantsDAO.getTenantByCompanyIdentifier(req.user && req.user.company);
+      if (!tenant) return res.status(404).json({ success: false, reason: "Tenant not found." });
+      return res.status(200).json({ success: true, signers: cleanSigners(tenant.signers) });
+    } catch (exception) {
+      return res.status(500).json(new newErrorResponse(500, false, exception));
+    }
+  })
+  .post(async function (req, res) {
+    try {
+      const tenant = await tenantsDAO.getTenantByCompanyIdentifier(req.user && req.user.company);
+      if (!tenant) return res.status(404).json({ success: false, reason: "Tenant not found." });
+      const signers = cleanSigners(req.body && req.body.signers);
+      const result = await TenantService.updateTenantSigners(tenant.id || tenant._id, signers);
+      if (result.reason) return res.status(result.code).json(result);
+      return res.status(201).json({ success: true, signers });
+    } catch (exception) {
+      return res.status(500).json(new newErrorResponse(500, false, exception));
+    }
+  });
+
 router.route("/identifier/:companyIdentifier").get(async function (req, res) {
   try {
     var errResponse;
@@ -122,6 +164,8 @@ router.route("/identifier/:companyIdentifier").get(async function (req, res) {
     }
     if (result) {
       //console.debug(result);
+      // Signers (names + license numbers) are served only by /signers/mine.
+      if (result.Tenant && result.Tenant.signers) delete result.Tenant.signers;
       return res.status(201).json(result);
     }
   } catch (exception) {
