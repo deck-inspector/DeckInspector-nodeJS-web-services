@@ -91,7 +91,16 @@ router.route("/login").post(async function (req, res) {
       return res.status(401).send("Invalid Credentials,company is inactive.");
     }
 
-    if (isMobile) {
+    // Usernames listed in MULTI_DEVICE_USERS (comma-separated, case-insensitive)
+    // may sign in from any phone: used for the App Store review demo account,
+    // which Apple tests on its own iPad + iPhone (Sep 4 2026 rejection 2.1).
+    const multiDeviceUsers = String(process.env.MULTI_DEVICE_USERS || "")
+      .split(",")
+      .map((u) => u.trim().toLowerCase())
+      .filter(Boolean);
+    const isMultiDeviceUser = multiDeviceUsers.includes(String(record.username || username).toLowerCase());
+
+    if (isMobile && !isMultiDeviceUser) {
       const userId = record.id || record._id;
       const incomingDeviceId = typeof deviceId === "string" ? deviceId.trim() : "";
 
