@@ -1120,7 +1120,35 @@ router.route('/clientformlayout')
           if (c.value) c.value = engine.substituteCompany(c.value, companyName);
         }
       }
-      return res.status(200).json({ key, label: form.label, ext: form.ext, html, controls: layout.controls, rcByRow: layout.rcByRow || {}, company: companyName });
+      // PER-CLIENT SIGNERS (David, Sep 4): the editor's Inspector Name /
+      // Qualifying Title / License # dropdowns list THIS client's signers
+      // only (never the master's built-in roster), and are reported as
+      // `signer: 'name'|'title'|'license'` so the page can pre-select the
+      // project's Signing Inspector. Deck's own tenant keeps the master lists
+      // until its signers are entered.
+      const signerRefs = {};
+      try {
+        const tenantsDAO2 = require('../model/tenantsDAO');
+        const tenant2 = await tenantsDAO2.getTenantByCompanyIdentifier(req.user && req.user.company);
+        const list = engine.normalizeSigners(tenant2 && tenant2.signers);
+        const keep = engine.isDeckTenant(req.user && req.user.company) && !list.length;
+        for (const ref of Object.keys(layout.controls)) {
+          const c = layout.controls[ref];
+          if (!c || (c.type !== 'dropdown' && c.type !== 'combo')) continue;
+          const at = xml.indexOf('<w:id w:val="' + ref + '"/>');
+          if (at === -1) continue;
+          const kind = engine.signerKindFor(xml, xml.lastIndexOf('<w:sdt>', at));
+          if (!kind) continue;
+          c.signer = kind; signerRefs[ref] = kind;
+          if (keep) continue;
+          const vals = [];
+          for (const s of list) if (s[kind] && vals.indexOf(s[kind]) === -1) vals.push(s[kind]);
+          vals.push('NA');
+          c.options = vals;
+          if (c.value && vals.indexOf(c.value) === -1) c.value = '';
+        }
+      } catch (e) { console.error('clientformlayout: signer options failed:', e && e.message); }
+      return res.status(200).json({ key, label: form.label, ext: form.ext, html, controls: layout.controls, rcByRow: layout.rcByRow || {}, company: companyName, signerRefs });
     } catch (err) {
       console.error('Error building client form layout:', err && err.message);
       return res.status(500).json({ message: 'Could not read that form.' });
@@ -1304,6 +1332,26 @@ async function buildFilledClientForm(req) {
         // page prints the master's phone otherwise)
         if (tenant && tenant.phone) xml = xml.split('888-224-0489').join(String(tenant.phone).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
       } catch (e) { console.error('Client form company substitution failed:', e && e.message); }
+
+      // PER-CLIENT SIGNERS (David, Sep 4): rewrite the Inspector Name /
+      // Qualifying Title / License # dropdowns to this tenant's signers only
+      // and fill in the chosen signer - the one sent with the form (the
+      // editor's pick) or, failing that, the project's Signing Inspector.
+      try {
+        const tenantsDAO3 = require('../model/tenantsDAO');
+        const tenant3 = await tenantsDAO3.getTenantByCompanyIdentifier(req.user && req.user.company);
+        let chosen = (req.body && req.body.signer) || null;
+        if (!chosen && req.body && req.body.projectId) {
+          try {
+            const pRes2 = await projects.getProjectById(String(req.body.projectId));
+            const proj2 = (pRes2 && (pRes2.project || (pRes2.data && pRes2.data.item))) || {};
+            chosen = proj2.signer || null;
+          } catch (pe) { /* no project signer */ }
+        }
+        const r = engine.applySigners(xml, tenant3 && tenant3.signers, chosen, { keepMasterList: engine.isDeckTenant(req.user && req.user.company) });
+        xml = r.xml;
+        console.log('clientform: signer controls rewritten:', r.rewritten);
+      } catch (e) { console.error('clientform: signer rewrite failed:', e && e.message); }
 
       // Photos: each is a URL already uploaded via /api/image/upload. Fetch the
       // bytes and embed them into the matching picture content control.
