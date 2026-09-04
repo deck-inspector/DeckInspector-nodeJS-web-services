@@ -277,6 +277,25 @@ class ProjectGenerator{
                     // SAME branding the Final report gets - so the Visual
                     // report footer matches the Final report footer.
                     await FinalReportGenerator.injectTenantFooter(zip, companyIdentifier);
+                    // PER-CLIENT SIGNERS (David, Sep 4): the signature page's
+                    // Inspector Name / Qualifying Title / License # dropdowns
+                    // (and any plain-text signer lines) become THIS tenant's
+                    // signers only, with the project's chosen Signing
+                    // Inspector filled in - other clients' names and license
+                    // numbers never ship in the file.
+                    try {
+                        const engine = require('../../clientFormEngine');
+                        const tenantRec = await require('../../../model/tenantsDAO').getTenantByCompanyIdentifier(companyIdentifier);
+                        let chosen = null;
+                        try {
+                            const pr = await projects.getProjectById(projectId);
+                            const p = (pr && (pr.project || (pr.data && pr.data.item))) || {};
+                            chosen = p.signer || null;
+                        } catch (pe) { console.error('Report signer: project lookup failed:', pe && pe.message); }
+                        const r = engine.applySigners(zip.file('word/document.xml').asText(), tenantRec && tenantRec.signers, chosen, { keepMasterList: engine.isDeckTenant(companyIdentifier) });
+                        if (r.rewritten) zip.file('word/document.xml', r.xml);
+                        console.log('Report: signer controls rewritten:', r.rewritten, 'for', companyIdentifier);
+                    } catch (se) { console.error('Report signer rewrite failed (report continues):', se && se.message); }
                     await fs.promises.writeFile(filePath, zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
                     console.log('Visual report: tenant header logo + footer stamped for', companyIdentifier);
                 }
