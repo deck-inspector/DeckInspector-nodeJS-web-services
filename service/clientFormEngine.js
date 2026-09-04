@@ -824,3 +824,126 @@ module.exports.rowGroups = rowGroups;
 module.exports.substituteCompany = substituteCompany;
 module.exports.substituteCompanyInDoc = substituteCompanyInDoc;
 module.exports.applyConditionalColors = applyConditionalColors;
+
+// ---- PER-CLIENT SIGNERS (David, Sep 4 2026) ----
+// The masters carry the Inspector Name / Qualifying Title / License #
+// dropdowns with EVERY inspector's name and license baked into the option
+// lists, so each client's Word file exposed the other clients' signers. The
+// masters stay shared; at generation time the three controls are rewritten
+// per tenant: the option lists become THIS client's signers only (other
+// names/licenses are physically removed from the file) and the chosen
+// signer's values are filled in. A tenant with no signers on file gets blank
+// signature fields - never someone else's.
+//
+// Detection is by the label that precedes each control in the signature
+// table ("Inspector Name", "Qualifying Title", "License #") - the same in the
+// Visual/Final template, both Final forms and the Invasive signature page.
+const SIGNER_KINDS = [
+  { kind: 'name',    re: /inspector\s*name/i },
+  { kind: 'title',   re: /qualifying\s*title/i },
+  { kind: 'license', re: /^license/i },
+];
+function signerKindFor(xml, pos) {
+  const before = xml.slice(Math.max(0, pos - 2500), pos);
+  const texts = [...before.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map(x => x[1].trim()).filter(Boolean);
+  const label = texts.slice(-1)[0] || '';
+  for (const k of SIGNER_KINDS) if (k.re.test(label)) return k.kind;
+  return null;
+}
+// Every sdt range (nested included), innermost first is not needed: signer
+// controls never nest inside each other, and ranges are rewritten from the
+// end of the document backwards so offsets stay valid.
+function allSdtRanges(xml) {
+  const out = [], stack = [];
+  const re = /<w:sdt>|<\/w:sdt>/g; let m;
+  while ((m = re.exec(xml))) {
+    if (m[0] === '<w:sdt>') stack.push(m.index);
+    else if (stack.length) out.push({ start: stack.pop(), end: re.lastIndex });
+  }
+  return out.sort((a, b) => b.start - a.start);
+}
+function normalizeSigners(signers) {
+  return (Array.isArray(signers) ? signers : []).map(s => ({
+    id: String((s && s.id) || ''),
+    name: String((s && s.name) || '').trim(),
+    title: String((s && s.title) || '').trim(),
+    license: String((s && s.license) || '').trim(),
+  })).filter(s => s.name || s.title || s.license);
+}
+// Resolve the signer chosen for a project against the tenant list (by id,
+// else by exact name). `selected` may be an id string or a {id,name,...} object.
+function resolveSigner(signers, selected) {
+  const list = normalizeSigners(signers);
+  if (!selected) return null;
+  const selId = typeof selected === 'string' ? selected : String(selected.id || '');
+  const selName = typeof selected === 'string' ? '' : String(selected.name || '').trim();
+  return list.find(s => selId && s.id === selId) || list.find(s => selName && s.name === selName)
+      || (typeof selected === 'object' && (selected.name || selected.title || selected.license) ? normalizeSigners([selected])[0] : null);
+}
+// xml: document.xml text. signers: tenant list. selected: chosen signer.
+// opts.keepMasterList: leave the master's own option lists in place when the
+// tenant has NO signers (Deck's own tenant until its list is entered).
+// Returns { xml, rewritten } - rewritten = number of controls touched.
+function applySigners(xml, signers, selected, opts) {
+  const list = normalizeSigners(signers);
+  const chosen = resolveSigner(list.length ? list : (selected ? [selected] : []), selected);
+  const keepList = !!(opts && opts.keepMasterList) && !list.length;
+  let rewritten = 0;
+  for (const r of allSdtRanges(xml)) {
+    let block = xml.slice(r.start, r.end);
+    if (!/<w:(dropDownList|comboBox)\b/.test(block.slice(0, block.indexOf('<w:sdtContent>') === -1 ? block.length : block.indexOf('<w:sdtContent>')))) continue;
+    const kind = signerKindFor(xml, r.start);
+    if (!kind) continue;
+    if (!keepList) {
+      const vals = [];
+      for (const s of list) { const v = s[kind]; if (v && vals.indexOf(v) === -1) vals.push(v); }
+      if (vals.indexOf('NA') === -1) vals.push('NA');
+      const items = vals.map(v => '<w:listItem w:displayText="' + xmlEscape(v) + '" w:value="' + xmlEscape(v) + '"/>').join('');
+      block = block.replace(/(<w:(dropDownList|comboBox)\b[^>]*?)(\/>|>[\s\S]*?<\/w:\2>)/, (m, open, tag) => open + '>' + items + '</w:' + tag + '>');
+    }
+    if (chosen) block = setSdtText(block, chosen[kind] || '');
+    else if (!keepList) block = setSdtText(block, '');
+    // The .docm masters' macro tag remembers the previous pick
+    // ("|PREV=David Mazor|") - scrub it too or the old name ships in the file.
+    if (!keepList) block = block.replace(/(<w:tag w:val=")\|PREV=[^"]*\|(")/, (m, a, z) => a + '|PREV=' + xmlEscape(chosen ? (chosen[kind] || '') : '') + '|' + z);
+    xml = xml.slice(0, r.start) + block + xml.slice(r.end);
+    rewritten++;
+  }
+  // Plain-text signature lines (Notice of Unsafe Conditions is a letter, not
+  // a table of dropdowns): the master's own signer name / license runs are
+  // swapped for the chosen signer's (blank when the tenant has none).
+  if (!keepList) {
+    const nm = chosen ? chosen.name : '', lic = chosen ? chosen.license : '';
+    const before = xml;
+    xml = xml.replace(/(<w:t(?:\s[^>]*)?>)([^<]*)(<\/w:t>)/g, (m, a, txt, z) => {
+      let t = txt;
+      if (/David Mazor/.test(t)) t = t.replace(/David Mazor/g, xmlEscape(nm));
+      if (/(?:DM )?CA GC 714639/.test(t)) t = t.replace(/(?:DM )?CA GC 714639/g, xmlEscape(lic));
+      return t === txt ? m : a + t + z;
+    });
+    if (xml !== before) rewritten++;
+  }
+  return { xml, rewritten };
+}
+// Convenience for a whole .docx buffer (PizZip): rewrites word/document.xml.
+function applySignersToDocx(buf, signers, selected, opts, PizZipModule) {
+  const PizZip = PizZipModule || require('pizzip');
+  const zip = new PizZip(buf);
+  const f = zip.file('word/document.xml');
+  if (!f) return { buf, rewritten: 0 };
+  const res = applySigners(f.asText(), signers, selected, opts);
+  if (!res.rewritten) return { buf, rewritten: 0 };
+  zip.file('word/document.xml', res.xml);
+  return { buf: zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }), rewritten: res.rewritten };
+}
+// True when a tenant keeps using the master's built-in lists (Deck's own
+// tenant with no signers entered yet).
+function isDeckTenant(companyIdentifier) {
+  return /^deck\s*inspectors/i.test(String(companyIdentifier || '').trim());
+}
+module.exports.applySigners = applySigners;
+module.exports.applySignersToDocx = applySignersToDocx;
+module.exports.normalizeSigners = normalizeSigners;
+module.exports.resolveSigner = resolveSigner;
+module.exports.signerKindFor = signerKindFor;
+module.exports.isDeckTenant = isDeckTenant;
