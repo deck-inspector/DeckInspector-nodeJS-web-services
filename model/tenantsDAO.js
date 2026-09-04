@@ -424,6 +424,22 @@ module.exports = {
     }
   },
 
+  // Per-client report SIGNERS (Inspector Name / Qualifying Title / License #)
+  // - David, Sep 4 2026. Each tenant keeps its own list; generated reports only
+  // ever carry this tenant's signers.
+  updateTenantSigners: async (id, signers) => {
+    try {
+      const collection = await getTenantsCollection();
+      const doc = await collection.get(id);
+      doc.content.signers = Array.isArray(signers) ? signers : [];
+      await collection.upsert(id, doc.content);
+      return { ok: 1 };
+    } catch (error) {
+      console.error("Error updating tenant signers:", error);
+      throw error;
+    }
+  },
+
   updateTenantLogo: async (id, logoURL) => {
     try {
       const collection = await getTenantsCollection();
