@@ -151,6 +151,7 @@ class FinalReportGenerator {
 
         return {
             projectName: project.name || '',
+            signer: project.signer || null,   // the Signing Inspector chosen on the web Reports page
             projectAddress: flatAddress,
             addressStreet: addressStreet,
             addressCity: addressCity,
@@ -674,6 +675,19 @@ class FinalReportGenerator {
                 }
             }
         } catch (e) { console.log('FinalReport: company substitution failed', e.message); }
+
+        // PER-CLIENT SIGNERS (David, Sep 4): the Inspector Name / Qualifying
+        // Title / License # dropdowns are rewritten to THIS tenant's signers
+        // only, with the project's chosen Signing Inspector filled in. Other
+        // clients' names and license numbers never reach the file. Deck's own
+        // tenant keeps the master's built-in lists until its signers are entered.
+        try {
+            const engine = require('../clientFormEngine');
+            const tenantRec = companyIdentifier ? await tenantsDAO.getTenantByCompanyIdentifier(companyIdentifier) : null;
+            const r = engine.applySigners(doc, tenantRec && tenantRec.signers, data && data.signer, { keepMasterList: engine.isDeckTenant(companyIdentifier) });
+            doc = r.xml;
+            console.log('FinalReport: signer controls rewritten:', r.rewritten, 'signers on file:', engine.normalizeSigners(tenantRec && tenantRec.signers).length, 'chosen:', data && data.signer ? (data.signer.name || data.signer.id || data.signer) : '(none)');
+        } catch (e) { console.log('FinalReport: signer rewrite failed', e.message); }
 
         // 0.25\" clearance at the top and bottom of every page (David, Jul 21):
         // header and footer start 360 twips (0.25 inch) from the paper edge.
