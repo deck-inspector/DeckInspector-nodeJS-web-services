@@ -354,8 +354,7 @@ input,select{font-family:inherit;font-size:16px}
   <div class="login-wrap" v-if="!user">
     <div class="login-card">
       <img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="width:240px;max-width:100%;margin:0 auto 14px;display:block">
-      <h1 style="text-align:center">Inspection Reporting Solutions</h1>
-      <div class="sub" style="text-align:center">Deck Inspectors, Inc.</div>
+      <h1 style="text-align:center;margin-bottom:28px">Inspection Reporting Solutions</h1>
       <div class="login-err" v-if="loginError">{{ loginError }}</div>
       <form @submit.prevent="doLogin">
         <div class="field">
@@ -651,6 +650,23 @@ input,select{font-family:inherit;font-size:16px}
             </select>
             <button class="btn-dl" :disabled="!assignPick" @click="assignUser">Assign</button>
           </div>
+        </div>
+
+        <!-- SIGNING INSPECTOR (David, Sep 4 2026): each client keeps its own
+             signers (name / qualifying title / license #); the pick is saved
+             on the project and printed in the signature block of every report
+             for it. Only this company's signers are ever listed or printed. -->
+        <div class="panel" style="padding:12px 18px">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <span style="font-weight:700">&#9997; Signing Inspector:</span>
+            <select v-model="signerPick" @change="saveProjectSigner" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;min-width:260px">
+              <option value="">&mdash; not selected &mdash;</option>
+              <option v-for="s in signers" :key="s.id" :value="s.id">{{ signerLabel(s) }}</option>
+            </select>
+            <button class="btn-dl" @click="openSignerEditor">&#9998; Manage Signers</button>
+            <span v-if="signerSaving" style="font-size:13px;color:var(--ink-soft)">Saving&hellip;</span>
+          </div>
+          <div class="hint" style="margin:6px 0 0">Prints as Inspector Name / Qualifying Title / License # in the signature block of the Visual &amp; Final report, both Final forms, the Invasive report and the Notice of Unsafe Conditions. Only your company's signers are listed here or in the Word file.<span v-if="!signers.length"> <b>No signers set up yet</b> &mdash; click Manage Signers to add your inspectors.</span></div>
         </div>
 
         <div class="panel">
@@ -1359,6 +1375,25 @@ input,select{font-family:inherit;font-size:16px}
   </div>
 
   <!-- ============ DELETE PROJECT CONFIRM ============ -->
+  <!-- ============ REPORT SIGNERS EDITOR ============ -->
+  <div class="overlay" v-if="sgEd.open" @click.self="sgEd.open=false">
+    <div class="modal" style="max-width:820px">
+      <h3>Report Signers</h3>
+      <p>The inspectors who sign your company's reports. Each row prints as <b>Inspector Name</b> / <b>Qualifying Title</b> / <b>License #</b> in the signature block and is offered in the report's signature dropdowns. This list is private to your company &mdash; no other client can see it.</p>
+      <div v-for="(r,i) in sgEd.rows" :key="i" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px">
+        <div style="flex:2;min-width:170px"><label style="font-size:11px">Inspector Name</label><input v-model.trim="r.name" placeholder="Jane Smith"></div>
+        <div style="flex:2;min-width:170px"><label style="font-size:11px">Qualifying Title</label><input v-model.trim="r.title" placeholder="General Contractor"></div>
+        <div style="flex:2;min-width:170px"><label style="font-size:11px">License #</label><input v-model.trim="r.license" placeholder="CA GC 000000"></div>
+        <button class="btn-del" title="Remove this signer" @click="sgEd.rows.splice(i,1)">&#215;</button>
+      </div>
+      <div v-if="!sgEd.rows.length" class="hint">No signers yet &mdash; add one below.</div>
+      <button class="btn-dl" @click="sgEd.rows.push({ id: '', name: '', title: '', license: '' })">+ Add signer</button>
+      <div class="mrow">
+        <button class="btn-cancel" @click="sgEd.open=false">Cancel</button>
+        <button class="btn-dl" :disabled="sgEd.saving" @click="sgEdSave">{{ sgEd.saving ? 'Saving&hellip;' : '&#10003; Save Signers' }}</button>
+      </div>
+    </div>
+  </div>
   <!-- ============ EMAIL SIGNATURE EDITOR ============ -->
   <div class="overlay" v-if="sigEd.open" @click.self="sigEd.open=false">
     <div class="modal">
@@ -1556,7 +1591,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-08-29.7';
+const APP_BUILD = '2026-09-04.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -1631,6 +1666,7 @@ createApp({
       emailTpl: 'C', brandInfo: {}, tenantId: '',
       emailReportPick: '', emailDocs: [], reportProp: null, downloadingProp: false, emailBusy: false,
       sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', logoWidth: 300, saving: false, uploading: false },
+      signers: [], signerPick: '', signerSaving: false, sgEd: { open: false, rows: [], saving: false },
       finalByPid: {}, dataByPid: {},
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null,
              email: '', propertyName: '', customerName: '', phone: '', shipLine: '', ship: {}, txnDateStr: '', txnDateIso: '',
@@ -1940,6 +1976,8 @@ createApp({
       this.current = p; this.view = 'reports'; this.reports = [];
       this.generating = false; this.generateStartedAt = null;
       this.assignPick = ''; this.emailReportPick = ''; this.emailDocs = []; this.reportProp = null;
+      this.signerPick = (p && p.signer && p.signer.id) || '';
+      this.loadSigners();
       this.loadReports();
       this.loadReportProposal();
       if (!this.users.length) this.loadUsers();
@@ -2395,7 +2433,7 @@ createApp({
       const mode = f.key === 'finalcompletion' ? 'sidedoc' : 'canvas';
       // annex:true = the "Onsite Visit" flavour - same form values, but the
       // server generates the integrated report from the repairs master.
-      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, annex: !!f.annex, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '', saved: false, lastFileUrl: '' };
+      this.formEd = { open: true, loading: true, mode, key: f.key, label: f.label, ext: f.ext, annex: !!f.annex, tokenHtml: '', renderedHtml: '', controls: {}, values: {}, photos: {}, custom: {}, origDate: '', rrByRow: {}, signerRefs: {}, busy: false, busyKind: '', previewBusy: false, previewErr: '', saved: false, lastFileUrl: '' };
       try {
         const res = await this.api('/project/clientformlayout?key=' + encodeURIComponent(f.key));
         if (!res.ok) throw new Error('bad');
@@ -2403,6 +2441,7 @@ createApp({
         this.formEd.tokenHtml = data.html || '';
         this.formEd.controls = data.controls || {};
         this.formEd.rcByRow = data.rcByRow || {};
+        this.formEd.signerRefs = data.signerRefs || {};
         // Repairs-Required control per row (for the matrix colour rule).
         this.formEd.rrByRow = {};
         for (const ref of Object.keys(this.formEd.controls)) {
@@ -2422,10 +2461,11 @@ createApp({
         if (mode === 'sidedoc') {
           await this.ffAutofill();
           this.fcRestore();   // bring back any previously auto-saved entries
+          this.formApplySigner();
           this.$nextTick(() => this.fcRefreshPreview());
         } else {
           this.ffRender();
-          this.$nextTick(() => this.ffAutofill());
+          this.$nextTick(() => { this.ffAutofill(); this.formApplySigner(); });
         }
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not open that form.', 'err');
@@ -2557,7 +2597,7 @@ createApp({
         // method (html2pdf) reflowed pages and is kept only as a fallback.
         const res = await this.api('/project/clientformpdf', {
           method: 'POST',
-          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex },
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex, signer: this.formSignerPayload() },
         });
         if (res.ok) {
           const blob = await res.blob();
@@ -2699,7 +2739,7 @@ createApp({
           // Visual report. Handing back a blob minutes after the click made
           // Chrome treat it as an "automatic download" and block it (David,
           // Aug 22: this was the only report that would not download).
-          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex, deliver: 'url', fileName: wantName },
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex, signer: this.formSignerPayload(), deliver: 'url', fileName: wantName },
         });
         if (!res.ok) throw new Error('bad');
         const ctype = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
@@ -4369,8 +4409,8 @@ createApp({
       const out = [];
       const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
       if (name) out.push(name);
-      out.push(b.name || 'Deck Inspectors, Inc.');
-      out.push(b.phone || '888-224-0489');
+      if (b.name) out.push(b.name);
+      if (b.phone) out.push(b.phone);
       if (u.email) out.push(u.email);
       return out;
     },
@@ -4464,8 +4504,8 @@ createApp({
       const addr = [f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ') || propName;
       const who = (f.ownerMgr || '').trim() || '[First Name]';
       const b = (this.propBranding && this.propBranding.name) ? this.propBranding : (this.brandInfo || {});
-      const co = b.name || 'Deck Inspectors, Inc.';
-      const phone = b.phone || '888-224-0489';
+      const co = b.name || 'our company';
+      const phone = b.phone || '';
       const subject = 'E-3 Inspection Proposal \u2014 ' + propName;
       const lines = [
         'Hi ' + who + ',', '',
@@ -4514,8 +4554,8 @@ createApp({
       const kind = ((p.projecttype || '') + ' ' + (p.name || '')).toLowerCase();
       const interval = /hoa|condo/.test(kind) ? '9 years' : (/apart|multi/.test(kind) ? '6 years' : '[6 years for apartments / 9 years for condos and HOAs]');
       const b = this.brandInfo || {};
-      const co = b.name || 'Deck Inspectors, Inc.';
-      const phone = b.phone || '888-224-0489';
+      const co = b.name || 'our company';
+      const phone = b.phone || '';
       const REVIEW = 'https://g.page/r/CRnBHbgS7E2bEBM/review';
       // Client contact from the accepted proposal: TO pre-addressed, first
       // name in the salutation (David, Aug 17).
@@ -4657,6 +4697,86 @@ createApp({
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not save the signature.', 'err');
       } finally { this.sigEd.saving = false; }
+    },
+    // ---- Report signers (per client) ----
+    signerLabel(s) { return [s.name, s.title, s.license].filter(Boolean).join(' \u2014 '); },
+    currentSigner() { return this.signers.find(s => s.id === this.signerPick) || null; },
+    async loadSigners() {
+      try {
+        const res = await this.api('/tenants/signers/mine');
+        if (!res.ok) return;
+        const j = await res.json();
+        this.signers = Array.isArray(j.signers) ? j.signers : [];
+        // A project pick that no longer exists on the list (deleted signer)
+        // must not silently print - clear it on screen.
+        if (this.signerPick && !this.signers.some(s => s.id === this.signerPick)) this.signerPick = '';
+      } catch (e) { /* keep last known list */ }
+    },
+    async saveProjectSigner() {
+      if (!this.current) return;
+      const s = this.currentSigner();
+      const signer = s ? { id: s.id, name: s.name, title: s.title, license: s.license } : null;
+      this.signerSaving = true;
+      try {
+        // PUT merges into the project record; formId must travel with it
+        // (the route nulls a missing formId).
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(this.current)), {
+          method: 'PUT',
+          json: { signer, formId: this.current.formId || null, lasteditedby: this.user.username },
+        });
+        if (!res.ok) throw new Error('bad');
+        this.current.signer = signer;
+        this.toast(signer ? ('Signing inspector: ' + signer.name) : 'Signing inspector cleared.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save the signing inspector.', 'err');
+      } finally { this.signerSaving = false; }
+    },
+    openSignerEditor() {
+      this.sgEd = { open: true, saving: false, rows: this.signers.map(s => ({ id: s.id, name: s.name, title: s.title, license: s.license })) };
+      if (!this.sgEd.rows.length) this.sgEd.rows.push({ id: '', name: '', title: '', license: '' });
+    },
+    async sgEdSave() {
+      const rows = this.sgEd.rows.filter(r => r.name || r.title || r.license);
+      if (rows.some(r => !r.name)) { this.toast('Every signer needs an Inspector Name.', 'err'); return; }
+      this.sgEd.saving = true;
+      try {
+        const res = await this.api('/tenants/signers/mine', { method: 'POST', json: { signers: rows } });
+        if (!res.ok) throw new Error('bad');
+        const j = await res.json();
+        this.signers = Array.isArray(j.signers) ? j.signers : rows;
+        this.sgEd.open = false;
+        this.toast('Signers saved.');
+        if (this.signerPick && !this.signers.some(s => s.id === this.signerPick)) { this.signerPick = ''; this.saveProjectSigner(); }
+        // Refresh the chosen signer's details on the project if they were edited.
+        else if (this.signerPick) { const cur = this.currentSigner(); const old = this.current && this.current.signer; if (cur && old && (cur.name !== old.name || cur.title !== old.title || cur.license !== old.license)) this.saveProjectSigner(); }
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save the signers.', 'err');
+      } finally { this.sgEd.saving = false; }
+    },
+    // The signer to print on a form: the editor's own signature dropdown
+    // picks when they are valid options, otherwise the project's pick.
+    formSignerPayload() {
+      const refs = (this.formEd && this.formEd.signerRefs) || {};
+      const out = {}; let any = false;
+      for (const ref of Object.keys(refs)) {
+        const c = this.formEd.controls[ref] || {}; const v = this.formEd.values[ref] || '';
+        if (v && (c.options || []).indexOf(v) !== -1 && v !== 'NA') { out[refs[ref]] = v; any = true; }
+      }
+      if (any) { const m = this.signers.find(s => s.name === out.name); if (m) out.id = m.id; return out; }
+      const s = this.currentSigner();
+      return s ? { id: s.id, name: s.name, title: s.title, license: s.license } : null;
+    },
+    // Pre-select the project's signer in the form's signature dropdowns and
+    // drop any restored value that is no longer one of this company's signers.
+    formApplySigner() {
+      const refs = (this.formEd && this.formEd.signerRefs) || {};
+      const s = this.currentSigner();
+      for (const ref of Object.keys(refs)) {
+        const c = this.formEd.controls[ref] || {}; const opts = c.options || [];
+        const v = this.formEd.values[ref] || '';
+        if (v && opts.indexOf(v) === -1) this.formEd.values[ref] = '';
+        if (!this.formEd.values[ref] && s && s[refs[ref]] && opts.indexOf(s[refs[ref]]) !== -1) this.formEd.values[ref] = s[refs[ref]];
+      }
     },
     async loadBranding() {
       try {
