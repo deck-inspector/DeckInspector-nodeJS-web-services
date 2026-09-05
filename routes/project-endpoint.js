@@ -968,6 +968,37 @@ router.route('/masterform')
     }
   });
 
+// PHONE-SYNC HEALTH (David, Sep 4 2026). Answers "are web edits reaching the
+// phones?" - the Sync Gateway write-through silently turned into plain SDK
+// writes when SGW_PASSWORD went missing from the App Service settings, and
+// nobody knew for days. The web app polls this and shows a red banner to every
+// user when it is not healthy. JWT-gated like the rest of /api/project.
+router.route('/synchealth')
+  .get(async function (req, res) {
+    try {
+      const sgw = require('../database/sgwWrite');
+      const status = sgw.sgwStatus();
+      const probe = await sgw.sgwProbe(String(req.query.force || '') === '1');
+      const tenMin = 10 * 60 * 1000;
+      const recentFail = status.lastFailAt && (Date.now() - Date.parse(status.lastFailAt)) < tenMin;
+      const recentOk = status.lastOkAt && (Date.now() - Date.parse(status.lastOkAt)) < tenMin;
+      let ok = true, reason = '';
+      if (status.credsMissing.length) { ok = false; reason = 'Sync Gateway credentials are not set on the server (' + status.credsMissing.join(', ') + ')'; }
+      else if (!probe.ok) { ok = false; reason = probe.reason; }
+      else if (recentFail && !recentOk) { ok = false; reason = 'recent writes fell back to the database only: ' + (status.lastFailMsg || 'unknown error'); }
+      return res.status(200).json({
+        ok, reason,
+        writeThrough: status.enabled ? 'enabled' : 'disabled',
+        gateway: probe.ok ? 'reachable' : ('problem (' + probe.status + ')'),
+        okCount: status.okCount, fallbackCount: status.fallbackCount,
+        lastOkAt: status.lastOkAt, lastFailAt: status.lastFailAt, lastFailMsg: status.lastFailMsg,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      return res.status(200).json({ ok: false, reason: 'health check failed: ' + (err && err.message), writeThrough: 'unknown' });
+    }
+  });
+
 router.route('/clientformsstatus')
   .get(async function (req, res) {
     try {
