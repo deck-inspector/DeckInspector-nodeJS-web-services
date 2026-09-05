@@ -41,6 +41,49 @@ const SYNCED_COLLECTIONS = new Set([
 
 function sgwEnabled() { return !!(USER && PASS); }
 
+// ---- HEALTH (David, Sep 4 2026) ----
+// The Aug 28 write-through went silently dark when SGW_PASSWORD vanished from
+// the App Service settings: creds unset = "disabled" = plain SDK writes, and
+// nothing anywhere said so - phones just stopped receiving web edits. Every
+// write now updates these counters, and sgwStatus()/sgwProbe() feed a
+// /synchealth endpoint + a red banner in the web app so it can never be quiet.
+const stats = { okCount: 0, fallbackCount: 0, lastOkAt: null, lastFailAt: null, lastFailMsg: "" };
+function noteOk() { stats.okCount++; stats.lastOkAt = new Date().toISOString(); }
+function noteFail(msg) { stats.fallbackCount++; stats.lastFailAt = new Date().toISOString(); stats.lastFailMsg = String(msg || "").slice(0, 200); }
+function credsMissing() {
+  const m = [];
+  if (!USER) m.push("SGW_USERNAME");
+  if (!PASS) m.push("SGW_PASSWORD");
+  return m;
+}
+function sgwStatus() {
+  return Object.assign({ enabled: sgwEnabled(), credsMissing: credsMissing(), url: SGW_URL, db: SGW_DB }, stats);
+}
+// Live check: can the backend user actually authenticate against the gateway?
+// 200 = healthy; 401/403 = wrong password; anything else = unreachable/misconfigured.
+let probeCache = { at: 0, result: null };
+async function sgwProbe(force) {
+  if (!force && probeCache.result && Date.now() - probeCache.at < 60000) return probeCache.result;
+  let result;
+  if (!sgwEnabled()) {
+    result = { ok: false, status: 0, reason: "credentials not set: " + credsMissing().join(", ") };
+  } else {
+    try {
+      const r = await sgwFetch("GET", "/" + SGW_DB + "/");
+      if (r.status === 200) result = { ok: true, status: 200, reason: "" };
+      else if (r.status === 401 || r.status === 403) result = { ok: false, status: r.status, reason: "gateway rejected the SGW_USERNAME/SGW_PASSWORD credentials (" + r.status + ")" };
+      else result = { ok: false, status: r.status, reason: "gateway answered " + r.status };
+    } catch (e) {
+      result = { ok: false, status: -1, reason: "gateway unreachable: " + String(e && e.message || e).slice(0, 120) };
+    }
+  }
+  probeCache = { at: Date.now(), result };
+  return result;
+}
+if (!sgwEnabled()) {
+  console.error("*** SGW WRITE-THROUGH DISABLED: " + credsMissing().join(", ") + " not set - web edits will NOT reach phones ***");
+}
+
 function authHeader() {
   return "Basic " + Buffer.from(USER + ":" + PASS).toString("base64");
 }
@@ -167,11 +210,15 @@ function wrapSyncedCollection(realCol, colName) {
   const route = (op, sdkCall) => async (id, ...rest) => {
     if (!sgwEnabled()) return sdkCall(id, ...rest);
     try {
-      if (op === "remove") return await sgwRemove(colName, id);
-      if (op === "insert") return await sgwInsert(colName, id, rest[0]);
-      return await sgwUpsert(colName, id, rest[0]); // upsert + replace
+      let r;
+      if (op === "remove") r = await sgwRemove(colName, id);
+      else if (op === "insert") r = await sgwInsert(colName, id, rest[0]);
+      else r = await sgwUpsert(colName, id, rest[0]); // upsert + replace
+      noteOk();
+      return r;
     } catch (err) {
       if (err && (err.name === "DocumentExistsError" || err.name === "DocumentNotFoundError")) throw err;
+      noteFail(err && err.message);
       console.warn("SGW write fallback to SDK for", colName + "/" + id + ":", err.message);
       return sdkCall(id, ...rest);
     }
@@ -191,4 +238,4 @@ function wrapSyncedCollection(realCol, colName) {
   });
 }
 
-module.exports = { wrapSyncedCollection, sgwEnabled, sgwUpsert, sgwInsert, sgwRemove };
+module.exports = { wrapSyncedCollection, sgwEnabled, sgwUpsert, sgwInsert, sgwRemove, sgwStatus, sgwProbe };
