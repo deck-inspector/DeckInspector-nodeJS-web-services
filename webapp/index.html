@@ -86,6 +86,8 @@ input,select{font-family:inherit;font-size:16px}
 .rsrow{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;color:var(--ink-soft);cursor:pointer;user-select:none}
 .rsrow input{width:18px;height:18px;accent-color:#12A344;cursor:pointer}
 .rsrow.on{color:#12A344;font-weight:700}
+.syncbar{position:sticky;top:0;z-index:9998;background:#C62828;color:#fff;font-weight:700;padding:12px 18px;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.25);font-size:15px}
+.syncbar small{display:block;font-weight:400;font-size:13px;opacity:.95;margin-top:3px}
 .updbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1565D8;color:#fff;font-weight:700;padding:12px 18px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer;z-index:9999}
 .pfnote{font-size:11px;color:#555;padding:8px 6px 4px;border-top:1px solid #e3e3e3;margin-top:8px}
 .pfnote.pfdone{color:#1E7D34}
@@ -349,6 +351,13 @@ input,select{font-family:inherit;font-size:16px}
 </head>
 <body>
 <div id="app" v-cloak>
+  <!-- PHONE SYNC WARNING (David, Sep 4): shown to EVERY signed-in user whenever
+       the server reports that web edits are not reaching the phones (Sync
+       Gateway credentials missing / rejected / gateway down). Never silent again. -->
+  <div v-if="user && syncHealth && !syncHealth.ok" class="syncbar">
+    &#9888; PHONE SYNC IS OFF &mdash; changes made on this website are NOT reaching the inspectors' phones.
+    <small>{{ syncHealth.reason }} &middot; Ask the E3 administrator to fix the server's Sync Gateway settings (SGW_USERNAME / SGW_PASSWORD). Checked {{ syncHealth.checkedAt ? new Date(syncHealth.checkedAt).toLocaleTimeString() : '' }}.</small>
+  </div>
 
   <!-- ============ LOGIN ============ -->
   <div class="login-wrap" v-if="!user">
@@ -1591,7 +1600,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-04.1';
+const APP_BUILD = '2026-09-04.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -1704,7 +1713,7 @@ createApp({
       propCustom: {},
       propBusy: false, propConverting: false, propDeleting: null,
       toasts: [], toastSeq: 0,
-      appBuild: APP_BUILD, updateAvailable: '',
+      appBuild: APP_BUILD, updateAvailable: '', syncHealth: null,
     };
   },
   watch: {
@@ -1831,7 +1840,7 @@ createApp({
   created() {
     try {
       const saved = localStorage.getItem('e3v2_user');
-      if (saved) { this.user = JSON.parse(saved); this.loadProjects(); this.loadBranding(); }
+      if (saved) { this.user = JSON.parse(saved); this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); }
     } catch (e) { /* ignore */ }
     history.replaceState({ v: 'projects' }, '');
     window.addEventListener('popstate', (e) => this.onPop(e));
@@ -1842,7 +1851,7 @@ createApp({
       if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
     } catch (e) { /* no SW - photos simply load from storage each time */ }
     // Version check: when the tab comes back into focus and every 10 minutes.
-    const chk = () => this.checkForUpdate();
+    const chk = () => { this.checkForUpdate(); this.checkSyncHealth(); };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') chk(); });
     window.addEventListener('focus', chk);
     setInterval(chk, 10 * 60 * 1000);
@@ -1876,6 +1885,17 @@ createApp({
       }
       return res;
     },
+    // Phone-sync health: red banner when the server says web edits are not
+    // reaching phones. Polled with the version check (focus + every 10 min)
+    // and right after sign-in.
+    async checkSyncHealth() {
+      if (!this.user) return;
+      try {
+        const res = await fetch(API + '/project/synchealth', { headers: { Authorization: this.user.token }, cache: 'no-store' });
+        if (!res.ok) return;                      // 401 etc: leave the last known state
+        this.syncHealth = await res.json();
+      } catch (e) { /* offline - keep last known state */ }
+    },
     async checkForUpdate() {
       try {
         const res = await fetch('/index.html?v=' + Date.now(), { cache: 'no-store' });
@@ -1904,6 +1924,7 @@ createApp({
         this.loginForm.password = '';
         this.loadProjects();
         this.loadBranding();
+        this.checkSyncHealth();
       } catch (e) {
         this.loginError = 'Could not reach the server. Check your connection.';
       } finally { this.loggingIn = false; }
