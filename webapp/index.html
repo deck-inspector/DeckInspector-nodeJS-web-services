@@ -944,11 +944,16 @@ input,select{font-family:inherit;font-size:16px}
         <div class="crumb">Projects &rsaquo; <b>{{ current.name }}</b> &rsaquo; <b>{{ unit.locationName }}</b></div>
         <!-- Apartment photo next to the name (David, Aug 23) - click opens the
              zoom viewer. Hidden when no photo has synced yet. -->
-        <div v-if="unit.url" style="display:flex;align-items:center;gap:14px;margin:2px 0 14px">
-          <img :src="thumb(unit.url)" @error="thumbErr($event, unit.url)" alt="apartment photo" style="width:176px;height:176px;object-fit:cover;border-radius:12px;border:1.5px solid var(--line);cursor:zoom-in" @click="lightbox=unit.url">
+        <div style="display:flex;align-items:center;gap:14px;margin:2px 0 14px">
+          <img v-if="unit.url" :src="thumb(unit.url)" @error="thumbErr($event, unit.url)" alt="apartment photo" style="width:176px;height:176px;object-fit:cover;border-radius:12px;border:1.5px solid var(--line);cursor:zoom-in" @click="lightbox=unit.url">
           <div>
-            <h2 style="margin:0">{{ unit.locationName }}</h2>
-            <div class="hint">Apartment photo &mdash; click to enlarge</div>
+            <h2 style="margin:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">{{ unit.locationName }}
+              <!-- Rename / describe from the unit page itself (David, Sep 17 2026:
+                   "we cannot edit this name"). Same dialog as the pencil on the list. -->
+              <button class="btn-dl" style="padding:4px 10px;font-size:12px;font-weight:normal" title="Edit name and description" @click="openStructEdit('unit', unit)">&#9998; Edit</button>
+            </h2>
+            <div class="hint" v-if="unit.description">{{ unit.description }}</div>
+            <div class="hint" v-if="unit.url">Apartment photo &mdash; click to enlarge</div>
           </div>
         </div>
         <div class="panel">
@@ -1645,7 +1650,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-10.2';
+const APP_BUILD = '2026-09-17.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -4401,6 +4406,11 @@ createApp({
         if (!res.ok) throw new Error('bad');
         this.structOpen = false;
         this.toast('Saved.');
+        // The open unit page holds its own copy of the location - update it so
+        // the new name shows at once (Sep 17 2026).
+        if (s.mode === 'edit' && s.kind !== 'building' && s.kind !== 'section' && this.unit && this.unit.locationId === s.id) {
+          this.unit.locationName = s.name; this.unit.description = s.description;
+        }
         if (s.kind === 'section') this.loadSections(); else this.loadStructure();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not save - try again.', 'err');
