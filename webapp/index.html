@@ -398,10 +398,12 @@ input,select{font-family:inherit;font-size:16px}
           <span v-if="!loggingIn">Sign In</span><span v-else>Signing in…</span>
         </button>
       </form>
-      <!-- Field app download (David, Sep 10): the Android APK is published to /apk by the
-           android-apk workflow; iOS comes from the App Store. -->
+      <!-- Field apps (David, Sep 10 / Sep 18): Android is on Google Play since Sep 18 2026;
+           /apk keeps the direct APK as the fallback; iOS comes from the App Store. -->
       <div class="login-apps">
-        <a href="/apk" target="_blank" rel="noopener">Android app (APK)</a>
+        <a href="https://play.google.com/store/apps/details?id=com.e3inspections.multitenant" target="_blank" rel="noopener">Android app (Google Play)</a>
+        <span class="sep">&middot;</span>
+        <a href="/apk" target="_blank" rel="noopener" title="Direct APK download for phones that cannot use Google Play">APK</a>
         <span class="sep">&middot;</span>
         <a href="https://apps.apple.com/app/id6504299913" target="_blank" rel="noopener">iPhone app (App Store)</a>
       </div>
@@ -424,7 +426,7 @@ input,select{font-family:inherit;font-size:16px}
         <div class="avatar">{{ initials }}</div>
         <span>{{ user.first_name || user.username }}</span>
       </div>
-      <a class="btn-ghost" href="/apk" target="_blank" rel="noopener" style="text-decoration:none" title="Download the E3 Inspections Android app (APK) for field phones">&#128241; Android app</a>
+      <a class="btn-ghost" href="/apk" target="_blank" rel="noopener" style="text-decoration:none" title="Get the E3 Inspections Android app — Google Play, or the direct APK">&#128241; Android app</a>
       <a class="btn-ghost" href="mailto:Deck-Inspector@deckinspectors.com?subject=E3%20Support%20Request" style="text-decoration:none" title="Email support — or call 888-224-0489">Support</a>
       <button class="btn-ghost" @click="logout">Sign out</button>
     </div>
@@ -1650,7 +1652,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-17.1';
+const APP_BUILD = '2026-09-18.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
