@@ -320,6 +320,34 @@ input,select{font-family:inherit;font-size:16px}
 .assignrow select{padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;color:var(--ink-soft);max-width:180px;background:#fff}
 .assignrow .tag a{cursor:pointer;color:var(--danger);font-weight:800;margin-left:3px}
 .btn-ghost.navon{color:var(--brand);font-weight:800;box-shadow:inset 0 -3px 0 var(--accent)}
+/* Client portfolios (David, Sep 19) */
+.clrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.clchip{font-size:12px;font-weight:600;padding:3px 10px;border-radius:99px;background:#eef2f8;color:#2b3a55;cursor:pointer;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.clchip b{font-weight:800;color:var(--brand);margin-right:4px}
+.clchip.mgr b{color:#0B7A5C}
+.clpick{display:flex;gap:6px;align-items:stretch}
+.clpick select{flex:1;min-width:0}
+.clpick button{padding:6px 10px;font-size:12.5px;white-space:nowrap}
+.cl-filter{padding:11px 12px;border:1.5px solid var(--line);border-radius:12px;background:#fff;font-size:14px;max-width:260px}
+.clcard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;cursor:pointer;transition:box-shadow .15s}
+.clcard:hover{box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.clcard h3{font-size:17px;margin-bottom:4px}
+.clcard .sub{font-size:13px;color:var(--ink-soft);line-height:1.5}
+.cltype{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:6px;background:var(--brand-soft);color:var(--brand)}
+.cltype.manager{background:#e3f4ee;color:#0B7A5C}
+.cltype.other{background:#f1f1f1;color:#555}
+.cl-contact{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 24px;font-size:14px;line-height:1.6}
+.cl-contact b{color:var(--ink-soft);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em;display:block}
+.pf-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.pf-row:first-child{border-top:0}
+.pf-row .nm{font-weight:700;flex:1;min-width:180px;cursor:pointer}
+.pf-row .nm small{display:block;font-weight:400;color:var(--ink-soft)}
+.pf-row .role{font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;background:var(--brand-soft);color:var(--brand)}
+.pf-row .role.mgr{background:#e3f4ee;color:#0B7A5C}
+.pf-row .btn-dl,.pf-row .btn-cancel{padding:7px 12px;font-size:13px}
+.modal .cl-form label{display:block;font-size:12.5px;font-weight:600;margin:10px 0 3px}
+.modal .cl-form input,.modal .cl-form select,.modal .cl-form textarea{width:100%;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff}
+.modal .cl-form .two{display:flex;gap:10px}.modal .cl-form .two>div{flex:1}
 /* ---------- proposals ---------- */
 .prop-wrap{display:grid;grid-template-columns:minmax(320px,400px) 1fr;gap:22px;align-items:start}
 .prop-form{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;position:sticky;top:80px;max-height:calc(100vh - 100px);overflow-y:auto}
@@ -417,8 +445,9 @@ input,select{font-family:inherit;font-size:16px}
       <nav style="display:flex;gap:4px;margin-left:10px">
         <button class="btn-ghost" title="Back one page" @click="navBack()" style="padding:8px 12px">&#8592;</button>
         <button class="btn-ghost" title="Forward one page" @click="navFwd()" style="padding:8px 12px">&#8594;</button>
-        <button class="btn-ghost" :class="{navon: view!=='users'}" @click="goHome()">Projects</button>
+        <button class="btn-ghost" :class="{navon: view!=='users' && view!=='clients'}" @click="goHome()">Projects</button>
         <button class="btn-ghost" :class="{navon: view==='users'}" @click="openUsers">&#128100; Users</button>
+        <button class="btn-ghost" :class="{navon: view==='clients'}" title="Clients — owners and property managers and their property portfolios" @click="openClients()">&#127970; Clients</button>
       </nav>
       <div class="spacer"></div>
       <img v-if="logo" :src="logo" :alt="(user && user.companyIdentifier) || 'Company logo'" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
@@ -441,6 +470,11 @@ input,select{font-family:inherit;font-size:16px}
             <span class="icon">&#128269;</span>
             <input v-model.trim="query" placeholder="Search by name or address…">
           </div>
+          <select class="cl-filter" v-model="clientFilter" title="Show only the properties of one client (owner or property manager)">
+            <option value="">All clients</option>
+            <option value="__none">No client (general database)</option>
+            <option v-for="c in clients" :key="c.id" :value="c.id">{{ c.name }} ({{ c.clientType==='manager' ? 'Mgr' : c.clientType==='owner' ? 'Owner' : 'Other' }})</option>
+          </select>
           <button class="btn btn-reports" style="width:auto;padding:12px 20px" @click="openAdd">&#65291; Add Project</button>
           <button class="btn btn-dl" style="width:auto;padding:12px 20px" title="Proposals — create before the project exists; accepted proposals convert into projects" @click="openProposals">&#128196; Proposals</button>
           <!-- The corrected Final Report MASTER template is managed in the
@@ -466,6 +500,10 @@ input,select{font-family:inherit;font-size:16px}
             <div class="body">
               <h3 style="cursor:pointer">{{ p.name }}</h3>
               <div class="addr">{{ p.address || 'No address on file' }}</div>
+              <!-- Client portfolios (Sep 19): owner / property-manager chips; click opens the client -->
+              <div class="clrow" v-if="clientChips(p).length" @click.stop>
+                <span class="clchip" v-for="c in clientChips(p)" :key="c.role" :class="{mgr: c.role==='manager'}" :title="c.contact" @click="openClient(c.id)"><b>{{ c.role==='manager' ? 'Mgr' : 'Owner' }}</b>{{ c.name }}</span>
+              </div>
               <div class="meta">
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
                 <span @click.stop style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
@@ -513,6 +551,85 @@ input,select{font-family:inherit;font-size:16px}
         </div>
       </template>
 
+      <!-- ============ CLIENTS (owners / property managers and their portfolios; David, Sep 19) ============ -->
+      <template v-else-if="view==='clients'">
+        <button class="back" @click="clientOpen ? closeClient() : goHome()">&#8592; {{ clientOpen ? 'All clients' : 'All projects' }}</button>
+        <template v-if="!clientOpen">
+          <div class="page-head">
+            <h2>Clients <span class="count" v-if="!loadingClients">({{ filteredClients.length }})</span></h2>
+            <div class="search"><span class="icon">&#128269;</span><input v-model.trim="clientQuery" placeholder="Search clients&hellip;"></div>
+            <button class="btn btn-reports" style="width:auto;padding:12px 20px" @click="newClient('owner','list')">&#65291; New Client</button>
+          </div>
+          <div class="kindrow">
+            <button class="kind" :class="{on: clientTypeFilter===''}" @click="clientTypeFilter=''">All</button>
+            <button class="kind" :class="{on: clientTypeFilter==='owner'}" @click="clientTypeFilter='owner'">Owners</button>
+            <button class="kind" :class="{on: clientTypeFilter==='manager'}" @click="clientTypeFilter='manager'">Property Managers</button>
+            <label class="rsrow" style="margin:0 0 0 auto"><input type="checkbox" v-model="clientShowArchived" @change="loadClients(true)"><span>Show archived</span></label>
+          </div>
+          <div class="empty" v-if="loadingClients">Loading clients&hellip;</div>
+          <div class="empty" v-else-if="filteredClients.length===0">No clients yet. A client is an owner or a property manager; each property can belong to one of each. Create clients here or straight from a proposal.</div>
+          <div class="grid" v-else>
+            <div class="clcard" v-for="c in filteredClients" :key="c.id" @click="openClient(c.id)">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+                <span class="cltype" :class="c.clientType">{{ clientTypeLabel(c.clientType) }}</span>
+                <span class="chip" :class="c.isActive===false ? 'done' : 'open'">{{ c.isActive===false ? 'Archived' : (c.projectCount + (c.projectCount===1 ? ' property' : ' properties')) }}</span>
+              </div>
+              <h3>{{ c.name }}</h3>
+              <div class="sub"><span v-if="c.contactName">&#128100; {{ c.contactName }}<br></span><span v-if="c.phone">&#128222; {{ c.phone }}<br></span><span v-if="c.email">&#9993; {{ c.email }}</span></div>
+            </div>
+          </div>
+        </template>
+
+        <!-- client detail + portfolio -->
+        <template v-else>
+          <div class="proj-head">
+            <div>
+              <span class="cltype" :class="clientOpen.clientType">{{ clientTypeLabel(clientOpen.clientType) }}</span>
+              <span class="chip done" v-if="clientOpen.isActive===false" style="margin-left:6px">Archived</span>
+              <h2 style="margin-top:6px">{{ clientOpen.name }}</h2>
+              <div class="cl-contact" style="margin-top:10px">
+                <div><b>Contact</b>{{ clientOpen.contactName || '&mdash;' }}</div>
+                <div><b>Phone</b><a v-if="clientOpen.phone" :href="'tel:'+clientOpen.phone">{{ clientOpen.phone }}</a><span v-else>&mdash;</span></div>
+                <div><b>Email</b><a v-if="clientOpen.email" :href="'mailto:'+clientOpen.email">{{ clientOpen.email }}</a><span v-else>&mdash;</span></div>
+                <div><b>Address</b>{{ [clientOpen.address && clientOpen.address.street, clientOpen.address && clientOpen.address.city, clientOpen.address && clientOpen.address.stateZip].filter(Boolean).join(', ') || '&mdash;' }}</div>
+                <div v-if="clientOpen.notes" style="grid-column:1/-1"><b>Notes</b>{{ clientOpen.notes }}</div>
+              </div>
+            </div>
+            <div class="spacer" style="flex:1"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+              <button class="btn-dl" @click="editClient(clientOpen)">&#9998; Edit</button>
+              <button class="btn-dl" v-if="clientOpen.isActive!==false" :disabled="clientPortfolio.length>0" :title="clientPortfolio.length ? 'Move or remove the properties first' : 'Hide this client from pickers (nothing is deleted)'" @click="archiveClient(clientOpen, true)">Archive</button>
+              <button class="btn-dl" v-else @click="archiveClient(clientOpen, false)">Restore</button>
+            </div>
+          </div>
+          <div class="page-head" style="margin-top:8px">
+            <h2 style="font-size:19px">Portfolio <span class="count">({{ clientPortfolio.length }})</span></h2>
+            <div class="spacer" style="flex:1"></div>
+            <select v-model="addPropPick" class="cl-filter" style="max-width:320px">
+              <option value="">Add an existing property&hellip;</option>
+              <option v-for="p in addableProjects" :key="p.id" :value="p.id">{{ p.name }}<template v-if="p.ownerClientId || p.managerClientId"> &mdash; {{ clientChips(p).map(c => (c.role==='manager'?'Mgr: ':'Owner: ') + c.name).join(', ') }}</template></option>
+            </select>
+            <select v-model="addPropRole" class="cl-filter" style="max-width:150px">
+              <option value="owner">as Owner</option>
+              <option value="manager">as Manager</option>
+            </select>
+            <button class="btn-dl" :disabled="!addPropPick || clientBusy" @click="addExistingProperty">Add</button>
+          </div>
+          <div class="empty" v-if="loadingPortfolio">Loading&hellip;</div>
+          <div class="empty" v-else-if="clientPortfolio.length===0">No properties yet. Add an existing property above, or pick this client on a proposal.</div>
+          <div v-else style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:6px 18px">
+            <div class="pf-row" v-for="p in clientPortfolio" :key="p.id">
+              <div class="nm" @click="openReportsById(p.id)">{{ p.name }}<small>{{ p.address || 'No address on file' }} &middot; {{ p.iscomplete ? 'Complete' : 'Active' }}</small></div>
+              <template v-for="role in rolesOf(p, clientOpen.id)" :key="role">
+                <span class="role" :class="{mgr: role==='manager'}">{{ role==='manager' ? 'Manager' : 'Owner' }}</span>
+                <button class="btn-dl" :disabled="clientBusy" @click="openMove(p, role)">Move&hellip;</button>
+                <button class="btn-cancel" :disabled="clientBusy" @click="setClient(p.id, role, null)">Remove</button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </template>
+
       <!-- ============ PROPOSALS (pre-project) ============ -->
       <template v-else-if="view==='proposals'">
         <button class="back" @click="prop ? closeProposal() : goHome()">&#8592; {{ prop ? 'All proposals' : 'All projects' }}</button>
@@ -531,6 +648,10 @@ input,select{font-family:inherit;font-size:16px}
               <div class="body">
                 <h3>{{ pr.name }}</h3>
                 <div class="addr">{{ (pr.form && ([pr.form.addressStreet, pr.form.addressCity, pr.form.addressStateZip].filter(Boolean).join(', ') || pr.form.address)) || 'No address' }}</div>
+                <div class="clrow" v-if="pr.ownerClientId || pr.managerClientId">
+                  <span class="clchip" v-if="pr.ownerClientId" @click.stop="openClient(pr.ownerClientId)"><b>Owner</b>{{ clientName(pr.ownerClientId) }}</span>
+                  <span class="clchip mgr" v-if="pr.managerClientId" @click.stop="openClient(pr.managerClientId)"><b>Mgr</b>{{ clientName(pr.managerClientId) }}</span>
+                </div>
                 <div class="meta">
                   <span class="chip" :class="pr.status==='accepted' ? 'done' : 'open'">{{ pr.status==='accepted' ? 'Accepted' : 'Draft' }}</span>
                   <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ niceDate(pr.updatedAt) }}</span>
@@ -552,6 +673,25 @@ input,select{font-family:inherit;font-size:16px}
             <label>Property</label><input v-model.trim="prop.form.property" placeholder="e.g. 325 W. 45th St. Apartments">
             <label>Street Address</label><input v-model.trim="prop.form.addressStreet" placeholder="e.g. 1219 Journeys End Dr.">
             <div style="display:flex;gap:8px"><div style="flex:1.4"><label>City</label><input v-model.trim="prop.form.addressCity" placeholder="City"></div><div style="flex:1"><label>State &amp; Zip</label><input v-model.trim="prop.form.addressStateZip" placeholder="CA 91011"></div></div>
+            <!-- Client portfolios (Sep 19): pick the Owner and/or Property Manager client;
+                 picking prefills the Owner/MGR, phone and email lines below and the
+                 accepted proposal's project joins their portfolio(s). -->
+            <label>Owner (client)</label>
+            <div class="clpick">
+              <select v-model="prop.ownerClientId" @change="propClientPicked('owner')">
+                <option :value="null">&mdash; none (general database) &mdash;</option>
+                <option v-for="c in clientsOf('owner')" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+              <button type="button" class="btn-dl" @click="newClient('owner','prop')">&#65291; New</button>
+            </div>
+            <label>Property Manager (client)</label>
+            <div class="clpick">
+              <select v-model="prop.managerClientId" @change="propClientPicked('manager')">
+                <option :value="null">&mdash; none &mdash;</option>
+                <option v-for="c in clientsOf('manager')" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+              <button type="button" class="btn-dl" @click="newClient('manager','prop')">&#65291; New</button>
+            </div>
             <label>Owner / MGR</label><input v-model.trim="prop.form.ownerMgr" placeholder="Owner or property manager">
             <div style="display:flex;gap:8px"><div style="flex:1"><label>Contact Phone</label><input v-model.trim="prop.form.contactPhone" placeholder="760-555-0000"></div><div style="flex:1.4"><label>Contact Email</label><input v-model.trim="prop.form.contactEmail" placeholder="name@email.com"></div></div>
             <h4>Document selections</h4>
@@ -678,6 +818,18 @@ input,select{font-family:inherit;font-size:16px}
             <button class="btn-dl" @click="openEdit">&#9998; Edit</button>
             <button class="btn-dl" @click="toggleComplete(current)">{{ current.iscomplete ? '&#8634; Reopen' : '&#10003; Mark Complete' }}</button>
             <button class="btn-del" @click="deletingProject = current">Delete Project</button>
+          </div>
+          <!-- Client portfolios (Sep 19): the property's owner / property manager -->
+          <div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:4px">
+            <span style="font-size:14px;color:var(--ink-soft);font-weight:600">Owner:</span>
+            <span class="clchip" v-if="current.ownerClientId" :title="clientContact(current.clientInfo && current.clientInfo.owner)" @click="openClient(current.ownerClientId)">{{ (current.clientInfo && current.clientInfo.owner && current.clientInfo.owner.name) || 'client' }}</span>
+            <span style="font-size:13px;color:var(--ink-soft)" v-else>none (general database)</span>
+            <button class="btn-dl" style="padding:7px 12px;font-size:13px" @click="openMove(current,'owner')">{{ current.ownerClientId ? 'Change' : 'Set owner' }}</button>
+            <span style="width:14px"></span>
+            <span style="font-size:14px;color:var(--ink-soft);font-weight:600">Property Mgr:</span>
+            <span class="clchip mgr" v-if="current.managerClientId" :title="clientContact(current.clientInfo && current.clientInfo.manager)" @click="openClient(current.managerClientId)">{{ (current.clientInfo && current.clientInfo.manager && current.clientInfo.manager.name) || 'client' }}</span>
+            <span style="font-size:13px;color:var(--ink-soft)" v-else>none</span>
+            <button class="btn-dl" style="padding:7px 12px;font-size:13px" @click="openMove(current,'manager')">{{ current.managerClientId ? 'Change' : 'Set manager' }}</button>
           </div>
           <div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:4px">
             <span style="font-size:14px;color:var(--ink-soft);font-weight:600">Assigned:</span>
@@ -1122,6 +1274,49 @@ input,select{font-family:inherit;font-size:16px}
       <div class="mrow">
         <button class="btn-cancel" @click="deleting=null">Cancel</button>
         <button class="btn-danger" @click="doDelete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CLIENT EDITOR (client portfolios, Sep 19) ============ -->
+  <div class="overlay" v-if="clientEd" @click.self="clientEd=null">
+    <div class="modal" style="max-width:560px">
+      <h3>{{ clientEd.id ? 'Edit client' : 'New client' }}</h3>
+      <div class="cl-form">
+        <label>Type</label>
+        <select v-model="clientEd.clientType"><option value="owner">Owner</option><option value="manager">Property Manager</option><option value="other">Other</option></select>
+        <label>Name *</label><input v-model.trim="clientEd.name" placeholder="Company, HOA or person" @keyup.enter="saveClient">
+        <label>Contact person</label><input v-model.trim="clientEd.contactName" placeholder="Who to call">
+        <div class="two"><div><label>Phone</label><input v-model.trim="clientEd.phone" placeholder="760-555-0000"></div><div><label>Email</label><input v-model.trim="clientEd.email" placeholder="name@email.com"></div></div>
+        <label>Street address</label><input v-model.trim="clientEd.address.street">
+        <div class="two"><div><label>City</label><input v-model.trim="clientEd.address.city"></div><div><label>State &amp; Zip</label><input v-model.trim="clientEd.address.stateZip" placeholder="CA 92260"></div></div>
+        <label>Notes</label><textarea v-model.trim="clientEd.notes" rows="2"></textarea>
+      </div>
+      <div class="mrow" style="margin-top:18px">
+        <button class="btn-cancel" @click="clientEd=null">Cancel</button>
+        <button class="btn-edit" :disabled="clientBusy || !clientEd.name" @click="saveClient">{{ clientBusy ? 'Saving…' : 'Save client' }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MOVE PROPERTY (client portfolios, Sep 19) ============ -->
+  <div class="overlay" v-if="moveDlg" @click.self="moveDlg=null">
+    <div class="modal" style="max-width:520px">
+      <h3>{{ moveDlg.role==='manager' ? 'Property Manager' : 'Owner' }} for {{ moveDlg.project.name }}</h3>
+      <p>Currently: <b>{{ moveDlg.currentName || 'none (general database)' }}</b>. Pick where this property goes &mdash; nothing inside the project changes.</p>
+      <div class="cl-form">
+        <label>Move to</label>
+        <div class="clpick">
+          <select v-model="moveDlg.clientId">
+            <option :value="null">&mdash; General database (no {{ moveDlg.role==='manager' ? 'manager' : 'owner' }}) &mdash;</option>
+            <option v-for="c in clientsOf(moveDlg.role)" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+          <button type="button" class="btn-dl" @click="newClient(moveDlg.role,'move')">&#65291; New</button>
+        </div>
+      </div>
+      <div class="mrow" style="margin-top:18px">
+        <button class="btn-cancel" @click="moveDlg=null">Cancel</button>
+        <button class="btn-edit" :disabled="clientBusy" @click="confirmMove">{{ clientBusy ? 'Saving…' : 'Save' }}</button>
       </div>
     </div>
   </div>
@@ -1652,7 +1847,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-18.1';
+const APP_BUILD = '2026-09-19.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -1762,6 +1957,10 @@ createApp({
       structTab: 'buildings',
       docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFiles: [], docProgress: '', uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
       proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
+      // client portfolios (Sep 19)
+      clients: [], loadingClients: false, clientQuery: '', clientTypeFilter: '', clientShowArchived: false, clientFilter: '',
+      clientOpen: null, clientPortfolio: [], loadingPortfolio: false, clientEd: null, clientEdCtx: '', clientBusy: false,
+      moveDlg: null, addPropPick: '', addPropRole: 'owner',
       propCustom: {},
       propBusy: false, propConverting: false, propDeleting: null,
       toasts: [], toastSeq: 0,
@@ -1852,11 +2051,24 @@ createApp({
       const b = (u.last_name || '')[0] || '';
       return (a + b).toUpperCase();
     },
+    filteredClients() {
+      const q = this.clientQuery.toLowerCase();
+      return this.clients.filter(c => (!this.clientTypeFilter || c.clientType === this.clientTypeFilter)
+        && (!q || [c.name, c.contactName, c.email, c.phone].some(v => (v || '').toLowerCase().includes(q))));
+    },
+    addableProjects() {
+      if (!this.clientOpen) return [];
+      const id = this.clientOpen.id;
+      return this.projects.filter(p => (this.addPropRole === 'owner' ? p.ownerClientId : p.managerClientId) !== id)
+        .slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    },
     filteredProjects() {
       const q = this.query.toLowerCase();
       let list = this.projects;
       if (this.filterMode === 'active') list = list.filter(p => !p.iscomplete);
       if (this.filterMode === 'done') list = list.filter(p => p.iscomplete);
+      if (this.clientFilter === '__none') list = list.filter(p => !p.ownerClientId && !p.managerClientId);
+      else if (this.clientFilter) list = list.filter(p => p.ownerClientId === this.clientFilter || p.managerClientId === this.clientFilter);
       if (q) list = list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q));
       // Scheduling order (David, Aug 15): the work IN FRONT of us first -
       // projects whose inspection date (editedat) hasn't arrived yet, furthest
@@ -5257,9 +5469,154 @@ createApp({
     openProposals() {
       history.pushState({ v: 'proposals' }, '');
       this.view = 'proposals'; this.prop = null;
-      this.loadProposals(); this.ensurePropMeta();
+      this.loadProposals(); this.ensurePropMeta(); this.loadClients();
     },
     closeProposal() { this.prop = null; this.loadProposals(); },
+
+    // ---------------- Client portfolios (David, Sep 19) ----------------
+    clientTypeLabel(t) { return t === 'manager' ? 'Property Manager' : t === 'other' ? 'Other' : 'Owner'; },
+    clientsOf(type) { return this.clients.filter(c => c.isActive !== false && (type === 'other' || c.clientType === type || c.clientType === 'other')); },
+    clientName(id) { const c = this.clients.find(x => x.id === id); return c ? c.name : 'client'; },
+    clientContact(snap) { return snap ? [snap.contactName, snap.phone, snap.email].filter(Boolean).join(' · ') : ''; },
+    clientChips(p) {
+      const out = []; const ci = p.clientInfo || {};
+      if (p.ownerClientId) out.push({ role: 'owner', id: p.ownerClientId, name: (ci.owner && ci.owner.name) || this.clientName(p.ownerClientId), contact: this.clientContact(ci.owner) });
+      if (p.managerClientId) out.push({ role: 'manager', id: p.managerClientId, name: (ci.manager && ci.manager.name) || this.clientName(p.managerClientId), contact: this.clientContact(ci.manager) });
+      return out;
+    },
+    rolesOf(p, clientId) { const r = []; if (p.ownerClientId === clientId) r.push('owner'); if (p.managerClientId === clientId) r.push('manager'); return r; },
+    async loadClients(force) {
+      if (this.clients.length && !force) return;
+      this.loadingClients = this.clients.length === 0;
+      try {
+        const res = await this.api('/clients' + (this.clientShowArchived ? '?archived=1' : ''));
+        if (res.ok) { const j = await res.json(); this.clients = Array.isArray(j) ? j : []; }
+      } catch (e) { /* keep */ }
+      finally { this.loadingClients = false; }
+    },
+    openClients() {
+      history.pushState({ v: 'clients' }, '');
+      this.view = 'clients'; this.clientOpen = null;
+      this.loadClients(true);
+      if (!this.projects.length) this.loadProjects();
+    },
+    closeClient() { this.clientOpen = null; this.loadClients(true); },
+    async openClient(id, fromHistory) {
+      await this.loadClients();
+      let c = this.clients.find(x => x.id === id);
+      if (!c) { try { const r = await this.api('/clients/' + encodeURIComponent(id)); if (r.ok) c = await r.json(); } catch (e) {} }
+      if (!c) { this.toast('Client not found.', 'err'); return; }
+      if (!fromHistory) history.pushState({ v: 'clients', cid: id }, '');
+      this.view = 'clients'; this.clientOpen = c; this.addPropPick = '';
+      if (!this.projects.length) this.loadProjects();
+      await this.loadPortfolio();
+    },
+    async loadPortfolio() {
+      if (!this.clientOpen) return;
+      this.loadingPortfolio = this.clientPortfolio.length === 0;
+      try {
+        const res = await this.api('/clients/' + encodeURIComponent(this.clientOpen.id) + '/projects');
+        this.clientPortfolio = res.ok ? await res.json() : [];
+      } catch (e) { this.clientPortfolio = []; }
+      finally { this.loadingPortfolio = false; }
+    },
+    newClient(type, ctx) {
+      this.clientEdCtx = ctx || '';
+      this.clientEd = { id: null, clientType: type || 'owner', name: '', contactName: '', phone: '', email: '', address: { street: '', city: '', stateZip: '' }, notes: '' };
+    },
+    editClient(c) {
+      this.clientEdCtx = 'edit';
+      this.clientEd = JSON.parse(JSON.stringify({ ...c, address: c.address || { street: '', city: '', stateZip: '' } }));
+    },
+    async saveClient() {
+      if (!this.clientEd || !this.clientEd.name) return;
+      this.clientBusy = true;
+      try {
+        const res = await this.api('/clients/save', { method: 'POST', json: this.clientEd });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.message || 'bad');
+        const saved = j.client;
+        const ctx = this.clientEdCtx; this.clientEd = null;
+        await this.loadClients(true);
+        if (ctx === 'prop' && this.prop) {
+          if (saved.clientType === 'manager') this.prop.managerClientId = saved.id; else this.prop.ownerClientId = saved.id;
+          this.propClientPicked(saved.clientType === 'manager' ? 'manager' : 'owner');
+        } else if (ctx === 'move' && this.moveDlg) {
+          this.moveDlg.clientId = saved.id;
+        } else if (ctx === 'edit' && this.clientOpen && this.clientOpen.id === saved.id) {
+          this.clientOpen = { ...this.clientOpen, ...saved };
+          if (j.projectsUpdated) { this.toast('Client saved — ' + j.projectsUpdated + ' propert' + (j.projectsUpdated === 1 ? 'y' : 'ies') + ' updated.'); this.loadProjects(); }
+          else this.toast('Client saved.');
+          return;
+        } else if (ctx === 'list') {
+          this.toast('Client created.');
+        }
+        if (ctx !== 'edit') this.toast('Client saved.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast(e.message === 'bad' ? 'Could not save the client.' : e.message, 'err');
+      } finally { this.clientBusy = false; }
+    },
+    async archiveClient(c, archived) {
+      this.clientBusy = true;
+      try {
+        const res = await this.api('/clients/archive', { method: 'POST', json: { id: c.id, archived } });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.message || 'bad');
+        this.clientOpen = { ...this.clientOpen, ...j.client };
+        this.toast(archived ? 'Client archived.' : 'Client restored.');
+        this.loadClients(true);
+      } catch (e) { if (e.message !== 'auth') this.toast(e.message === 'bad' ? 'Could not update the client.' : e.message, 'err'); }
+      finally { this.clientBusy = false; }
+    },
+    openMove(p, role) {
+      const ci = p.clientInfo || {};
+      const cur = role === 'manager' ? p.managerClientId : p.ownerClientId;
+      const snap = role === 'manager' ? ci.manager : ci.owner;
+      this.loadClients();
+      this.moveDlg = { project: p, role, clientId: cur || null, currentName: cur ? ((snap && snap.name) || this.clientName(cur)) : '' };
+    },
+    async confirmMove() {
+      const m = this.moveDlg; if (!m) return;
+      const ok = await this.setClient(this.projectId(m.project), m.role, m.clientId);
+      if (ok) this.moveDlg = null;
+    },
+    // The single move / remove call. clientId null = general database.
+    async setClient(projectId, role, clientId) {
+      this.clientBusy = true;
+      try {
+        const res = await this.api('/project/setclient', { method: 'POST', json: { projectId, role, clientId: clientId || null } });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.message || 'bad');
+        // patch every copy of the project we hold
+        const patch = { ownerClientId: j.ownerClientId, managerClientId: j.managerClientId, clientInfo: j.clientInfo };
+        for (const p of this.projects) if (this.projectId(p) === projectId) Object.assign(p, patch);
+        if (this.current && this.projectId(this.current) === projectId) Object.assign(this.current, patch);
+        if (this.clientOpen) await this.loadPortfolio();
+        this.loadClients(true);
+        this.toast(clientId ? 'Property moved.' : 'Property removed from the portfolio.');
+        return true;
+      } catch (e) { if (e.message !== 'auth') this.toast(e.message === 'bad' ? 'Could not update the client on this property.' : e.message, 'err'); return false; }
+      finally { this.clientBusy = false; }
+    },
+    async addExistingProperty() {
+      if (!this.addPropPick || !this.clientOpen) return;
+      const ok = await this.setClient(this.addPropPick, this.addPropRole, this.clientOpen.id);
+      if (ok) this.addPropPick = '';
+    },
+    openReportsById(id) { const p = this.projects.find(x => this.projectId(x) === id); if (p) this.openReports(p); else this.toast('Open the Projects page to load this property first.', 'err'); },
+    // Proposal picker: prefill the free-text lines from the chosen client.
+    propClientPicked(role) {
+      if (!this.prop) return;
+      const id = role === 'manager' ? this.prop.managerClientId : this.prop.ownerClientId;
+      const c = this.clients.find(x => x.id === id);
+      if (!c) return;
+      const f = this.prop.form;
+      // Owner/MGR line: prefer the manager (the day-to-day contact) when both are set
+      const lead = this.clients.find(x => x.id === this.prop.managerClientId) || this.clients.find(x => x.id === this.prop.ownerClientId) || c;
+      f.ownerMgr = lead.name + (lead.contactName ? ' — ' + lead.contactName : '');
+      if (lead.phone) f.contactPhone = lead.phone;
+      if (lead.email) f.contactEmail = lead.email;
+    },
     async loadProposals() {
       this.loadingProposals = this.proposals.length === 0;
       try {
@@ -5292,7 +5649,7 @@ createApp({
           : (f.value || '').trim();
       }
       this.propCustom = {};
-      this.prop = { id: null, status: 'draft', form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', values } };
+      this.prop = { id: null, status: 'draft', ownerClientId: null, managerClientId: null, form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', values } };
     },
     // Proposal ATTACHED to an existing project (David, Aug 21: a recalled
     // Final-Inspection project like Virginia Gardens needs a new proposal on
@@ -5308,6 +5665,8 @@ createApp({
       this.prop.form.addressCity = parts[1] || '';
       this.prop.form.addressStateZip = parts.slice(2).join(' ') || '';
       this.prop.linkedProjectId = this.projectId(proj);
+      this.prop.ownerClientId = proj.ownerClientId || null;
+      this.prop.managerClientId = proj.managerClientId || null;
       history.pushState({ v: 'proposals' }, '');
       this.view = 'proposals';
     },
@@ -5336,6 +5695,9 @@ createApp({
       for (const k of ['addressStreet','addressCity','addressStateZip','contactPhone','contactEmail']) {
         if (copy.form[k] == null) copy.form[k] = '';
       }
+      if (copy.ownerClientId == null) copy.ownerClientId = null;
+      if (copy.managerClientId == null) copy.managerClientId = null;
+      this.loadClients();
       this.prop = copy;
     },
     async saveProposal(silent) {
@@ -5344,7 +5706,7 @@ createApp({
       try {
         const res = await this.api('/project/proposals/save', {
           method: 'POST',
-          json: { id: this.prop.id || undefined, name: this.prop.form.property || 'Untitled proposal', status: this.prop.status || 'draft', form: this.prop.form, linkedProjectId: this.prop.linkedProjectId || null },
+          json: { id: this.prop.id || undefined, name: this.prop.form.property || 'Untitled proposal', status: this.prop.status || 'draft', form: this.prop.form, linkedProjectId: this.prop.linkedProjectId || null, ownerClientId: this.prop.ownerClientId || null, managerClientId: this.prop.managerClientId || null },
         });
         if (!res.ok) throw new Error('bad');
         const j = await res.json();
@@ -5411,6 +5773,9 @@ createApp({
         if (this.prop.linkedProjectId) {
           this.prop.status = 'accepted';
           await this.saveProposal(true);
+          // client portfolios: put the linked project into the chosen portfolios
+          if (this.prop.ownerClientId) await this.setClient(this.prop.linkedProjectId, 'owner', this.prop.ownerClientId);
+          if (this.prop.managerClientId) await this.setClient(this.prop.linkedProjectId, 'manager', this.prop.managerClientId);
           if (!this.projects.length) await this.loadProjects();
           const linked = this.projects.find(p => this.projectId(p) === this.prop.linkedProjectId);
           this.toast('Proposal accepted — linked to ' + ((linked && linked.name) || 'its project') + '. Now upload the signed proposal to its Documents.');
@@ -5429,6 +5794,8 @@ createApp({
             projecttype: 'multilevel',
             editedat: new Date().toISOString(),
             formId: null,
+            ownerClientId: this.prop.ownerClientId || null,      // client portfolios (Sep 19)
+            managerClientId: this.prop.managerClientId || null,
           },
         });
         if (!res.ok) throw new Error('bad');
@@ -5484,6 +5851,7 @@ createApp({
       if (!this.user) return;
       if (st.v === 'users') { this.view = 'users'; if (!this.users.length) this.loadUsers(); return; }
       if (st.v === 'proposals') { this.view = 'proposals'; this.prop = null; this.loadProposals(); return; }
+      if (st.v === 'clients') { if (st.cid) { this.openClient(st.cid, true); } else { this.view = 'clients'; this.clientOpen = null; this.loadClients(true); } return; }
       if (st.v === 'reports' || st.v === 'inspect' || st.v === 'unit') {
         const p = this.projects.find(x => this.projectId(x) === st.pid);
         if (!p) { this.view = 'projects'; return; }
