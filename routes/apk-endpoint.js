@@ -8,15 +8,20 @@
 //   apk/latest.json                             {version, build, file, url, sha, branch, builtAt}
 //
 // These routes are PUBLIC (no login) and mounted at /apk:
-//   GET /apk              install page: version, Download button (direct blob link -
+//   GET /apk              install page. Since Sep 18 2026 the app is on Google Play
+//                         (package com.e3inspections.multitenant) - the page leads with
+//                         "Get it on Google Play" and keeps the direct APK (direct blob link -
 //                         a redirect that fails during an app restart saved an HTML error
-//                         page as the .apk on a field phone, Sep 10), instructions
+//                         page as the .apk on a field phone, Sep 10) as the fallback for
+//                         phones that cannot use Play.
 //   GET /apk/download     302 to the newest APK
 //   GET /apk/latest.json  the manifest (no-cache), for the page and for checks
 const express = require("express");
 const router = express.Router();
 
 const CONTAINER = "apk";
+// Public Play Store listing (live since Sep 18 2026, 2.4.9 build 194).
+const PLAY_URL = "https://play.google.com/store/apps/details?id=com.e3inspections.multitenant";
 
 function blobBase() {
   const account = process.env.AZURE_STORAGE_ACCOUNT_NAME || "";
@@ -76,6 +81,9 @@ h1{font-size:22px;margin:0 0 4px}
 .meta{color:#5b6472;font-size:13px;margin:4px 0 16px}
 .btn{display:block;text-align:center;background:#0b3d91;color:#fff;text-decoration:none;font-weight:700;font-size:17px;padding:15px;border-radius:12px}
 .btn.off{background:#9aa3b2}
+.btn.play{background:#01875f}
+.btn.alt{background:#fff;color:#0b3d91;border:2px solid #0b3d91;padding:13px}
+.or{text-align:center;color:#5b6472;font-size:13px;margin:14px 0 10px}
 ol{padding-left:20px;line-height:1.55;font-size:15px}
 .note{background:#fff7e6;border:1px solid #f2d59b;border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.5}
 code{background:#eef2f8;padding:1px 5px;border-radius:5px}
@@ -83,22 +91,27 @@ code{background:#eef2f8;padding:1px 5px;border-radius:5px}
 <h1>E3 Inspections for Android</h1>
 <p class="sub">Field app for SB 326 / SB 721 inspections</p>
 <div class="card">
+<a class="btn play" href="${PLAY_URL}" rel="noopener">&#9654; Get it on Google Play</a>
+<p class="meta" style="margin:10px 0 0;text-align:center">Recommended. Installs and updates automatically like any other app.</p>
+</div>
+<div class="card">
+<p class="or" style="margin-top:0">Can't use Google Play on this phone? Install the APK directly:</p>
 ${j ? `<p class="ver">${esc(j.version)} <span style="font-size:16px;font-weight:600;color:#5b6472">(build ${esc(j.build)})</span></p>
 <p class="meta">${when ? "Built " + esc(when) : ""}${j.sha ? " &middot; " + esc(String(j.sha).slice(0, 7)) : ""}</p>
-<a class="btn" href="${esc(j.url)}" download="${esc(j.file)}">&#11015; Download APK</a>
+<a class="btn alt" href="${esc(j.url)}" download="${esc(j.file)}">&#11015; Download APK</a>
 <p class="meta" style="margin:10px 0 0;text-align:center">File: ${esc(j.file)}${j.size ? " &middot; " + esc((j.size / 1048576).toFixed(1)) + " MB" : ""}</p>`
 : `<p class="ver">No build published yet</p><p class="meta">${esc(err)}</p><a class="btn off">Download APK</a>`}
 </div>
 <div class="card">
-<b>Install on the phone</b>
+<b>Installing the APK directly</b>
 <ol>
-<li>Open this page on the phone and tap <b>Download APK</b>. Wait for the download notification to say it finished (about 49 MB &mdash; if it is only a few KB, delete it and try again).</li>
+<li>Open this page on the phone and tap <b>Download APK</b>. Wait for the download notification to say it finished (about 40 MB &mdash; if it is only a few KB, delete it and try again).</li>
 <li>Tap the finished download to <b>Open</b> it (or open it from Files &rarr; Downloads).</li>
 <li>If Android asks, allow this browser to install unknown apps, then tap <b>Install</b>.</li>
 <li>Open E3 Inspections and sign in. Existing sign-in and offline data are kept.</li>
 </ol>
 </div>
-<div class="note"><b>One-time step if the phone still has version 2.2.1 (build 20 or lower):</b> that old build was signed with a different key, so Android will refuse to update it. First open the app and let it <b>sync</b> (SYNC pill ON, wait for it to finish), then <b>uninstall</b> E3 Inspections, then install this one. Only needed once &mdash; every build from here on updates in place.</div>
+<div class="note"><b>Switching from the APK to Google Play (one time):</b> the Play Store copy is signed with a different key, so Android will not update an APK install in place. First open the app and let it <b>sync</b> (SYNC pill ON, wait for it to finish), then <b>uninstall</b> E3 Inspections, then install it from Google Play. Only needed once. The same applies the other way round (Play &rarr; APK), and to phones still on the old 2.2.1 build.</div>
 </div></body></html>`);
 });
 
