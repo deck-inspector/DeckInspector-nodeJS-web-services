@@ -16,6 +16,7 @@ var locationFormRouter = require("./routes/locationform-endpoint");
 var migrateRouter = require("./routes/migrate-endpoint");
 var qboRouter = require("./routes/qbo-endpoint");
 var apkRouter = require("./routes/apk-endpoint");
+var clientsRouter = require("./routes/clients-endpoint");
 const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
 
@@ -33,6 +34,8 @@ module.exports = function (app) {
   app.use("/api/invasivesection", invasivesectionRouter);
   app.use("/api/conclusivesection", conclusiveSectionRouter);
   app.use("/api/tenants", authenticateToken, tenantRouter);
+  // Client portfolios - owners / property managers and their properties (routes/clients-endpoint.js)
+  app.use("/api/clients", authenticateToken, clientsRouter);
   app.use("/api/login", loginRouter);
   app.use("/api/locationforms", locationFormRouter);
   app.use("/api/migrate", migrateRouter);
