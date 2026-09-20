@@ -29,7 +29,7 @@ router.route('/add')
     .post(async function (req, res) {
       try {
         // Get user input
-        const { name, description, address, createdby, url, assignedto, projecttype, editedat,formId } = req.body;
+        const { name, description, address, createdby, url, assignedto, projecttype, editedat,formId, ownerClientId, managerClientId } = req.body;
         console.log(req.user);
         const companyIdentifier = req.user.company;
         console.log(`Company Identifier: ${companyIdentifier}`);
@@ -58,6 +58,19 @@ router.route('/add')
           "companyIdentifier": companyIdentifier,
           "formId": formId || null,
           "type": "Project"
+        }
+        // Client portfolios (Sep 19): optional owner / property-manager slots +
+        // the name/contact snapshot the phone shows. Ids must belong to this tenant.
+        if (ownerClientId || managerClientId) {
+          const own = ownerClientId ? await clientsModel.getClientById(ownerClientId) : null;
+          const mgr = managerClientId ? await clientsModel.getClientById(managerClientId) : null;
+          if ((ownerClientId && (!own || own.companyIdentifier !== companyIdentifier)) ||
+              (managerClientId && (!mgr || mgr.companyIdentifier !== companyIdentifier))) {
+            return res.status(400).json(new ErrorResponse(400, "Unknown client", ""));
+          }
+          newProject.ownerClientId = own ? own.id : null;
+          newProject.managerClientId = mgr ? mgr.id : null;
+          newProject.clientInfo = { owner: clientsModel.snapshotOf(own), manager: clientsModel.snapshotOf(mgr) };
         }
 
         // Save the new project to the database
@@ -1899,6 +1912,7 @@ router.route('/proposals')
 // QBO emails the invoice; the app shows a Paid badge from the live balance.
 const qboService = require('../service/quickbooksService');
 const qboDAO = require('../model/qboDAO');
+const clientsModel = require('../model/clients');
 
 function parseMoney(v) {
   const m = String(v == null ? '' : v).replace(/,/g, '').match(/\$?\s*(\d+(?:\.\d{1,2})?)/);
@@ -2010,11 +2024,39 @@ router.route('/qbo/invoice')
     }
   });
 
+// Client portfolios (Sep 19): the single move / remove call. role = owner|manager,
+// clientId = null removes the property from that client's portfolio ("general
+// database"). Rewrites the phone snapshot and writes through the project edit
+// path so phones receive it.
+router.route('/setclient')
+    .post(async function (req, res){
+      try{
+        const cid = req.user && req.user.company;
+        const { projectId, role, clientId } = req.body || {};
+        if (!projectId || !['owner','manager'].includes(role)) return res.status(400).json({ message: 'projectId and role (owner|manager) are required.' });
+        const pr = await projectService.getProjectById(projectId);
+        const item = pr && (pr.project || (pr.data && pr.data.item));
+        if (!item || item.companyIdentifier !== cid) return res.status(404).json({ message: 'Project not found.' });
+        let client = null;
+        if (clientId) {
+          client = await clientsModel.getClientById(clientId);
+          if (!client || client.companyIdentifier !== cid) return res.status(404).json({ message: 'Client not found.' });
+        }
+        const ownerId = role === 'owner' ? (client ? client.id : null) : (item.ownerClientId || null);
+        const managerId = role === 'manager' ? (client ? client.id : null) : (item.managerClientId || null);
+        const clientInfo = await clientsModel.buildClientInfo(ownerId, managerId);
+        await projectService.editProject(projectId, { ownerClientId: ownerId, managerClientId: managerId, clientInfo });
+        res.status(200).json({ ok: true, ownerClientId: ownerId, managerClientId: managerId, clientInfo });
+      } catch(err){
+        console.error('setclient failed:', err && err.message);
+        return res.status(500).json({ message: 'Could not update the client on this project.' });
+      }
+    })
 router.route('/proposals/save')
     .post(async function (req, res){
       try{
         const companyIdentifier = req.user && req.user.company;
-        const { id, name, status, form, linkedProjectId } = req.body;
+        const { id, name, status, form, linkedProjectId, ownerClientId, managerClientId } = req.body;
         const result = await proposals.upsertProposal({
           id: id || undefined,
           companyIdentifier,
@@ -2022,6 +2064,8 @@ router.route('/proposals/save')
           status: status || 'draft',
           form: form || {},
           linkedProjectId: linkedProjectId || null,
+          ownerClientId: ownerClientId || null,      // client portfolios (Sep 19)
+          managerClientId: managerClientId || null,
           createdBy: (req.user && req.user.username) || ''
         });
         res.status(200).json(result);
