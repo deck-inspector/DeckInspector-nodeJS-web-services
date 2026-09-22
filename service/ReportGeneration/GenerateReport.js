@@ -19,6 +19,13 @@ class GenerateReport {
         }
     }
 
+    // PARTIAL report: only the given buildings / project-level locations
+    // (child ids). Always built fresh and never cached, so the whole-project
+    // report and its cache stay exactly as they were (Sep 22 2026).
+    async generatePartialReport(projectId, reportType, onlyIds) {
+        return await ProjectGenerator.createProject(projectId, reportType, { only: onlyIds, noCache: true });
+    }
+
     async generateLocationReport(projectId,locationId,reportType) {
         // check if project exist in DB/List
         const existingDoc = await ProjectReportHashCodeService.getProjctReportHashCodeByIdAndReportType(locationId,reportType);
