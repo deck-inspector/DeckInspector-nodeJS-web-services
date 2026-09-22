@@ -14,8 +14,14 @@ const PizZip = require("pizzip");
 const fs = require("fs");
 const ReportTypeConst = require("../../../model/projectReportType");
 class ProjectGenerator{
-    async createProject(projectId,reportType) {
-        console.log("Project Generation started", projectId);
+    async createProject(projectId,reportType, opts) {
+        // PARTIAL REPORT (David, Sep 22 2026: "only ONE or two locations, not the
+        // entire inspection"): opts.only = ids of the buildings / project-level
+        // locations to include. A partial report never writes the hash-cache
+        // record, so the whole-project report is never replaced by it.
+        const only = (opts && opts.only) ? new Set([].concat(opts.only).map(String).filter(Boolean)) : null;
+        const noCache = !!(opts && opts.noCache) || !!only;
+        console.log("Project Generation started", projectId, only ? ("PARTIAL only=" + [...only].join(",")) : "");
         let projectResponse = await projects.getProjectById(projectId);
         
         // Extract project from wrapped response if needed
@@ -39,7 +45,9 @@ class ProjectGenerator{
             docPath.push(projectDoc.projectHeaderDoc.filePath);
         }
 
-        const {subProjects, locations } = this.reOrderAndGroupProjects(project.children);
+        const grouped = this.reOrderAndGroupProjects(project.children);
+        const subProjects = only ? grouped.subProjects.filter(c => only.has(String(c.id || c._id))) : grouped.subProjects;
+        const locations = only ? grouped.locations.filter(c => only.has(String(c.id || c._id))) : grouped.locations;
         console.log("After reOrderAndGroupProjects - subProjects count:", subProjects.length, "locations count:", locations.length);
         for(const mySubProject of subProjects) {
             // Per-child guard: one bad subproject must not abort the whole report.
@@ -105,8 +113,12 @@ class ProjectGenerator{
         projectHashcodeArray.push(ReportGenerationUtil.calculateHash(project));
         const projectHashCode = ReportGenerationUtil.combineHashesInArray(projectHashcodeArray);
         await this.saveFileToS3(docPath, projectId, reportType, projectDoc, projectHashCode, project && project.companyIdentifier);
-        const projectDocToSave = this.getProjectReportHascodeDocToSave(projectDoc, projectId,reportType);
-        await ProjectReportHashCodeService.addProjectReportHashCode(projectDocToSave);
+        if (!noCache) {
+            const projectDocToSave = this.getProjectReportHascodeDocToSave(projectDoc, projectId,reportType);
+            await ProjectReportHashCodeService.addProjectReportHashCode(projectDocToSave);
+        } else {
+            console.log("Partial report: hash-cache record not written (whole-project report untouched).");
+        }
         return projectDoc.doc.filePath;
     }
 
