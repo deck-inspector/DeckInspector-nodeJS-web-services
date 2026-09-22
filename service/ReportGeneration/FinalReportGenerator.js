@@ -56,7 +56,11 @@ class FinalReportGenerator {
         }
     }
 
-    async collectProjectData(projectId) {
+    async collectProjectData(projectId, onlyIds) {
+        // PARTIAL report (Sep 22 2026): when onlyIds is given, only the
+        // selected buildings / project-level locations feed the PASS/FAIL
+        // and unit counts, matching the annexed partial Visual report.
+        const only = (Array.isArray(onlyIds) && onlyIds.length) ? new Set(onlyIds.map(String)) : null;
         const projectResponse = await projects.getProjectById(projectId);
         const project = projectResponse.project || (projectResponse.data && projectResponse.data.item) || {};
 
@@ -66,6 +70,7 @@ class FinalReportGenerator {
             const directLocations = await location.getLocationByParentId(projectId);
             if (directLocations.data && directLocations.data.item) {
                 for (const loc of directLocations.data.item) {
+                    if (only && !only.has(String(loc.id || loc._id))) continue;
                     locationIds.push(loc.id || loc._id);
                 }
             }
@@ -76,6 +81,7 @@ class FinalReportGenerator {
             if (subProjectsData.data && subProjectsData.data.item) {
                 for (const sp of subProjectsData.data.item) {
                     const spId = sp.id || sp._id;
+                    if (only && !only.has(String(spId))) continue;
                     try {
                         const spLocations = await location.getLocationByParentId(spId);
                         if (spLocations.data && spLocations.data.item) {
@@ -741,10 +747,10 @@ class FinalReportGenerator {
     }
 
     // visualReportUrl: blob URL of the just-generated Visual report
-    async generate(projectId, companyName, projectName, uploader, visualReportUrl) {
+    async generate(projectId, companyName, projectName, uploader, visualReportUrl, onlyIds) {
         const templateBuffer = await this.getTemplateBuffer(companyName);
 
-        const data = await this.collectProjectData(projectId);
+        const data = await this.collectProjectData(projectId, onlyIds);
         console.log('FinalReport: data', JSON.stringify(data));
 
         const filledBuffer = await this.fillTemplate(templateBuffer, data, companyName);
