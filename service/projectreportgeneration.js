@@ -9,9 +9,16 @@ require("./ReportGeneration/ReportGenerationUtil");
 
 
 const generateProjectReport = async function generate(projectId,sectionImageProperties,companyName,reportType,
-                                                      reportFormat, fileName)
+                                                      reportFormat, fileName, onlyIds)
 {
     const project  = await projects.getProjectById(projectId);
+    // PARTIAL report (Sep 22 2026): onlyIds = selected building / location ids.
+    // Word only - the PDF path renders from HTML and is unchanged.
+    if (Array.isArray(onlyIds) && onlyIds.length && reportFormat !== 'pdf') {
+        const partialUrl = await GenerateReport.generatePartialReport(projectId, reportType, onlyIds);
+        if (!partialUrl) { throw new Error('generatePartialReport returned no url (merge or upload produced no file)'); }
+        return partialUrl;
+    }
     if (reportFormat==='pdf') {
         const projectHtml =  await getProjectHtml(project, sectionImageProperties, reportType);
         return await generatePdfFile(fileName,projectHtml,companyName);
