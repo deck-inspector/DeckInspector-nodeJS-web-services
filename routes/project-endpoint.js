@@ -550,6 +550,12 @@ router.route('/generatereport')
             // console.log(`reportID: ${reportId}`);
             const projectName = req.body.projectName;
             const uploader = req.body.user;
+            // PARTIAL report (David, Sep 22 2026): `only` = ids of the buildings /
+            // project-level locations to include; `onlyLabel` = their names for
+            // the Reports list. Whole-project report + its cache are untouched.
+            const onlyIds = Array.isArray(req.body.only) ? req.body.only.map(String).filter(Boolean) : [];
+            const isPartial = onlyIds.length > 0;
+            const partialLabel = isPartial ? ` - Partial (${String(req.body.onlyLabel || (onlyIds.length + ' selected')).slice(0, 120)})` : '';
             // const docpath = `${projectName}_${reportType}_${reportId}`;
 
             const now = new Date();
@@ -564,7 +570,7 @@ router.route('/generatereport')
                if (reportType === 'FinalRepairs') {
                    url = await FinalRepairsGenerator.generate(projectId, companyName, projectName, uploader, reportFormat);
                } else {
-                   url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath);
+                   url = await generateProjectReport(projectId, sectionImageProperties, companyName, reportType, reportFormat, docpath, isPartial ? onlyIds : null);
                }
            } catch (genErr) {
                console.error('Report generation FAILED:', genErr);
@@ -586,7 +592,7 @@ router.route('/generatereport')
            // Distinct name so the list (and the email picker) can tell the
            // repairs re-inspection apart. Deliberately does NOT contain
            // "final report" - that phrase drives the Final Report matching.
-           const name = reportType === 'FinalRepairs' ? `${projectName} - Final Repairs Inspection` : projectName;
+           const name = reportType === 'FinalRepairs' ? `${projectName} - Final Repairs Inspection` : (projectName + partialLabel);
             let timestamp = (new Date(Date.now())).toISOString();
             projectReports.addProjectReport({
                 project_id,
@@ -610,10 +616,10 @@ router.route('/generatereport')
             if (reportFormat === 'docx' && reportType === 'Visual' && url) {
                 try {
                     const tenantCompany = (req.user && req.user.company) ? req.user.company : companyName;
-                    const finalUrl = await FinalReportGenerator.generate(projectId, tenantCompany, projectName, uploader, url);
+                    const finalUrl = await FinalReportGenerator.generate(projectId, tenantCompany, projectName, uploader, url, isPartial ? onlyIds : null);
                     projectReports.addProjectReport({
                         project_id,
-                        name: `${projectName} - Final Report`,
+                        name: `${projectName}${partialLabel} - Final Report`,
                         url: finalUrl,
                         uploader,
                         timestamp: (new Date(Date.now())).toISOString()
@@ -626,7 +632,7 @@ router.route('/generatereport')
                     console.error('Error generating Final Report:', finalErr);
                     projectReports.addProjectReport({
                         project_id,
-                        name: `${projectName} - Final Report FAILED`,
+                        name: `${projectName}${partialLabel} - Final Report FAILED`,
                         url: '',
                         uploader,
                         timestamp: (new Date(Date.now())).toISOString()
