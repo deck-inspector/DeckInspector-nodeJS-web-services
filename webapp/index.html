@@ -869,6 +869,27 @@ input,select{font-family:inherit;font-size:16px}
             <button class="kind" :class="{on: reportKind==='InvasiveOnly'}" @click="reportKind='InvasiveOnly'">Invasive Only</button>
             <button class="kind" :class="{on: reportKind==='UnsafeConditions'}" :style="reportKind==='UnsafeConditions' ? 'background:#C62828;color:#fff;border-color:#C62828' : ''" @click="reportKind='UnsafeConditions'">Unsafe Conditions</button>
           </div>
+          <!-- REPORT SCOPE (David, Sep 22 2026: "only ONE or two locations, not the
+               entire inspection"): whole project (default) or only the ticked
+               buildings / locations. Partial reports are Word only and never
+               replace the whole-project report. -->
+          <div class="hint" style="margin-top:10px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+            <b>Report covers:</b>
+            <label style="cursor:pointer"><input type="radio" v-model="repScope" value="all"> Whole project</label>
+            <label style="cursor:pointer"><input type="radio" v-model="repScope" value="selected"> Only selected buildings / locations</label>
+          </div>
+          <div v-if="repScope==='selected'" style="margin:8px 0 4px;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px">
+            <div class="hint" style="margin-bottom:6px">Tick what the report should include
+              &mdash; <a href="#" @click.prevent="repPickAll(true)">all</a> &middot; <a href="#" @click.prevent="repPickAll(false)">none</a>
+              &middot; <b>{{ repChildren().filter(c => repPick[c.id]).length }}</b> of {{ repChildren().length }} selected.
+              The Word report (and its Final Report) will cover only these; the whole-project report is not changed.</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px 18px">
+              <label v-for="c in repChildren()" :key="c.id" style="cursor:pointer;min-width:180px">
+                <input type="checkbox" v-model="repPick[c.id]"> {{ c.type==='subproject' ? '\uD83C\uDFE2' : '\uD83D\uDCCD' }} {{ c.name || '(unnamed)' }}
+              </label>
+              <span v-if="!repChildren().length" class="hint">This project has no buildings or locations yet.</span>
+            </div>
+          </div>
           <!-- The standalone Final Repairs report is retired: the repairs annex
                (findings, photos, PASS/FAIL, confirmation) is now built into the
                Final Report Upon Completion download for Final-Inspection
@@ -1847,7 +1868,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-19.1';
+const APP_BUILD = '2026-09-22.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -1916,7 +1937,7 @@ createApp({
       user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
-      generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual',
+      generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {}, tenantId: '',
@@ -2422,7 +2443,29 @@ createApp({
     isNew(r) {
       return this.generateStartedAt && new Date(r.timestamp || 0) >= this.generateStartedAt;
     },
+    // ---- report scope helpers (partial reports) ----
+    repChildren() {
+      const kids = (this.current && Array.isArray(this.current.children)) ? this.current.children : [];
+      const seq = c => parseInt(c.sequenceNo || c.sequenceNumber || 0) || 0;
+      const subs = kids.filter(c => c && c.type === 'subproject').sort((a, b) => seq(a) - seq(b));
+      const locs = kids.filter(c => c && c.type === 'projectlocation').sort((a, b) => seq(a) - seq(b));
+      return subs.concat(locs).map(c => ({ id: String(c.id || c._id), name: c.name, type: c.type }));
+    },
+    repPickAll(on) {
+      const next = Object.assign({}, this.repPick);
+      for (const c of this.repChildren()) next[c.id] = !!on;
+      this.repPick = next;
+    },
     async generateReport(format) {
+      // PARTIAL report (David, Sep 22 2026): only the ticked buildings / locations.
+      let only = null, onlyLabel = '';
+      if (this.repScope === 'selected') {
+        const picked = this.repChildren().filter(c => this.repPick[c.id]);
+        if (!picked.length) { this.toast('Tick at least one building or location, or switch back to Whole project.', 'err'); return; }
+        if (format === 'pdf') { this.toast('Selected-location reports are Word only for now \u2014 use Create (Word).', 'err'); return; }
+        only = picked.map(c => c.id);
+        onlyLabel = picked.slice(0, 3).map(c => c.name || 'unnamed').join(', ') + (picked.length > 3 ? ' +' + (picked.length - 3) + ' more' : '');
+      }
       this.generating = true;
       this.generateStartedAt = new Date(Date.now() - 5000);
       try {
@@ -2436,9 +2479,11 @@ createApp({
             reportFormat: format,
             projectName: this.current.name,
             user: this.user.username,
+            only: only || undefined,
+            onlyLabel: onlyLabel || undefined,
           },
         });
-        this.toast('Report started — it will appear in the list below.');
+        this.toast(only ? ('Partial report started (' + onlyLabel + ') — it will appear in the list below.') : 'Report started — it will appear in the list below.');
         this.startPolling(format, this.reportKind);
       } catch (e) {
         this.generating = false;
