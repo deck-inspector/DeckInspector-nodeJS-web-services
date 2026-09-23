@@ -1868,7 +1868,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-23.1';
+const APP_BUILD = '2026-09-23.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -5812,8 +5812,18 @@ createApp({
     // proposal whose project no longer exists shows Accept again and creates
     // the project afresh.
     propLinkedProject(pr) {
-      if (!pr || !pr.linkedProjectId) return null;
-      return (this.projects || []).find(p => this.projectId(p) === pr.linkedProjectId) || null;
+      if (!pr) return null;
+      const list = this.projects || [];
+      if (pr.linkedProjectId) {
+        const byId = list.find(p => this.projectId(p) === pr.linkedProjectId);
+        if (byId) return byId;
+      }
+      // Proposals accepted before links were stored (or whose link is stale):
+      // a project with the same name counts as its project.
+      const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const want = norm(pr.form && pr.form.property);
+      if (!want) return null;
+      return list.find(p => norm(p.name) === want) || null;
     },
     propProjectGone(pr) {
       if (!pr || pr.status !== 'accepted') return false;
