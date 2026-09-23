@@ -405,6 +405,9 @@ input,select{font-family:inherit;font-size:16px}
 .pgroup.sched .pgroup-title{color:#12A344}
 .pgroup.past{margin-top:36px;padding-top:20px;border-top:4px double #C9CED8}
 .pgroup.past .pgroup-title{color:var(--ink-soft)}
+/* "Not scheduled" reminder pill (David, Sep 23): loud on purpose */
+.chip.notsched{background:#E8461B;color:#fff;font-weight:800;letter-spacing:.3px;border:0;box-shadow:0 0 0 3px #FFD9CC;animation:notschedPulse 1.6s ease-in-out infinite}
+@keyframes notschedPulse{0%,100%{box-shadow:0 0 0 3px #FFD9CC}50%{box-shadow:0 0 0 6px #FFB69C}}
 </style>
 </head>
 <body>
@@ -523,7 +526,7 @@ input,select{font-family:inherit;font-size:16px}
               </div>
               <div class="meta">
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
-                <span class="chip" v-if="isUnscheduled(p)" style="background:#EEF1FF;color:#2B3A8C;border:1px solid #B9C4F5" title="No inspection date has been set - pick one on this card">Not scheduled</span>
+                <span class="chip notsched" v-if="isUnscheduled(p)" title="No inspection date has been set - pick one on this card">&#9888; NOT SCHEDULED</span>
                 <span @click.stop style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
                   <input type="date" class="cdate" v-model="p._inspD" @change="autoSaveCardDate(p)">
                   <input type="time" class="cdate" v-model="p._inspT" @change="autoSaveCardDate(p)">
@@ -1888,7 +1891,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-23.4';
+const APP_BUILD = '2026-09-23.5';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
