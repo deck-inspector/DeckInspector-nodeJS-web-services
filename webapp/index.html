@@ -653,12 +653,12 @@ input,select{font-family:inherit;font-size:16px}
                   <span class="clchip mgr" v-if="pr.managerClientId" @click.stop="openClient(pr.managerClientId)"><b>Mgr</b>{{ clientName(pr.managerClientId) }}</span>
                 </div>
                 <div class="meta">
-                  <span class="chip" :class="pr.status==='accepted' ? 'done' : 'open'">{{ pr.status==='accepted' ? 'Accepted' : 'Draft' }}</span>
+                  <span class="chip" :class="pr.status==='accepted' ? (propProjectGone(pr) ? 'open' : 'done') : 'open'">{{ pr.status==='accepted' ? (propProjectGone(pr) ? 'Accepted — project deleted' : 'Accepted') : 'Draft' }}</span>
                   <span style="color:var(--ink-soft);font-size:13px">&#128197; {{ niceDate(pr.updatedAt) }}</span>
                 </div>
                 <div class="actions card-btns">
                   <button class="btn btn-inspect" @click="editProposal(pr)">Open</button>
-                  <button class="btn btn-reports" v-if="pr.status!=='accepted'" :disabled="propConverting" @click="acceptProposal(pr)">Accept &rarr; Project</button>
+                  <button class="btn btn-reports" v-if="pr.status!=='accepted' || propProjectGone(pr)" :disabled="propConverting" :title="propProjectGone(pr) ? 'The project created from this proposal was deleted — accept again to create it afresh' : ''" @click="acceptProposal(pr)">{{ propProjectGone(pr) ? 'Re-accept → New Project' : 'Accept → Project' }}</button>
                   <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete proposal" @click="propDeleting = pr">&#128465;</button>
                 </div>
               </div>
@@ -718,7 +718,7 @@ input,select{font-family:inherit;font-size:16px}
               <button class="btn btn-dl" style="flex:1" :disabled="propBusy || !prop.form.property" @click="downloadPropWord">&#11015; Word</button>
               <button class="btn btn-dl" style="flex:1" @click="printProposal">&#128424; Print / PDF</button>
               <button class="btn btn-dl" style="flex:1" title="Open a ready-to-send email in Outlook — attach the downloaded proposal before sending" @click="emailProposal">&#9993; Email (Outlook)</button>
-              <button class="btn btn-reports" style="flex:1 1 100%" v-if="prop.status!=='accepted'" :disabled="propConverting || !prop.form.property" @click="acceptProposal(null)">{{ propConverting ? 'Converting…' : '✓ Accepted → Convert to Project' }}</button>
+              <button class="btn btn-reports" style="flex:1 1 100%" v-if="prop.status!=='accepted' || propProjectGone(prop)" :disabled="propConverting || !prop.form.property" @click="acceptProposal(null)">{{ propConverting ? 'Converting…' : (propProjectGone(prop) ? '✓ Re-accept → Create the Project again' : '✓ Accepted → Convert to Project') }}</button>
             </div>
           </div>
 
@@ -1868,7 +1868,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-22.1';
+const APP_BUILD = '2026-09-23.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -5807,6 +5807,19 @@ createApp({
     },
     // Accepted proposal -> becomes a project; the signed copy is then uploaded
     // to that project's Documents (the Documents modal opens ready for it).
+    // RE-ACCEPT (David, Sep 23 2026: "when a proposal is accepted, then
+    // deleted, I need to be able to re-accept the proposal"). An accepted
+    // proposal whose project no longer exists shows Accept again and creates
+    // the project afresh.
+    propLinkedProject(pr) {
+      if (!pr || !pr.linkedProjectId) return null;
+      return (this.projects || []).find(p => this.projectId(p) === pr.linkedProjectId) || null;
+    },
+    propProjectGone(pr) {
+      if (!pr || pr.status !== 'accepted') return false;
+      if (!(this.projects || []).length) return false;   // list not loaded yet - don't guess
+      return !this.propLinkedProject(pr);
+    },
     async acceptProposal(pr) {
       if (pr) { await this.editProposal(pr); }
       if (!this.prop || !this.prop.form.property) { this.toast('Give the proposal a Property name first.', 'err'); return; }
@@ -5815,7 +5828,7 @@ createApp({
         await this.saveProposal(true);
         // Already attached to an existing project (created from its Reports
         // page)? Accept in place - never create a duplicate project.
-        if (this.prop.linkedProjectId) {
+        if (this.prop.linkedProjectId && this.propLinkedProject(this.prop)) {
           this.prop.status = 'accepted';
           await this.saveProposal(true);
           // client portfolios: put the linked project into the chosen portfolios
@@ -5829,6 +5842,9 @@ createApp({
           if (linked) this.openDocs(linked);
           return;
         }
+        // Re-accept: the project made from this proposal was deleted (or was
+        // never linked) - create it again rather than pointing at a missing one.
+        this.prop.linkedProjectId = null;
         const res = await this.api('/project/add', {
           method: 'POST',
           json: {
