@@ -1888,7 +1888,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-23.3';
+const APP_BUILD = '2026-09-23.4';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2348,6 +2348,7 @@ createApp({
     },
     isUpcoming(p) {
       if (!p || !p.editedat || p.iscomplete) return false;
+      if (this.isUnscheduled(p)) return false;            // "New" cards stay plain until a date is set
       if (this.needsFinal(p)) return false;               // inspected -> yellow wins
       const t = new Date(); t.setHours(0, 0, 0, 0);
       return new Date(p.editedat).getTime() >= t.getTime();
