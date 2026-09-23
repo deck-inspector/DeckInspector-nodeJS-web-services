@@ -395,6 +395,16 @@ input,select{font-family:inherit;font-size:16px}
   .ppdoc table,.ppdoc tr{break-inside:avoid;page-break-inside:avoid}
 }
 .ppdoc .pp-break{border-top:1px dashed #bbb;padding-top:14px;margin-top:22px}
+/* home-screen sections (Sep 23 2026) */
+.pgroup{margin:6px 0 24px}
+.pgroup-head{display:flex;align-items:baseline;gap:10px;margin:0 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+.pgroup-title{font-weight:800;font-size:17px}
+.pgroup-count{font-size:12px;background:#ECEFF4;border-radius:999px;padding:1px 9px;font-weight:700}
+.pgroup-hint{color:var(--ink-soft);font-size:12px}
+.pgroup.fresh .pgroup-title{color:#2B3A8C}
+.pgroup.sched .pgroup-title{color:#12A344}
+.pgroup.past{margin-top:36px;padding-top:20px;border-top:4px double #C9CED8}
+.pgroup.past .pgroup-title{color:var(--ink-soft)}
 </style>
 </head>
 <body>
@@ -488,12 +498,19 @@ input,select{font-family:inherit;font-size:16px}
         </div>
         <div class="empty" v-if="loadingProjects">Loading projects…</div>
         <div class="empty" v-else-if="filteredProjects.length===0">No projects match.</div>
-        <div class="grid" v-else>
+        <!-- HOME ORDER (David, Sep 23 2026): 1) new projects with no inspection
+             date yet, 2) Scheduled - today first out to the furthest date, 3) a
+             clear break, then past inspections and completed projects.
+             (Replaces the Aug 15 furthest-out-first order.) -->
+        <template v-else>
+        <div v-for="g in projectGroups" :key="g.key" class="pgroup" :class="g.key">
+          <div class="pgroup-head"><span class="pgroup-title">{{ g.title }}</span><span class="pgroup-count">{{ g.items.length }}</span><span class="pgroup-hint">{{ g.hint }}</span></div>
+        <div class="grid">
           <!-- The whole card opens the INSPECTION (David, Aug 17): the image,
                empty space and the project NAME are all click targets. Buttons,
                the assign dropdown, inspector tags, and the address/status/date
                text keep their own behavior - cardClick filters those out. -->
-          <div class="pcard" :class="{finalinsp: isFinalInsp(p), upcoming: !isFinalInsp(p) && isUpcoming(p), needsfinal: !isFinalInsp(p) && needsFinal(p)}" v-for="p in filteredProjects" :key="p.id" @click="cardClick(p, $event)">
+          <div class="pcard" :class="{finalinsp: isFinalInsp(p), upcoming: !isFinalInsp(p) && isUpcoming(p), needsfinal: !isFinalInsp(p) && needsFinal(p)}" v-for="p in g.items" :key="p.id" @click="cardClick(p, $event)">
             <div class="thumb" :style="thumbStyle(p)" style="cursor:pointer">
               <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
             </div>
@@ -506,6 +523,7 @@ input,select{font-family:inherit;font-size:16px}
               </div>
               <div class="meta">
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
+                <span class="chip" v-if="isUnscheduled(p)" style="background:#EEF1FF;color:#2B3A8C;border:1px solid #B9C4F5" title="No inspection date has been set - pick one on this card">Not scheduled</span>
                 <span @click.stop style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
                   <input type="date" class="cdate" v-model="p._inspD" @change="autoSaveCardDate(p)">
                   <input type="time" class="cdate" v-model="p._inspT" @change="autoSaveCardDate(p)">
@@ -549,6 +567,8 @@ input,select{font-family:inherit;font-size:16px}
             </div>
           </div>
         </div>
+        </div>
+        </template>
       </template>
 
       <!-- ============ CLIENTS (owners / property managers and their portfolios; David, Sep 19) ============ -->
@@ -1868,7 +1888,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-23.2';
+const APP_BUILD = '2026-09-23.3';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2102,6 +2122,21 @@ createApp({
       const past = list.filter(p => when(p) < today).sort((x, y) => when(y) - when(x));
       return upcoming.concat(past);
     },
+    // Home-screen sections (David, Sep 23 2026).
+    projectGroups() {
+      const list = this.filteredProjects;
+      const t = new Date(); t.setHours(0, 0, 0, 0); const today = t.getTime();
+      const when = (p) => p.editedat ? new Date(p.editedat).getTime() : -Infinity;
+      const fresh = list.filter(p => this.isUnscheduled(p));
+      const rest = list.filter(p => !this.isUnscheduled(p));
+      const sched = rest.filter(p => !p.iscomplete && when(p) >= today).sort((x, y) => when(x) - when(y));
+      const past = rest.filter(p => p.iscomplete || when(p) < today).sort((x, y) => when(y) - when(x));
+      const groups = [];
+      if (fresh.length) groups.push({ key: 'fresh', title: 'New \u2014 not yet scheduled', hint: 'set the inspection date on the card', items: fresh });
+      if (sched.length) groups.push({ key: 'sched', title: 'Scheduled', hint: 'today first, out to the furthest date', items: sched });
+      if (past.length) groups.push({ key: 'past', title: 'Past & completed', hint: 'inspection date has passed, or project complete \u2014 most recent first', items: past });
+      return groups;
+    },
     projectCounts() {
       return { active: this.projects.filter(p => !p.iscomplete).length, done: this.projects.filter(p => p.iscomplete).length };
     },
@@ -2296,6 +2331,21 @@ createApp({
     // The moment actual inspection data exists the card turns YELLOW instead
     // (David, Aug 17: "the green turns to yellow when there is an actual
     // inspection with data, but stays yellow until the final report is printed").
+    // "New - not yet scheduled": nobody has set an inspection date. Every
+    // project gets editedat = its creation time when it is created (web,
+    // proposal accept, phone), so an inspection date still equal to the
+    // creation time (within 10 min) means unscheduled; setting a date on the
+    // card or in Edit moves it to Scheduled. A project that already holds
+    // inspection data is never "new".
+    isUnscheduled(p) {
+      if (!p || p.iscomplete || p.inspDateSet) return false;
+      if (this.dataByPid && this.dataByPid[this.projectId(p)]) return false;
+      if (!p.editedat) return true;
+      if (!p.createdat) return false;
+      const a = new Date(p.editedat).getTime(), b = new Date(p.createdat).getTime();
+      if (isNaN(a) || isNaN(b)) return false;
+      return Math.abs(a - b) < 10 * 60 * 1000;
+    },
     isUpcoming(p) {
       if (!p || !p.editedat || p.iscomplete) return false;
       if (this.needsFinal(p)) return false;               // inspected -> yellow wins
@@ -3367,7 +3417,7 @@ createApp({
         // the key to null when absent and the DAO merges, which would wipe the
         // project's inspection form.
         const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)), {
-          method: 'PUT', json: { editedat: iso, formId: p.formId || null },
+          method: 'PUT', json: { editedat: iso, formId: p.formId || null, inspDateSet: true },
         });
         if (!res.ok) throw new Error('bad');
         p.editedat = iso;
@@ -4474,6 +4524,7 @@ createApp({
             url: this.editForm.url || this.current.url || '',
             lasteditedby: this.user.username,
             editedat: this.inspToISO(this.editForm.inspDate, this.editForm.inspTime),
+            inspDateSet: !!this.editForm.inspDate,
             projecttype: this.current.projecttype,
             formId: this.editForm.formId || null,
           },
