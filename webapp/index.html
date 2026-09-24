@@ -533,10 +533,13 @@ input,select{font-family:inherit;font-size:16px}
                 <span class="chip" :class="p.iscomplete ? 'done' : 'open'">{{ p.iscomplete ? 'Complete' : 'Active' }}</span>
                 <span class="chip notsched" v-if="isUnscheduled(p)" title="No inspection date has been set - pick one on this card">&#9888; NOT SCHEDULED</span>
                 <span @click.stop style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
-                  <input type="date" class="cdate" v-model="p._inspD" @change="autoSaveCardDate(p)">
-                  <input type="time" class="cdate" v-model="p._inspT" @change="autoSaveCardDate(p)">
+                  <!-- Save on every completed change (typed or picked) and on Enter;
+                       clicking the card body with an unsaved date also saves instead
+                       of opening the project (David, Sep 24 2026). -->
+                  <input type="date" class="cdate" v-model="p._inspD" @change="autoSaveCardDate(p)" @input="autoSaveCardDate(p)" @keydown.enter.prevent="autoSaveCardDate(p)">
+                  <input type="time" class="cdate" v-model="p._inspT" @change="autoSaveCardDate(p)" @input="autoSaveCardDate(p)" @keydown.enter.prevent="autoSaveCardDate(p)">
                   <template v-if="cardDateDirty(p)">
-                    <button class="btn-edit" style="padding:5px 10px;font-size:13px" :disabled="p._inspBusy || !p._inspD" title="Save the new inspection date &amp; time" @click="saveCardDate(p)">{{ p._inspBusy ? '&#8987;' : '&#10003;' }}</button>
+                    <button class="btn-edit" style="padding:5px 10px;font-size:13px;font-weight:700" :disabled="p._inspBusy || !p._inspD" title="Save the new inspection date &amp; time" @click="saveCardDate(p)">{{ p._inspBusy ? '&#8987; Saving' : '&#10003; Save date' }}</button>
                     <button class="btn-cancel" style="padding:5px 10px;font-size:13px" :disabled="p._inspBusy" title="Undo" @click="resetCardDate(p)">&#10005;</button>
                   </template>
                 </span>
@@ -1896,7 +1899,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-24.2';
+const APP_BUILD = '2026-09-24.3';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3414,6 +3417,8 @@ createApp({
     // opens the inspection too (David, Aug 17).
     cardClick(p, event) {
       if (event.target.closest('button, select, a, input, .tag, .addr, .meta')) return;
+      // An unsaved date/time on the card: the click commits it, not opens the project.
+      if (this.cardDateDirty(p) && p._inspD && !p._inspBusy) { this.saveCardDate(p); return; }
       this.openInspect(p);
     },
     /* ---------- always-open inspection date/time on the card (David, Aug 17:
@@ -4570,6 +4575,8 @@ createApp({
         this.current.url = this.editForm.url || this.current.url;
         this.current.formId = this.editForm.formId || null;
         this.current.editedat = this.editForm.inspDate ? this.inspToISO(this.editForm.inspDate, this.editForm.inspTime) : this.current.editedat;
+        if (this.editForm.inspDate) this.current.inspDateSet = true;
+        this.resetCardDate(this.current);   // the card's own date/time fields follow the edit at once
         this.editOpen = false;
         this.toast('Project updated.');
       } catch (e) {
