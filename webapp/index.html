@@ -1896,7 +1896,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-24.1';
+const APP_BUILD = '2026-09-24.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2366,6 +2366,22 @@ createApp({
     //  - is a Final Report on file? (report name contains "Final Report" -
     //    the same rule the backend uses)
     async sweepFinalReports() {
+      // LAST-KNOWN FACTS FIRST (David, Sep 24 2026: Country Walk "appears in the
+      // section requiring a schedule ... after a few seconds drops to Past"):
+      // the inspected / Final-Report facts arrive from the background sweep,
+      // so the first paint sorted such projects as "New". Seed them from the
+      // local copy saved by the previous sweep so the first paint is right;
+      // the live sweep then refreshes and re-saves.
+      if (!this._factsSeeded) {
+        this._factsSeeded = true;
+        try {
+          const saved = JSON.parse(localStorage.getItem('e3v2_facts') || 'null');
+          if (saved && saved.dataByPid) {
+            this.dataByPid = Object.assign({}, saved.dataByPid, this.dataByPid);
+            this.finalByPid = Object.assign({}, saved.finalByPid || {}, this.finalByPid);
+          }
+        } catch (e) { /* no cache */ }
+      }
       const queue = this.projects.filter(p => !p.iscomplete);
       const worker = async () => {
         while (queue.length) {
@@ -2386,6 +2402,7 @@ createApp({
         }
       };
       await Promise.all([worker(), worker(), worker(), worker(), worker()]);
+      try { localStorage.setItem('e3v2_facts', JSON.stringify({ dataByPid: this.dataByPid, finalByPid: this.finalByPid, ts: Date.now() })); } catch (e) { /* storage full */ }
     },
     // YELLOW = the inspection actually happened (there is inspection data)
     // but NO Final Report is on file yet. Stays yellow until the Final
