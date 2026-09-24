@@ -71,6 +71,11 @@ input,select{font-family:inherit;font-size:16px}
 .pcard.needsfinal .addr{color:#8A6400}
 .pcard.needsfinal .meta .chip.open{background:#E8A700;color:#fff;font-weight:700}
 .pcard.needsfinal h3::after{content:' \2022 NEEDS FINAL REPORT';color:#C98F00;font-size:11px;font-weight:800;letter-spacing:.5px;vertical-align:middle}
+/* PURPLE = Final Report on file, not yet marked sent / complete (Sep 24 2026) */
+.pcard.reportready{background:#F3EEFF;border:4px solid #6A3FC8;box-shadow:0 0 0 3px rgba(106,63,200,.25),0 6px 18px rgba(106,63,200,.32)}
+.pcard.reportready .addr{color:#4B2A9B}
+.pcard.reportready .meta .chip.open{background:#6A3FC8;color:#fff;font-weight:700}
+.pcard.reportready h3::after{content:' \2022 FINAL REPORT READY';color:#6A3FC8;font-size:11px;font-weight:800;letter-spacing:.5px;vertical-align:middle}
 /* BLUE = re-inspection: completed project put back on the schedule for a
    Final Inspection After Repairs (David, Aug 18). Overrides green/yellow. */
 .pcard.finalinsp{background:#E9F1FD;border:4px solid #1565D8;box-shadow:0 0 0 3px rgba(21,101,216,.28),0 6px 18px rgba(21,101,216,.35)}
@@ -513,7 +518,7 @@ input,select{font-family:inherit;font-size:16px}
                empty space and the project NAME are all click targets. Buttons,
                the assign dropdown, inspector tags, and the address/status/date
                text keep their own behavior - cardClick filters those out. -->
-          <div class="pcard" :class="{finalinsp: isFinalInsp(p), upcoming: !isFinalInsp(p) && isUpcoming(p), needsfinal: !isFinalInsp(p) && needsFinal(p)}" v-for="p in g.items" :key="p.id" @click="cardClick(p, $event)">
+          <div class="pcard" :class="{finalinsp: isFinalInsp(p), upcoming: !isFinalInsp(p) && isUpcoming(p), needsfinal: !isFinalInsp(p) && needsFinal(p), reportready: !isFinalInsp(p) && reportReady(p)}" v-for="p in g.items" :key="p.id" @click="cardClick(p, $event)">
             <div class="thumb" :style="thumbStyle(p)" style="cursor:pointer">
               <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
             </div>
@@ -1891,7 +1896,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-23.5';
+const APP_BUILD = '2026-09-24.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2389,6 +2394,14 @@ createApp({
       if (!p || p.iscomplete) return false;
       const pid = this.projectId(p);
       return this.dataByPid[pid] === true && this.finalByPid[pid] === false;   // only when we KNOW both
+    },
+    // PURPLE = FINAL REPORT READY (David, Sep 24 2026: "add Final Report is
+    // Ready - this matches Needs Final report"): inspected AND a Final Report
+    // is on file, project not yet Complete and report not yet marked sent.
+    reportReady(p) {
+      if (!p || p.iscomplete || p.reportsent) return false;
+      const pid = this.projectId(p);
+      return this.dataByPid[pid] === true && this.finalByPid[pid] === true;
     },
     async loadReports() {
       this.loadingReports = true;
