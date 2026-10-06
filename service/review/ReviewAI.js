@@ -1,7 +1,7 @@
 // REVIEW REPORT - AI draft (David, Oct 6 2026).
 // Claude reads the uploaded PRIOR inspection report (page images) together with
 // this company's own E3 inspection of the same property, and returns every field
-// of the Review Report through ONE forced tool call, so the answer is structured
+// of the Review Report through ONE tool call (tool_choice auto - Opus 5.5 rejects forced), so the answer is structured
 // JSON that matches the Word master's dropdowns exactly (reviewSchema.js).
 // The inspector always reviews and edits the draft on screen before the Word
 // report is generated - the AI never publishes anything by itself.
@@ -69,7 +69,9 @@ async function analyze({ pages, e3, reviewerCompany, today }) {
     max_tokens: 20000,
     system: systemPrompt(reviewerCompany),
     tools: [{ name: 'fill_review_report', description: 'Return every field of the Review Report.', input_schema: schema.toolInputSchema() }],
-    tool_choice: { type: 'tool', name: 'fill_review_report' },
+    // claude-opus-5-5 rejects a forced tool_choice ('tool'/'any'), so let the model choose;
+    // the prompt tells it to call fill_review_report, and a missing call is reported below.
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content }],
   };
   const resp = await axios.post(API_URL, body, {
