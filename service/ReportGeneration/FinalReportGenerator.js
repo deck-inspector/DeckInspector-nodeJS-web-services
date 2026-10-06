@@ -568,8 +568,17 @@ class FinalReportGenerator {
             }
         }
 
+        if (data.aiSummary) {
+            try {
+                const cover = require('../visualai/visualCover');
+                const V = require('../visualai/visualSchema');
+                doc = cover.fillCover(doc, data.aiSummary, V.readMasterOptions(doc));
+                console.log('FinalReport: cover filled from the applied Claude draft');
+            } catch (e) { console.log('FinalReport: Claude cover fill skipped:', e.message); }
+        }
+
         // Count cells (# Units with EEE / Total # EEE Count / Total # EEE
-        // Inspected) are intentionally NOT auto-filled: per the corrected
+        // Inspected) are intentionally NOT auto-filled (unless a Claude draft was applied, above): per the corrected
         // master template, red 0 / NA cells are edited by the end user.
 
         // PASS/FAIL auto-set from inspection results (David, Jul 23):
@@ -751,6 +760,16 @@ class FinalReportGenerator {
         const templateBuffer = await this.getTemplateBuffer(companyName);
 
         const data = await this.collectProjectData(projectId, onlyIds);
+        // CLAUDE DRAFT (David, Oct 6 2026): when the inspector applied a "Draft with
+        // Claude" summary, the cover counts / checkboxes / Inspection Overview /
+        // Additional Comments print it. Whole-project reports only - a partial
+        // report's counts would not match.
+        if (!(Array.isArray(onlyIds) && onlyIds.length)) {
+            try {
+                const m = JSON.parse((await getBlobBuffer(String(projectId).replace(/[^A-Za-z0-9-]/g, '') + '/draft.json', 'visualdrafts')).toString('utf8'));
+                if (m && m.applied && m.applied.summary) data.aiSummary = m.applied.summary;
+            } catch (e) { /* no Claude draft for this project */ }
+        }
         console.log('FinalReport: data', JSON.stringify(data));
 
         const filledBuffer = await this.fillTemplate(templateBuffer, data, companyName);

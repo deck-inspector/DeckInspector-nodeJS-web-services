@@ -916,7 +916,7 @@ input,select{font-family:inherit;font-size:16px}
           <h3>Create Reports</h3>
           <div class="hint">Pick the inspection type, then create the report as Word or PDF. A Word <b>Visual Report</b> also builds the combined <b>Final Report</b> (your Final template filled in, with the Visual attached) — one document, ready for DocuSign.</div>
           <div class="kindrow">
-            <button class="kind" :class="{on: reportKind==='Visual'}" @click="reportKind='Visual'">Visual</button>
+            <button class="kind" :class="{on: reportKind==='Visual'}" @click="reportKind='Visual'; if (va.open) vaLoad()">Visual</button>
             <button class="kind" :class="{on: reportKind==='Invasive'}" @click="reportKind='Invasive'">Invasive</button>
             <button class="kind" :class="{on: reportKind==='InvasiveOnly'}" @click="reportKind='InvasiveOnly'">Invasive Only</button>
             <button class="kind" :class="{on: reportKind==='UnsafeConditions'}" :style="reportKind==='UnsafeConditions' ? 'background:#C62828;color:#fff;border-color:#C62828' : ''" @click="reportKind='UnsafeConditions'">Unsafe Conditions</button>
@@ -1037,6 +1037,109 @@ input,select{font-family:inherit;font-size:16px}
               <div class="progress" v-if="rv.data.status==='generating'"><div class="spinner"></div><div>Building the Review Report with the prior report as Annex 1 &mdash; it appears in the list below when ready. <span style="white-space:nowrap">({{ rvElapsed() }} elapsed)</span></div></div>
             </template>
           </div>
+          <!-- VISUAL REPORT - DRAFT WITH CLAUDE (David, Oct 6 2026: "populate all Visual
+               Inspection Reports in the same manner that Claude is doing with the Review
+               Inspections"). Claude looks at every section's photos + the inspector's entries
+               and re-drafts every field, then writes the Final Report cover / Inspection
+               Overview / Additional Comments summary. Edit on screen, Apply, then create the
+               report as usual. Nothing changes in the inspection until Apply. -->
+          <details v-if="reportKind==='Visual'" class="rvstep" :open="va.open" @toggle="vaToggle($event)">
+            <summary class="rvh" style="cursor:pointer">&#129302; Draft with Claude &mdash; fill in every section and the Final Report summary</summary>
+            <div v-if="va.loading" class="hint">Loading the inspection&hellip;</div>
+            <template v-else-if="va.data.inspection">
+              <div class="hint">Claude looks at each section's photos (up to {{ va.schema ? va.schema.maxPhotos : 8 }}) and the inspector's entries, re-drafts every field (ratings, leaks, invasive, unsafe, Pass/Fail, life expectancy, Additional Considerations), then writes the Final Report cover, Inspection Overview and the summary of findings in Additional Comments. <b>Nothing changes in the inspection until you press Apply.</b></div>
+              <div class="hint"><b>{{ va.data.inspection.length }}</b> sections &middot; <b>{{ vaPhotoCount() }}</b> photos to read<template v-if="va.data.counts && va.data.counts.unavailable"> &middot; {{ va.data.counts.unavailable }} unit(s) unavailable (skipped)</template> &middot; estimated cost about <b>${{ vaEstimate() }}</b>, roughly {{ vaMinutes() }} min</div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0">
+                <button class="btn-dl" :disabled="!!va.data.status || !!va.busy || !va.data.aiConfigured || !va.data.inspection.length" @click="vaAnalyze(false)">&#129302; {{ va.data.status==='analyzing' ? 'Claude is drafting…' : 'Draft with Claude' }}</button>
+                <button v-if="vaCanContinue()" class="btn-dl" :disabled="!!va.data.status || !!va.busy" @click="vaAnalyze(true)" title="Keep the sections already drafted and do the rest">&#9654; Continue ({{ vaDraftedCount() }} of {{ va.data.inspection.length }} done)</button>
+              </div>
+              <div v-if="!va.data.aiConfigured" class="hint" style="color:#B00020;font-weight:600">The AI key has not been added to the server yet (App Service setting ANTHROPIC_API_KEY).</div>
+              <div v-if="va.data.status==='analyzing'" class="rvprog">
+                <div class="rvrow"><span>{{ vaProg().label }}</span><span>{{ vaProg().pct }}% &middot; {{ vaElapsed() }}</span></div>
+                <div class="rvbar"><div :style="{width: vaProg().pct + '%'}"></div></div>
+                <div class="rvsteps"><span v-for="(st, i) in vaProg().steps" :key="i" :class="st.cls">{{ st.name }}</span></div>
+                <div v-if="va.data.stale" class="hint" style="color:#B00020;font-weight:600;margin:6px 0 0">This run seems to have been interrupted (the server restarted). Press Stop, then Continue to finish the remaining sections.</div>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+                  <button class="btn-dl" style="background:#B00020;border-color:#B00020;color:#fff" :disabled="va.busy==='stop'" @click="vaStop">&#9632; {{ va.busy==='stop' ? 'Stopping…' : 'Stop' }}</button>
+                  <span class="hint" style="margin:0">You can keep working on other pages; this updates by itself. Sections already finished are kept if you stop.</span>
+                </div>
+              </div>
+              <div v-if="va.data.stopped && va.data.status!=='analyzing'" class="hint" style="color:#8A5A00;font-weight:600">&#9632; Stopped{{ va.data.stopped.by ? ' by ' + va.data.stopped.by : '' }} at {{ rvTime(va.data.stopped.at) }} &mdash; the inspection was not changed. Press Continue to finish the rest.</div>
+              <div v-if="va.data.error" style="color:#B00020;font-weight:700;margin:6px 0">{{ va.data.error }}</div>
+              <div v-if="va.data.ai" class="hint">Last draft {{ shortDate(va.data.ai.at) }} &middot; {{ va.data.ai.model }} &middot; {{ va.data.ai.sections }} sections, {{ va.data.ai.photosSent }} photos &middot; {{ rvMinSec(va.data.ai.seconds) }}<template v-if="va.data.ai.usage"> &middot; {{ rvTok(va.data.ai.usage) }} (&asymp; ${{ vaCost(va.data.ai.usage) }})</template></div>
+              <div v-if="va.data.applied" class="hint" style="color:#1F7A33;font-weight:600">&#10004; Applied to the inspection {{ shortDate(va.data.applied.at) }}{{ va.data.applied.by ? ' by ' + va.data.applied.by : '' }} &mdash; {{ va.data.applied.sections }} sections<template v-if="va.data.applied.failed">, <span style="color:#B00020">{{ va.data.applied.failed }} failed</span></template>. Create the Visual Report (Word) below; the Final Report cover uses the summary.</div>
+
+              <template v-if="va.f && va.data.status!=='analyzing'">
+                <div class="hint" style="margin-top:10px"><b>Check and edit the draft.</b> {{ va.dirty ? 'Unsaved changes.' : 'All changes saved.' }} Values that differ from the inspector's entries show what the inspector had.</div>
+                <details class="rvsec" v-if="va.f.summary" open><summary>Final Report cover &amp; summary</summary>
+                  <div class="rvgrid" @input="va.dirty=true" @change="va.dirty=true">
+                    <label>Property type</label><select v-model="va.f.summary.propertyType" @change="vaTypeChanged"><option value="">Choose&hellip;</option><option v-for="o in va.schema.options.propertyTypes" :key="o">{{ o }}</option></select>
+                    <label>Property total unit count</label><input v-model="va.f.summary.totalUnitCount" :placeholder="vaApt() ? 'N/A for apartments' : 'number'">
+                    <label># Units with EEE</label><input v-model="va.f.summary.unitsWithEEE">
+                    <label>Total # EEE count</label><input v-model="va.f.summary.totalEEE">
+                    <label>Total # EEE inspected</label><input v-model="va.f.summary.eeeInspected">
+                    <label>EEE posing an immediate threat</label><input v-model="va.f.summary.immediateThreatCount">
+                    <label>Reason for exclusion</label><select v-model="va.f.summary.exclusionReason"><option value="">(leave as the master)</option><option v-for="o in va.schema.options.exclusion" :key="o" :value="o">{{ o }}</option></select>
+                  </div>
+                  <div class="hint" style="margin:4px 0">Apartments (SB 721): unit counts are N/A. HOA / condo (SB 326): enter the unit counts.</div>
+                  <div class="rvchecks" @change="va.dirty=true">
+                    <label v-for="k in va.schema.coverChecks" :key="k"><input type="checkbox" v-model="va.f.summary.checks[k]"> {{ rvCheckLabel(k) }}</label>
+                  </div>
+                  <div class="rvgrid" style="margin-top:6px" @input="va.dirty=true">
+                    <label v-if="va.f.summary.checks.otherEEE">Other EEE</label><input v-if="va.f.summary.checks.otherEEE" v-model="va.f.summary.additionalAreas">
+                    <label v-if="va.f.summary.checks.otherAWE">Other waterproofing</label><input v-if="va.f.summary.checks.otherAWE" v-model="va.f.summary.additionalItems">
+                  </div>
+                  <div style="margin-top:8px;font-weight:700">Inspection Overview</div>
+                  <div class="rvrow" v-for="sl in va.schema.slots" :key="sl.key" @change="va.dirty=true">
+                    <div class="rvt">
+                      <select v-if="sl.labelOptions" v-model="va.f.summary.otherLabel" style="max-width:200px"><option value="">(as the master)</option><option v-for="o in sl.labelOptions" :key="o" :value="o">{{ o }}</option></select>
+                      <template v-else>{{ sl.label }}</template>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0">
+                      <select v-model="va.f.summary.overview[sl.key].type" style="max-width:340px"><option value="">Type: (as the master)</option><option v-for="o in sl.typeOptions" :key="o" :value="o">{{ o }}</option></select>
+                      <select v-model="va.f.summary.overview[sl.key].condition" style="max-width:420px"><option value="">Conditions: (as the master)</option><option v-for="o in sl.conditionOptions" :key="o" :value="o">{{ o }}</option></select>
+                    </div>
+                  </div>
+                  <div style="margin-top:8px" @input="va.dirty=true"><b>Additional Comments &mdash; summary of findings</b><textarea class="rvta" style="min-height:140px" v-model="va.f.summary.comments1"></textarea>
+                  <b>Additional Comments &mdash; recommendations</b><textarea class="rvta" style="min-height:70px" v-model="va.f.summary.comments2"></textarea></div>
+                </details>
+                <div class="hint" style="margin:8px 0 2px">Sections: <a href="#" @click.prevent="vaPickAll(true)">select all</a> &middot; <a href="#" @click.prevent="vaPickAll(false)">none</a> &middot; <b>{{ vaPickedCount() }}</b> will be applied.</div>
+                <details class="rvsec" v-for="s in vaRows()" :key="s.id">
+                  <summary>
+                    <input type="checkbox" v-model="va.pick[s.id]" :disabled="!va.f.sections[s.id]" @click.stop>
+                    {{ [s.building, s.location, s.name].filter(Boolean).join(' / ') }}
+                    <span v-if="!va.f.sections[s.id]" class="hint" style="margin:0 0 0 6px">{{ s.unitUnavailable ? '(unit unavailable - skipped)' : (va.data.sections[s.id] && va.data.sections[s.id].error ? '' : '(not drafted)') }}</span>
+                    <template v-else>
+                      <span class="trate" :style="vaRateStyle(va.f.sections[s.id].visualreview)">{{ va.f.sections[s.id].visualreview || '?' }}</span>
+                      <span style="font-size:12px;color:var(--ink-soft)"> {{ va.f.sections[s.id].conditionalassessment }} &middot; {{ vaChanges(s) }} change(s)<template v-if="va.data.sections[s.id].confidence || va.f.sections[s.id].confidence"> &middot; confidence {{ va.f.sections[s.id].confidence }}</template></span>
+                    </template>
+                    <span v-if="va.data.sections[s.id] && va.data.sections[s.id].error" style="color:#B00020;font-size:12px"> &#9888; not drafted: {{ va.data.sections[s.id].error }}</span>
+                  </summary>
+                  <div class="pgrid" style="margin:6px 0" v-if="s.images && s.images.length">
+                    <div class="pgitem" v-for="img in s.images" :key="s.id + img"><img :src="thumb(img)" loading="lazy" alt="section photo" @click="lightbox=img" @error="thumbErr($event, img)"></div>
+                  </div>
+                  <template v-if="va.f.sections[s.id]">
+                    <div v-if="va.f.sections[s.id].note" class="hint" style="color:#8A5A00">&#128221; Note from Claude (not printed): {{ va.f.sections[s.id].note }}</div>
+                    <div class="rvgrid" @input="va.dirty=true" @change="va.dirty=true">
+                      <label>Exterior elements</label><div><input v-model="va.f.sections[s.id].exteriorelements"><div class="hint" style="margin:0" v-if="vaWas(s,'exteriorelements')">was: {{ vaWas(s,'exteriorelements') }}</div></div>
+                      <label>Waterproofing elements</label><div><input v-model="va.f.sections[s.id].waterproofingelements"><div class="hint" style="margin:0" v-if="vaWas(s,'waterproofingelements')">was: {{ vaWas(s,'waterproofingelements') }}</div></div>
+                      <template v-for="fd in vaSelectFields" :key="fd.k">
+                        <label>{{ fd.label }}</label>
+                        <div><select v-model="va.f.sections[s.id][fd.k]"><option value="">Choose&hellip;</option><option v-for="o in va.schema.options[fd.opts]" :key="o" :value="o">{{ o }}</option></select>
+                        <div class="hint" style="margin:0" v-if="vaWas(s, fd.k)">was: {{ vaWas(s, fd.k) }}</div></div>
+                      </template>
+                      <label>Additional considerations</label><div><textarea class="rvta" style="min-height:90px" v-model="va.f.sections[s.id].additionalconsiderations"></textarea><div class="hint" style="margin:0" v-if="vaWas(s,'additionalconsiderations')">was: {{ vaWas(s,'additionalconsiderations') }}</div></div>
+                    </div>
+                  </template>
+                </details>
+                <div class="genrow">
+                  <button class="btn btn-big" style="background:#1F7A33" :disabled="!!va.busy || !va.dirty" @click="vaSave()">&#128190; {{ va.busy==='save' ? 'Saving…' : 'Save Draft' }}</button>
+                  <button class="btn btn-big btn-word" :disabled="!!va.busy || !vaPickedCount()" @click="vaApply">&#10004; {{ va.busy==='apply' ? 'Applying…' : 'Apply to Inspection (' + vaPickedCount() + ' sections + summary)' }}</button>
+                  <button class="btn btn-big" style="background:#fff;color:#B00020;border:2px solid #B00020" :disabled="!!va.busy || !vaDraftedCount()" @click="vaClear">&#128465; {{ va.busy==='clear' ? 'Clearing…' : 'Clear Draft' }}</button>
+                </div>
+              </template>
+            </template>
+          </details>
           <!-- REPORT SCOPE (David, Sep 22 2026: "only ONE or two locations, not the
                entire inspection"): whole project (default) or only the ticked
                buildings / locations. Partial reports are Word only and never
@@ -2036,7 +2139,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-06.2';
+const APP_BUILD = '2026-10-06.3';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2106,6 +2209,11 @@ createApp({
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
+      va: { open: false, loading: false, busy: '', data: {}, f: null, schema: null, dirty: false, timer: null, tick: null, now: Date.now(), pick: {} },
+      vaSelectFields: [{ k: 'visualreview', label: 'Visual review', opts: 'review' }, { k: 'visualsignsofleak', label: 'Visual signs of leaks', opts: 'yn' },
+        { k: 'furtherinvasivereviewrequired', label: 'Further invasive review', opts: 'yn' }, { k: 'unsafecondition', label: 'Unsafe condition', opts: 'yn' },
+        { k: 'conditionalassessment', label: 'Condition assessment', opts: 'assess' }, { k: 'eee', label: 'Life expectancy (EEE)', opts: 'life' },
+        { k: 'lbc', label: 'Life expectancy (LBC)', opts: 'life' }, { k: 'awe', label: 'Life expectancy (AWE)', opts: 'life' }],
       rv: { loading: false, busy: '', progress: '', over: false, data: {}, f: null, schema: null, dirty: false, timer: null, pid: '', now: Date.now(), tick: null },
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
@@ -2372,6 +2480,180 @@ createApp({
         const m = (await res.text()).match(/const APP_BUILD = '([^']+)'/);
         if (m && m[1] && m[1] !== APP_BUILD) this.updateAvailable = m[1];
       } catch (e) { /* offline - try again later */ }
+    },
+    /* ---------- Visual Report: Draft with Claude (Oct 2026) ---------- */
+    vaToggle(e) { this.va.open = e.target.open; if (this.va.open && !this.va.data.inspection) this.vaLoad(); },
+    vaEdit(d) {   // server draft -> editable copy (element lists as comma text)
+      if (!d) return null;
+      return Object.assign({}, d, { exteriorelements: [].concat(d.exteriorelements || []).join(', '), waterproofingelements: [].concat(d.waterproofingelements || []).join(', ') });
+    },
+    vaFromData(d) {
+      const f = { sections: {}, summary: null };
+      Object.entries(d.sections || {}).forEach(([id, x]) => { if (x.draft) f.sections[id] = this.vaEdit(x.draft); });
+      if (d.summary) {
+        f.summary = JSON.parse(JSON.stringify(d.summary));
+        (this.va.schema ? this.va.schema.slots : []).forEach(sl => { if (!f.summary.overview[sl.key]) f.summary.overview[sl.key] = { type: '', condition: '' }; });
+      }
+      return f;
+    },
+    async vaLoad(quiet) {
+      if (!this.current) return;
+      const pid = this.projectId(this.current);
+      if (!quiet) this.va.loading = true;
+      try {
+        if (!this.va.schema) {
+          const s = await this.api('/visualai/schema');
+          if (!s.ok) throw new Error('schema ' + s.status);
+          this.va.schema = await s.json();
+        }
+        const res = await this.api('/visualai/' + encodeURIComponent(pid));
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || ('HTTP ' + res.status));
+        const d = await res.json();
+        if (!this.current || this.projectId(this.current) !== pid) return;
+        const wasBusy = this.va.data && this.va.data.status;
+        this.va.data = d;
+        if (!this.va.f || !this.va.dirty || (wasBusy === 'analyzing' && !d.status)) {
+          this.va.f = this.vaFromData(d); this.va.dirty = false;
+          const pick = {}; Object.keys(this.va.f.sections).forEach(id => { pick[id] = this.va.pick[id] !== false; }); this.va.pick = pick;
+        }
+        if (wasBusy === 'analyzing' && !d.status && !d.error) this.toast('Claude finished the draft — check it, then press Apply.');
+        if (d.status && !this.va.timer) this.va.timer = setInterval(() => {
+          if (this.view !== 'reports' || !this.current || this.projectId(this.current) !== pid) { clearInterval(this.va.timer); this.va.timer = null; this.vaStopTick(); return; }
+          this.vaLoad(true);
+        }, 4000);
+        if (d.status && !this.va.tick) { this.va.now = Date.now(); this.va.tick = setInterval(() => { this.va.now = Date.now(); }, 1000); }
+        if (!d.status && this.va.timer) { clearInterval(this.va.timer); this.va.timer = null; }
+        if (!d.status) this.vaStopTick();
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not load the Claude draft: ' + e.message, 'err');
+      } finally { this.va.loading = false; }
+    },
+    vaStopTick() { if (this.va.tick) { clearInterval(this.va.tick); this.va.tick = null; } },
+    vaElapsed() { const t = Date.parse(this.va.data.statusAt || ''); return isNaN(t) ? '0:00' : this.rvMinSec((this.va.now - t) / 1000); },
+    vaPhotoCount() { return (this.va.data.inspection || []).filter(s => !s.unitUnavailable).reduce((n, s) => n + Math.min(s.photos, this.va.schema ? this.va.schema.maxPhotos : 8), 0); },
+    // about 1,600 input tokens per photo and ~2,500 in / ~1,500 out per section, at $4 / $20 per million (claude-opus-5-5)
+    vaEstimate() {
+      const secs = (this.va.data.inspection || []).filter(s => !s.unitUnavailable).length;
+      const usd = this.vaPhotoCount() * 1600 * 4e-6 + secs * (2500 * 4e-6 + 1500 * 20e-6) + 0.15;
+      return usd < 1 ? usd.toFixed(2) : usd.toFixed(usd < 10 ? 1 : 0);
+    },
+    vaMinutes() { const secs = (this.va.data.inspection || []).length; return Math.max(1, Math.round(secs * 30 / 3 / 60 + 1)); },
+    vaCost(u) {
+      const inTok = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) * 1.25 + (u.cache_read_input_tokens || 0) * 0.1;
+      return (inTok * 4e-6 + (u.output_tokens || 0) * 20e-6).toFixed(2);
+    },
+    vaDraftedCount() { return Object.values(this.va.data.sections || {}).filter(x => x.draft).length; },
+    vaCanContinue() {
+      const d = this.va.data; if (!d.inspection || d.status) return false;
+      const todo = d.inspection.filter(s => !s.unitUnavailable).length;
+      const done = Object.values(d.sections || {}).filter(x => x.draft && !x.error).length;
+      return done > 0 && (done < todo || !d.summary);
+    },
+    vaProg() {
+      const p = this.va.data.progress || {};
+      const since = Math.max(0, (this.va.now - (Date.parse(p.phaseAt || this.va.data.statusAt || '') || this.va.now)) / 1000);
+      let pct = 2, label = 'Starting…', at = 0;
+      if (p.phase === 'sections') {
+        at = 0; const tot = p.total || 1;
+        pct = 2 + 88 * Math.min(1, (p.done || 0) / tot);
+        label = 'Claude is drafting section ' + Math.min(tot, (p.done || 0) + 1) + ' of ' + tot + (p.label ? ' — last: ' + p.label : '');
+      } else if (p.phase === 'summary') { at = 1; pct = 90 + 7 * (1 - Math.exp(-since / 60)); label = 'Writing the Final Report summary…'; }
+      else if (p.phase === 'saving') { at = 2; pct = 98; label = 'Saving the draft…'; }
+      const names = ['Sections', 'Summary', 'Save'];
+      return { pct: Math.min(99, Math.round(pct)), label, steps: names.map((name, i) => ({ name, cls: i < at ? 'ok' : (i === at ? 'on' : '') })) };
+    },
+    vaRows() { return this.va.data.inspection || []; },
+    vaApt() { return /apartment|721/i.test((this.va.f && this.va.f.summary && this.va.f.summary.propertyType) || ''); },
+    vaTypeChanged() {   // SB 721 apartments: unit counts are not applicable (David, Oct 6 2026)
+      const s = this.va.f.summary; const c = this.va.data.counts || {};
+      if (this.vaApt()) { s.totalUnitCount = 'N/A'; s.unitsWithEEE = 'N/A'; }
+      else { if (s.totalUnitCount === 'N/A') s.totalUnitCount = ''; if (s.unitsWithEEE === 'N/A') s.unitsWithEEE = String(c.unitsWithEEE || ''); }
+    },
+    vaWas(s, k) {
+      const f = this.va.f.sections[s.id]; const x = this.va.data.sections[s.id];
+      const base = (x && x.base) || s.current || {};
+      const norm = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!f || norm(base[k]) === norm(f[k])) return '';
+      return base[k] === '' || base[k] == null ? '(blank)' : String(base[k]);
+    },
+    vaChanges(s) { return ['exteriorelements', 'waterproofingelements', 'additionalconsiderations'].concat(this.vaSelectFields.map(f => f.k)).filter(k => this.vaWas(s, k)).length; },
+    vaRateStyle(r) { return r === 'Bad' ? 'background:#C62828;color:#fff' : r === 'Fair' ? 'background:#EF8A17;color:#fff' : r === 'Good' ? 'background:#1F7A33;color:#fff' : ''; },
+    vaPickAll(on) { Object.keys(this.va.f.sections).forEach(id => { this.va.pick[id] = on; }); },
+    vaPickedCount() { return this.va.f ? Object.keys(this.va.f.sections).filter(id => this.va.pick[id]).length : 0; },
+    async vaAnalyze(resume) {
+      const msg = resume ? 'Continue: Claude drafts the remaining sections and the summary. Sections already drafted are kept.'
+        : 'Claude will draft every section of this inspection (about $' + this.vaEstimate() + ', ~' + this.vaMinutes() + ' min). Any earlier draft is replaced. The inspection itself is not changed until you press Apply.';
+      if (!confirm(msg + '\n\nContinue?')) return;
+      const pid = this.projectId(this.current);
+      this.va.busy = 'start';
+      try {
+        const res = await this.api('/visualai/' + encodeURIComponent(pid) + '/analyze', { method: 'POST', json: { resume: !!resume } });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
+        this.va.dirty = false;
+        this.toast('Claude is drafting the Visual Report — this updates by itself.');
+        this.vaLoad(true);
+      } catch (e) { if (e.message !== 'auth') this.toast(e.message, 'err'); }
+      finally { this.va.busy = ''; }
+    },
+    async vaStop() {
+      if (!confirm('Stop Claude now?\n\nSections already drafted are kept (press Continue later). The inspection is not changed. Anything already processed is billed.')) return;
+      const pid = this.projectId(this.current);
+      this.va.busy = 'stop';
+      try {
+        const res = await this.api('/visualai/' + encodeURIComponent(pid) + '/cancel', { method: 'POST', json: {} });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        this.toast('Stopped.');
+        setTimeout(() => this.vaLoad(true), 2500);
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not stop: ' + e.message, 'err'); }
+      finally { this.va.busy = ''; }
+    },
+    vaPayload() { return { sections: this.va.f.sections, summary: this.va.f.summary }; },
+    async vaSave(quiet) {
+      const pid = this.projectId(this.current);
+      this.va.busy = 'save';
+      try {
+        const res = await this.api('/visualai/' + encodeURIComponent(pid) + '/draft', { method: 'PUT', json: this.vaPayload() });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
+        this.va.data = Object.assign({}, this.va.data, d, { inspection: this.va.data.inspection, counts: this.va.data.counts });
+        this.va.dirty = false;
+        if (!quiet) this.toast('Draft saved.');
+        return true;
+      } catch (e) { if (e.message !== 'auth') this.toast('Save failed: ' + e.message, 'err'); return false; }
+      finally { this.va.busy = ''; }
+    },
+    async vaApply() {
+      const n = this.vaPickedCount();
+      if (!confirm('Write the draft into the inspection?\n\n' + n + ' section(s) will be REPLACED with the draft (ratings, life expectancy, considerations...), and the summary will print on the Final Report cover.\n\nThe Visual Report is then created as usual.')) return;
+      const pid = this.projectId(this.current);
+      this.va.busy = 'apply';
+      try {
+        const ids = Object.keys(this.va.f.sections).filter(id => this.va.pick[id]);
+        const res = await this.api('/visualai/' + encodeURIComponent(pid) + '/apply', { method: 'POST', json: Object.assign(this.vaPayload(), { ids }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
+        this.va.dirty = false;
+        const r = d.applyResult || { ok: 0, failed: [] };
+        this.toast(r.failed.length ? (r.ok + ' sections applied, ' + r.failed.length + ' FAILED: ' + r.failed.map(x => x.name).join(', ')) : ('Applied to ' + r.ok + ' sections. Now create the Visual Report (Word).'), r.failed.length ? 'err' : 'ok');
+        await this.vaLoad(true);
+        if (this.loadStructure) this.loadStructure();
+      } catch (e) { if (e.message !== 'auth') this.toast('Apply failed: ' + e.message, 'err'); }
+      finally { this.va.busy = ''; }
+    },
+    async vaClear() {
+      if (!confirm('Clear Claude\'s draft for this project?\n\nThe inspection is not changed (anything already applied stays applied).')) return;
+      const pid = this.projectId(this.current);
+      this.va.busy = 'clear';
+      try {
+        const res = await this.api('/visualai/' + encodeURIComponent(pid) + '/clear', { method: 'POST', json: {} });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
+        this.va.dirty = false; this.va.f = null;
+        await this.vaLoad(true);
+        this.toast('Draft cleared.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not clear: ' + e.message, 'err'); }
+      finally { this.va.busy = ''; }
     },
     /* ---------- Review of Prior Inspection Report (Oct 2026) ---------- */
     rvCheckLabel(k) {
@@ -2672,6 +2954,10 @@ createApp({
       if (this.rv.timer) clearInterval(this.rv.timer);
       this.rv = Object.assign({}, this.rv, { busy: '', progress: '', data: {}, f: null, dirty: false, timer: null, pid: '' });
       if (this.reportKind === 'Review') this.$nextTick(() => this.rvLoad());
+      if (this.va.timer) clearInterval(this.va.timer);
+      this.vaStopTick();
+      this.va = Object.assign({}, this.va, { busy: '', data: {}, f: null, dirty: false, timer: null, pick: {} });
+      if (this.reportKind === 'Visual' && this.va.open) this.$nextTick(() => this.vaLoad());
       this.assignPick = ''; this.emailReportPick = ''; this.emailDocs = []; this.reportProp = null;
       this.signerPick = (p && p.signer && p.signer.id) || '';
       this.loadSigners();

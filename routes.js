@@ -19,6 +19,8 @@ var apkRouter = require("./routes/apk-endpoint");
 var clientsRouter = require("./routes/clients-endpoint");
 // Review of Prior Inspection Report - prior-report upload, Claude draft, Word generation (routes/review-endpoint.js)
 var reviewRouter = require("./routes/review-endpoint");
+// Visual Report - Claude drafts every section + the Final Report summary (routes/visualai-endpoint.js)
+var visualAiRouter = require("./routes/visualai-endpoint");
 const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
 
@@ -39,6 +41,7 @@ module.exports = function (app) {
   // Client portfolios - owners / property managers and their properties (routes/clients-endpoint.js)
   app.use("/api/clients", authenticateToken, clientsRouter);
   app.use("/api/review", authenticateToken, reviewRouter);
+  app.use("/api/visualai", authenticateToken, visualAiRouter);
   app.use("/api/login", loginRouter);
   app.use("/api/locationforms", locationFormRouter);
   app.use("/api/migrate", migrateRouter);
