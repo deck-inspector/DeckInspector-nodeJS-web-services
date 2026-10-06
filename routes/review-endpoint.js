@@ -62,10 +62,13 @@ async function loadProject(req, res) {
     return { pid, project: p };
   } catch (e) { res.status(404).json({ message: 'Project not found.' }); return null; }
 }
-async function loadPages(m) {
+async function loadPages(m, onPage, signal) {
   const out = [];
-  for (const [i, name] of ((m.prior && m.prior.pages) || []).entries()) {
+  const names = (m.prior && m.prior.pages) || [];
+  for (const [i, name] of names.entries()) {
+    if (signal && signal.aborted) throw stoppedError();
     out.push({ n: i + 1, buffer: await uploadBlob.getBlobBuffer(name, CONTAINER) });
+    if (onPage) onPage(i + 1, names.length);
   }
   return out;
 }
@@ -85,8 +88,87 @@ router.get('/schema', (req, res) => res.json({
 
 router.get('/:projectId', async (req, res) => {
   const ctx = await loadProject(req, res); if (!ctx) return;
-  res.json(publicView(await readManifest(ctx.pid)));
+  const m = await readManifest(ctx.pid);
+  const view = publicView(m);
+  if (m.status === 'analyzing') view.progress = await readProgress(ctx.pid, m.statusAt);
+  res.json(view);
 });
+
+// STOP + CLEAR (David, Oct 6 2026: "a button to clear a report if we have already ran the
+// report and a button to stop the report from running if we determine there is a mistake").
+// Running Claude jobs on THIS server instance, by project id -> { run, controller }.
+// Stop also works across instances: it clears the manifest status, and a job only saves
+// its result if the manifest still shows ITS run as analyzing.
+const RUNNING = new Map();
+function stoppedError() { const e = new Error('stopped'); e.stopped = true; return e; }
+async function stillMine(pid, run) {
+  const m = await readManifest(pid);
+  return m.status === 'analyzing' && m.statusAt === run;
+}
+
+router.post('/:projectId/cancel', async (req, res) => {
+  const ctx = await loadProject(req, res); if (!ctx) return;
+  const m = await readManifest(ctx.pid);
+  const job = RUNNING.get(ctx.pid);
+  if (job) { try { job.controller.abort(); } catch (e) { /* ignore */ } }
+  if (m.status !== 'analyzing') return res.json(publicView(m));
+  m.status = ''; m.error = '';
+  m.stopped = { at: new Date().toISOString(), by: (req.user && req.user.username) || '', run: m.statusAt };
+  await writeManifest(ctx.pid, m);
+  console.log('Review AI stopped by user', ctx.pid, m.stopped.by);
+  res.json(publicView(m));
+});
+
+// Clear the answers and Claude's draft (the uploaded prior report stays unless removePrior).
+router.post('/:projectId/clear', async (req, res) => {
+  const ctx = await loadProject(req, res); if (!ctx) return;
+  const m = await readManifest(ctx.pid);
+  if (m.status === 'analyzing' || m.status === 'generating') {
+    return res.status(409).json({ message: m.status === 'analyzing' ? 'Stop Claude\'s review first.' : 'Wait for the Word report to finish first.' });
+  }
+  m.fields = schema.emptyFields(); m.error = '';
+  delete m.aiDraft; delete m.ai; delete m.stopped;
+  if (req.body && req.body.removePrior) m.prior = null;   // page images stay in blob storage, unreferenced
+  await writeManifest(ctx.pid, m);
+  console.log('Review cleared', ctx.pid, req.body && req.body.removePrior ? '(prior report removed)' : '');
+  res.json(publicView(m));
+});
+
+// PROGRESS (David, Oct 6 2026: "we will need a progress counter"). While Claude works,
+// the background job keeps a small separate blob  <projectId>/progress.json  up to date
+// (a separate blob, so it can never overwrite the inspector's saved answers):
+//   { run, phase: loading|e3|reading|thinking|writing|saving, done, total, section, sections, label, chars, phaseAt, at }
+// The page polls it and draws the bar; "run" = the manifest's statusAt, so an old run's
+// progress is never shown for a new one.
+const progressName = pid => `${pid}/progress.json`;
+async function readProgress(pid, run) {
+  try {
+    const p = JSON.parse((await uploadBlob.getBlobBuffer(progressName(pid), CONTAINER)).toString('utf8'));
+    return p && p.run === run ? p : null;
+  } catch (e) { return null; }
+}
+function progressWriter(pid, run) {
+  let state = { run, phase: 'loading', phaseAt: new Date().toISOString() };
+  let chain = Promise.resolve(), lastWrite = 0, pending = false, timer = null;
+  const flush = () => {
+    timer = null; pending = false; lastWrite = Date.now();
+    const snap = Object.assign({}, state, { at: new Date().toISOString() });
+    chain = chain.then(() => putBlob(progressName(pid), Buffer.from(JSON.stringify(snap)), 'application/json'))
+                 .catch(e => console.log('review progress write failed', e.message));
+    return chain;
+  };
+  return {
+    // Phase changes are written at once; updates inside a phase at most every 2.5 s.
+    set(p) {
+      const newPhase = p.phase && p.phase !== state.phase;
+      state = Object.assign({}, state, p, newPhase ? { phaseAt: new Date().toISOString() } : {});
+      if (newPhase || Date.now() - lastWrite > 2500) { if (timer) clearTimeout(timer); return flush(); }
+      if (!pending) { pending = true; timer = setTimeout(flush, 2500 - (Date.now() - lastWrite)); }
+      return chain;
+    },
+    async done() { if (timer) { clearTimeout(timer); timer = null; } await chain; },
+  };
+}
 
 // Prior report upload: start -> page x N -> finish (the old pages stay until finish).
 router.post('/:projectId/prior/start', async (req, res) => {
@@ -131,26 +213,45 @@ router.post('/:projectId/analyze', async (req, res) => {
   const m = await readManifest(ctx.pid);
   if (!m.prior || !(m.prior.pages || []).length) return res.status(400).json({ message: 'Upload the prior inspection report first.' });
   if (m.status === 'analyzing' && m.statusAt && Date.now() - Date.parse(m.statusAt) < 20 * 60 * 1000) return res.status(409).json({ message: 'Claude is already reviewing this report.' });
-  m.status = 'analyzing'; m.statusAt = new Date().toISOString(); m.error = '';
+  m.status = 'analyzing'; m.statusAt = new Date().toISOString(); m.error = ''; delete m.stopped;
+  const prog = progressWriter(ctx.pid, m.statusAt);
+  const total = m.prior.pages.length;
+  await prog.set({ phase: 'loading', done: 0, total });
   await writeManifest(ctx.pid, m);
-  res.status(202).json(publicView(m));
+  const view = publicView(m); view.progress = { run: m.statusAt, phase: 'loading', done: 0, total, phaseAt: m.statusAt };
+  res.status(202).json(view);
+  const run = m.statusAt;
+  const controller = new AbortController();
+  RUNNING.set(ctx.pid, { run, controller });
   (async () => {
     const t0 = Date.now();
     try {
       const tenant = await tenantsDAO.getTenantByCompanyIdentifier(req.user.company).catch(() => null);
-      const [pages, e3] = await Promise.all([loadPages(m), Gen.collectE3(ctx.pid)]);
+      const pages = await loadPages(m, (done, tot) => prog.set({ phase: 'loading', done, total: tot }), controller.signal);
+      prog.set({ phase: 'e3' });
+      const e3 = await Gen.collectE3(ctx.pid);
+      if (controller.signal.aborted || !(await stillMine(ctx.pid, run))) throw stoppedError();
       const now = new Date();
       const r = await ReviewAI.analyze({ pages, e3, reviewerCompany: (tenant && tenant.name) || req.user.company,
-                                         today: `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}` });
+                                         today: `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}`,
+                                         onProgress: p => prog.set(Object.assign({ total: Math.min(total, ReviewAI.MAX_PAGES) }, p)),
+                                         signal: controller.signal });
+      await prog.set({ phase: 'saving' }); await prog.done();
       const m2 = await readManifest(ctx.pid);
+      if (m2.status !== 'analyzing' || m2.statusAt !== run) { console.log('Review AI result discarded (stopped or replaced)', ctx.pid); return; }
       m2.fields = r.fields; m2.aiDraft = r.fields;
       m2.ai = { model: r.model, usage: r.usage, pagesSent: r.pagesSent, at: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000) };
       m2.status = ''; m2.error = '';
       await writeManifest(ctx.pid, m2);
       console.log('Review AI done', ctx.pid, JSON.stringify(m2.ai));
     } catch (e) {
+      await prog.done().catch(() => {});
+      if (e.stopped || controller.signal.aborted) { console.log('Review AI stopped', ctx.pid); return; }
       console.error('Review AI failed', ctx.pid, e.message);
+      if (!(await stillMine(ctx.pid, run))) return;
       const m2 = await readManifest(ctx.pid); m2.status = ''; m2.error = 'Claude review failed: ' + e.message; await writeManifest(ctx.pid, m2);
+    } finally {
+      const j = RUNNING.get(ctx.pid); if (j && j.run === run) RUNNING.delete(ctx.pid);
     }
   })();
 });

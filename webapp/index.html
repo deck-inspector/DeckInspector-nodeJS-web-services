@@ -155,6 +155,14 @@ input,select{font-family:inherit;font-size:16px}
 .rvstep{border:1.5px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0}
 .rvstep>.rvh{font-weight:800;font-size:16px;margin-bottom:6px}
 .rvdrop{display:block;border:2px dashed var(--line);border-radius:12px;padding:18px;text-align:center;cursor:pointer;font-weight:700;color:var(--ink-soft);margin:6px 0}
+.rvprog{background:var(--brand-soft);border-radius:12px;padding:12px 16px;margin:10px 0;color:var(--brand-dark)}
+.rvprog .rvbar{height:12px;border-radius:6px;background:rgba(31,111,84,.18);overflow:hidden;margin:8px 0 6px}
+.rvprog .rvbar>div{height:100%;background:var(--brand);border-radius:6px;transition:width 1s linear}
+.rvprog .rvrow{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-weight:700}
+.rvprog .rvsteps{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;font-size:12px}
+.rvprog .rvsteps span{padding:2px 8px;border-radius:10px;background:rgba(31,111,84,.10);color:var(--ink-soft)}
+.rvprog .rvsteps span.on{background:var(--brand);color:#fff}
+.rvprog .rvsteps span.ok{background:rgba(31,111,84,.30);color:var(--brand-dark)}
 .rvdrop.over{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-dark)}
 .rvgrid{display:grid;grid-template-columns:minmax(150px,240px) 1fr;gap:6px 12px;align-items:center}
 .rvgrid input,.rvgrid select,.rvrow select,.rvrow input{padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:100%;box-sizing:border-box}
@@ -930,17 +938,27 @@ input,select{font-family:inherit;font-size:16px}
                   {{ rv.busy==='upload' ? rv.progress : (rv.data.prior ? '\u21BB Replace: drop another PDF here, or click to choose' : '\u2B06 Drop the prior inspection report (PDF) here, or click to choose') }}
                 </label>
                 <div v-if="rv.data.prior" class="hint">&#128196; <b>{{ rv.data.prior.fileName }}</b> &mdash; {{ rv.data.prior.pageCount }} pages, uploaded {{ shortDate(rv.data.prior.uploadedAt) }}
-                  <a v-if="rv.data.prior.pageUrls && rv.data.prior.pageUrls.length" :href="rv.data.prior.pageUrls[0]" target="_blank">view page 1</a></div>
+                  <a v-if="rv.data.prior.pageUrls && rv.data.prior.pageUrls.length" :href="rv.data.prior.pageUrls[0]" target="_blank">view page 1</a>
+                  <template v-if="!rv.data.status && !rv.busy"> &middot; <a href="#" style="color:#B00020" @click.prevent="rvClear(true)">remove this PDF</a></template></div>
               </div>
               <div class="rvstep">
                 <div class="rvh">2. Draft with Claude</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
                   <button class="btn-dl" :disabled="!rv.data.prior || !!rv.data.status || !!rv.busy || !rv.data.aiConfigured" @click="rvAnalyze">&#129302; {{ rv.data.status==='analyzing' ? 'Claude is reviewing the report\u2026' : 'Review with Claude' }}</button>
-                  <span v-if="rv.data.status==='analyzing'" class="hint" style="margin:0">Usually 2&ndash;5 minutes. You can keep working; this page updates by itself.</span>
                 </div>
+                <div v-if="rv.data.status==='analyzing'" class="rvprog">
+                  <div class="rvrow"><span>{{ rvProg().label }}</span><span>{{ rvProg().pct }}% &middot; {{ rvProg().elapsed }}</span></div>
+                  <div class="rvbar"><div :style="{width: rvProg().pct + '%'}"></div></div>
+                  <div class="rvsteps"><span v-for="(st, i) in rvProg().steps" :key="i" :class="st.cls">{{ st.name }}</span></div>
+                  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+                    <button class="btn-dl" style="background:#B00020;border-color:#B00020;color:#fff" :disabled="rv.busy==='stop'" @click="rvStop">&#9632; {{ rv.busy==='stop' ? 'Stopping\u2026' : 'Stop review' }}</button>
+                    <span class="hint" style="margin:0">Usually 2&ndash;5 minutes. You can keep working on other pages; this updates by itself.</span>
+                  </div>
+                </div>
+                <div v-if="rv.data.stopped && rv.data.status!=='analyzing'" class="hint" style="color:#8A5A00;font-weight:600">&#9632; Review stopped{{ rv.data.stopped.by ? ' by ' + rv.data.stopped.by : '' }} at {{ rvTime(rv.data.stopped.at) }} &mdash; the answers below were not changed.</div>
                 <div class="hint">Claude reads every page of the prior report and your E3 inspection of this property, then fills in every answer below as a draft. Nothing is final until you generate the report.</div>
                 <div v-if="!rv.data.aiConfigured" class="hint" style="color:#B00020;font-weight:600">The AI key has not been added to the server yet (App Service setting ANTHROPIC_API_KEY). You can still fill in the answers by hand.</div>
-                <div v-if="rv.data.ai" class="hint">Last draft {{ shortDate(rv.data.ai.at) }} &middot; {{ rv.data.ai.model }} &middot; {{ rv.data.ai.pagesSent }} pages &middot; {{ rv.data.ai.seconds }} s</div>
+                <div v-if="rv.data.ai" class="hint">Last draft {{ shortDate(rv.data.ai.at) }} &middot; {{ rv.data.ai.model }} &middot; {{ rv.data.ai.pagesSent }} pages &middot; {{ rvMinSec(rv.data.ai.seconds) }}<template v-if="rv.data.ai.usage"> &middot; {{ rvTok(rv.data.ai.usage) }}</template></div>
               </div>
               <div v-if="rv.data.error" style="color:#B00020;font-weight:700;margin:6px 0">{{ rv.data.error }}</div>
               <div class="rvstep">
@@ -1014,8 +1032,9 @@ input,select{font-family:inherit;font-size:16px}
               <div class="genrow">
                 <button class="btn btn-big" style="background:#1F7A33" :disabled="!!rv.busy || !rv.dirty" @click="rvSave()">&#128190; {{ rv.busy==='save' ? 'Saving\u2026' : 'Save Answers' }}</button>
                 <button class="btn btn-big btn-word" :disabled="!!rv.busy || rv.data.status==='generating' || rv.data.status==='analyzing'" @click="rvGenerate">&#128196; Create Review Report (Word)</button>
+                <button class="btn btn-big" style="background:#fff;color:#B00020;border:2px solid #B00020" :disabled="!!rv.busy || !!rv.data.status || !rvHasAnswers()" @click="rvClear(false)">&#128465; {{ rv.busy==='clear' ? 'Clearing\u2026' : 'Clear Answers' }}</button>
               </div>
-              <div class="progress" v-if="rv.data.status==='generating'"><div class="spinner"></div><div>Building the Review Report with the prior report as Annex 1 &mdash; it appears in the list below when ready.</div></div>
+              <div class="progress" v-if="rv.data.status==='generating'"><div class="spinner"></div><div>Building the Review Report with the prior report as Annex 1 &mdash; it appears in the list below when ready. <span style="white-space:nowrap">({{ rvElapsed() }} elapsed)</span></div></div>
             </template>
           </div>
           <!-- REPORT SCOPE (David, Sep 22 2026: "only ONE or two locations, not the
@@ -2017,7 +2036,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-06.1';
+const APP_BUILD = '2026-10-06.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2087,7 +2106,7 @@ createApp({
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
-      rv: { loading: false, busy: '', progress: '', over: false, data: {}, f: null, schema: null, dirty: false, timer: null, pid: '' },
+      rv: { loading: false, busy: '', progress: '', over: false, data: {}, f: null, schema: null, dirty: false, timer: null, pid: '', now: Date.now(), tick: null },
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {}, tenantId: '',
@@ -2380,13 +2399,88 @@ createApp({
         if (wasBusy === 'analyzing' && !d.status && !d.error) this.toast('Claude finished the draft \u2014 check the answers below.');
         if (wasBusy === 'generating' && !d.status) { this.loadReports(); if (!d.error) this.toast('Review Report is ready in the list below.'); }
         if (d.status && !this.rv.timer) this.rv.timer = setInterval(() => {
-          if (this.view !== 'reports' || !this.current || this.projectId(this.current) !== pid) { clearInterval(this.rv.timer); this.rv.timer = null; return; }
+          if (this.view !== 'reports' || !this.current || this.projectId(this.current) !== pid) { clearInterval(this.rv.timer); this.rv.timer = null; this.rvStopTick(); return; }
           this.rvLoad(true);
-        }, 6000);
+        }, 3000);
+        if (d.status && !this.rv.tick) { this.rv.now = Date.now(); this.rv.tick = setInterval(() => { this.rv.now = Date.now(); }, 1000); }
         if (!d.status && this.rv.timer) { clearInterval(this.rv.timer); this.rv.timer = null; }
+        if (!d.status) this.rvStopTick();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not load the review: ' + e.message, 'err');
       } finally { this.rv.loading = false; }
+    },
+    // PROGRESS BAR for "Review with Claude" (David, Oct 6 2026). The server reports the real
+    // phase (pages loaded, Claude reading / thinking / writing section N of 7, saving);
+    // inside the phases where Claude gives no feedback the bar creeps forward with time.
+    rvStopTick() { if (this.rv.tick) { clearInterval(this.rv.tick); this.rv.tick = null; } },
+    rvMinSec(sec) { sec = Math.max(0, Math.round(sec || 0)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); },
+    rvElapsed() { const t = Date.parse(this.rv.data.statusAt || ''); return isNaN(t) ? '0:00' : this.rvMinSec((this.rv.now - t) / 1000); },
+    rvTok(u) {
+      const n = v => (v || 0).toLocaleString();
+      const inTok = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+      return n(inTok) + ' input / ' + n(u.output_tokens) + ' output tokens';
+    },
+    rvProg() {
+      const p = this.rv.data.progress || {};
+      const since = Math.max(0, (this.rv.now - (Date.parse(p.phaseAt || this.rv.data.statusAt || '') || this.rv.now)) / 1000);
+      const creep = (from, to, tau) => from + (to - from) * (1 - Math.exp(-since / tau));
+      const pages = p.total || (this.rv.data.prior && this.rv.data.prior.pageCount) || 0;
+      let pct = 2, label = 'Starting\u2026', at = 0;
+      switch (p.phase) {
+        case 'loading': at = 0; pct = 2 + 8 * ((p.done || 0) / (p.total || 1)); label = 'Loading prior report pages \u2014 ' + (p.done || 0) + ' of ' + (p.total || pages); break;
+        case 'e3': at = 0; pct = 11; label = 'Gathering your E3 inspection of this property'; break;
+        case 'reading': at = 1; pct = creep(12, 40, 70); label = 'Claude is reading the ' + pages + ' pages\u2026'; break;
+        case 'thinking': at = 2; pct = creep(40, 56, 90); label = 'Claude is analyzing the report against the law\u2026'; break;
+        case 'writing': {
+          at = 3; const secs = p.sections || 7, sec = p.section || 0;
+          const frac = Math.min(0.99, Math.max(sec / secs, (p.chars || 0) / 26000));
+          pct = 56 + 41 * frac; label = 'Writing the answers \u2014 ' + (p.label || '') + ' (' + (sec + 1) + ' of ' + secs + ')'; break;
+        }
+        case 'saving': at = 4; pct = 98; label = 'Saving the draft\u2026'; break;
+        default: break;
+      }
+      const names = ['Load pages', 'Claude reads', 'Claude analyzes', 'Writes answers', 'Save'];
+      const steps = names.map((name, i) => ({ name, cls: i < at ? 'ok' : (i === at ? 'on' : '') }));
+      return { pct: Math.min(99, Math.round(pct)), label, elapsed: this.rvElapsed(), steps };
+    },
+    rvTime(d) { const x = new Date(d); return isNaN(x) ? '' : x.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); },
+    rvHasAnswers() {
+      const f = this.rv.f; if (!f) return false;
+      return !!(this.rv.data.ai || f.E.summary || f.E.critique || f.A.some(r => r.finding || r.comments) || f.B.some(r => r.present || r.comments)
+        || f.C.some(r => r.status || r.comments) || f.D.some(r => r.location || r.recommendation) || Object.values(f.prior || {}).some(v => v));
+    },
+    // STOP (David, Oct 6 2026): stop a running Claude review; the answers stay as they were.
+    async rvStop() {
+      if (!confirm('Stop Claude\'s review now?\n\nThe answers below stay as they were before this run. Anything Claude has already read is still billed.')) return;
+      const pid = this.projectId(this.current);
+      this.rv.busy = 'stop';
+      try {
+        const res = await this.api('/review/' + encodeURIComponent(pid) + '/cancel', { method: 'POST', json: {} });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
+        this.rv.data = d; this.rvStopTick();
+        if (this.rv.timer) { clearInterval(this.rv.timer); this.rv.timer = null; }
+        this.toast('Review stopped.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not stop: ' + e.message, 'err'); }
+      finally { this.rv.busy = ''; }
+    },
+    // CLEAR (David, Oct 6 2026): wipe the answers + Claude's draft so the review starts fresh;
+    // removePrior also drops the uploaded prior report.
+    async rvClear(removePrior) {
+      const msg = removePrior
+        ? 'Remove the uploaded prior report "' + ((this.rv.data.prior && this.rv.data.prior.fileName) || '') + '" AND clear every answer?\n\nWord reports already created stay in the Reports list.'
+        : 'Clear every answer and Claude\'s draft for this review?\n\nThe uploaded prior report stays, so you can run Review with Claude again. Word reports already created stay in the Reports list.';
+      if (!confirm(msg)) return;
+      const pid = this.projectId(this.current);
+      this.rv.busy = 'clear';
+      try {
+        const res = await this.api('/review/' + encodeURIComponent(pid) + '/clear', { method: 'POST', json: { removePrior: !!removePrior } });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
+        this.rv.data = d; this.rv.f = JSON.parse(JSON.stringify(d.fields)); this.rv.dirty = false;
+        this.toast(removePrior ? 'Prior report removed and answers cleared.' : 'Answers cleared.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not clear: ' + e.message, 'err'); }
+      finally { this.rv.busy = ''; }
     },
     rvPick(e) { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) this.rvUpload(f); },
     rvDrop(e) {

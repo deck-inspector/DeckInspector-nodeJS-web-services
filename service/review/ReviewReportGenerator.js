@@ -119,9 +119,20 @@ function fillReview(doc, f) {
   const pt = doc.indexOf('Property Total');
   if (pt !== -1) {
     const ts = doc.lastIndexOf('<w:tbl>', pt), te = doc.indexOf('</w:tbl>', pt);
-    const vals = [f.page2.totalUnitCount, f.page2.unitsWithEEE, f.page2.totalEEE, f.page2.eeeInspected];
+    const vals = [f.page2.totalUnitCount, f.page2.unitsWithEEE, f.page2.totalEEE, f.page2.eeeInspected].map(schema.shortCount);
     let k = 0;
-    const tbl = doc.slice(ts, te).replace(/(<w:t(?: [^>]*)?>)0(<\/w:t>)/g, (m, o, c) => {
+    // Fixed column widths, so one longer value cannot squeeze the other cells and make
+    // the row tall enough to push the signature block to the next page (David, Oct 6 2026).
+    let tbl = doc.slice(ts, te);
+    if (!/<w:tblLayout /.test(tbl.slice(0, tbl.indexOf('</w:tblPr>')))) {
+      const prEnd = tbl.indexOf('</w:tblPr>');
+      const head = tbl.slice(0, prEnd);
+      const at = ['<w:tblCellMar', '<w:tblLook', '<w:tblCaption', '<w:tblDescription'].map(t => head.indexOf(t)).filter(i => i !== -1);
+      const ins = at.length ? Math.min(...at) : prEnd;
+      if (prEnd !== -1) tbl = tbl.slice(0, ins) + '<w:tblLayout w:type="fixed"/>' + tbl.slice(ins);
+    }
+    tbl = tbl.replace(/<w:ind w:right="\d+"\/>/g, '<w:ind w:right="0"/>'); // value cells only (labels use negative indents)
+    tbl = tbl.replace(/(<w:t(?: [^>]*)?>)0(<\/w:t>)/g, (m, o, c) => {
       const v = vals[k++]; return (v != null && String(v).trim() !== '') ? o + esc(v) + c : m;
     });
     doc = doc.slice(0, ts) + tbl + doc.slice(te);
@@ -129,8 +140,14 @@ function fillReview(doc, f) {
   if (f.page2.immediateThreatCount) {
     const it = doc.indexOf('immediate threat to the safety of the occupants');
     if (it !== -1) {
-      const ps = Math.max(doc.lastIndexOf('<w:p>', it), doc.lastIndexOf('<w:p ', it)), pe = doc.indexOf('</w:p>', it);
-      const para = doc.slice(ps, pe).replace(/(<w:t(?: [^>]*)?>)0(<\/w:t>)/g, `$1${esc(f.page2.immediateThreatCount)}$2`);
+      // The red box is a text box stored twice - the copy Word shows (mc:Choice) and a
+      // fallback (mc:Fallback) - so start at the paragraph that holds the whole box.
+      const ac = doc.lastIndexOf('<mc:AlternateContent', it);
+      const acEnd = ac === -1 ? -1 : doc.indexOf('</mc:AlternateContent>', ac);
+      const sameParagraph = ac !== -1 && acEnd !== -1 && acEnd < it && doc.slice(acEnd, it).indexOf('</w:p>') === -1;
+      const from = sameParagraph ? ac : it;
+      const ps = Math.max(doc.lastIndexOf('<w:p>', from), doc.lastIndexOf('<w:p ', from)), pe = doc.indexOf('</w:p>', it);
+      const para = doc.slice(ps, pe).replace(/(<w:t(?: [^>]*)?>)0(<\/w:t>)/g, `$1${esc(schema.shortCount(f.page2.immediateThreatCount))}$2`);
       doc = doc.slice(0, ps) + para + doc.slice(pe);
     }
   }
@@ -153,7 +170,46 @@ function fillReview(doc, f) {
   doc = setText(doc, 'Overall Opinion', f.E.overall); doc = setText(doc, 'Accuracy', f.E.accuracy);
   doc = setText(doc, 'Recommendation', f.E.recommendation);
   doc = setText(doc, 'Summary of Opinion', f.E.summary, true); doc = setText(doc, 'Additional Critique', f.E.critique, true);
-  return doc;
+  return keepCertTogether(doc);
+}
+
+// Reviewer Certification + its 3-row signer table never split across pages.
+function keepCertTogether(doc) {
+  const c = doc.indexOf('Reviewer Certification');
+  if (c === -1) return doc;
+  const ps = Math.max(doc.lastIndexOf('<w:p>', c), doc.lastIndexOf('<w:p ', c));
+  const ts = doc.indexOf('<w:tbl>', c), te = doc.indexOf('</w:tbl>', ts);
+  if (ps === -1 || ts === -1 || te === -1) return doc;
+  const addKeepNext = para => para.includes('<w:keepNext/>') ? para
+    : para.includes('<w:pPr>') ? para.replace(/<w:pPr>(<w:pStyle [^>]*\/>)?/, (m, st) => '<w:pPr>' + (st || '') + '<w:keepNext/>') // schema order: pStyle, keepNext
+    : para.replace(/^(<w:p(?: [^>]*)?>)/, '$1<w:pPr><w:keepNext/></w:pPr>');
+  // heading paragraph
+  const pe = doc.indexOf('</w:p>', c);
+  let head = addKeepNext(doc.slice(ps, pe));
+  // table: rows can't split; every paragraph except the last row keeps with the next
+  let tbl = doc.slice(ts, te);
+  const rows = tbl.split('<w:tr ');
+  tbl = rows.map((r, i) => {
+    if (i === 0) return r;
+    r = r.includes('<w:trPr>') ? r.replace('<w:trPr>', '<w:trPr><w:cantSplit/>') : r.replace(/^([^>]*>)/, '$1<w:trPr><w:cantSplit/></w:trPr>');
+    if (i < rows.length - 1) r = r.replace(/<w:p(?: [^>]*)?>[\s\S]*?<\/w:p>/g, addKeepNext);
+    return r;
+  }).join('<w:tr ');
+  return doc.slice(0, ps) + head + doc.slice(pe, ts) + tbl + doc.slice(te);
+}
+
+// The client's header logo can be up to ~1.25 in tall, which pushes the signer block of
+// the Review Report's first data page onto the next page. Cap it for this report only.
+const HEADER_LOGO_MAX_EMU = Math.round(0.8 * 914400);
+function capHeaderLogos(zip) {
+  Object.keys(zip.files).filter(n => /^word\/header\d+\.xml$/.test(n)).forEach(n => {
+    const x = zip.file(n).asText();
+    const y = x.replace(/(<wp:extent |<a:ext )cx="(\d+)" cy="(\d+)"/g, (m, tag, cx, cy) => {
+      cx = +cx; cy = +cy;
+      return cy > HEADER_LOGO_MAX_EMU ? `${tag}cx="${Math.round(cx * HEADER_LOGO_MAX_EMU / cy)}" cy="${HEADER_LOGO_MAX_EMU}"` : m;
+    });
+    if (y !== x) zip.file(n, y);
+  });
 }
 
 // ---------- Annex 1: prior report pages as full-page images ----------
@@ -195,6 +251,7 @@ async function generate({ projectId, companyName, fields, pageBuffers, uploader 
   doc = fillReview(doc, f);
   doc = placeAnnex(zip, doc, pageBuffers || []);
   zip.file('word/document.xml', doc);
+  capHeaderLogos(zip);
   const out = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 
   const tmp = path.join(os.tmpdir(), `${projectId}_ReviewReport.docx`);
@@ -208,4 +265,4 @@ async function generate({ projectId, companyName, fields, pageBuffers, uploader 
   return { url: parsed.url, bytes: out.length };
 }
 
-module.exports = { generate, collectE3, fillReview, placeAnnex, getMaster, MASTER_FILE };
+module.exports = { generate, collectE3, fillReview, placeAnnex, getMaster, capHeaderLogos, keepCertTogether, MASTER_FILE };

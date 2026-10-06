@@ -228,8 +228,11 @@ function normalize(input) {
   const str = v => (v == null ? '' : String(v)).slice(0, 4000);
   const pick = (v, list) => (list.indexOf(String(v || '')) !== -1 ? String(v) : '');
   const p2 = src.page2 || {};
-  ['reviewInspectionDate', 'totalUnitCount', 'unitsWithEEE', 'totalEEE', 'eeeInspected', 'immediateThreatCount']
-    .forEach(k => { out.page2[k] = str(p2[k]).slice(0, 60); });
+  out.page2.reviewInspectionDate = str(p2.reviewInspectionDate).slice(0, 60);
+  // The count cells on the Review Report's first page are narrow: keep them to a short
+  // number / "NS" / "N/A", or a long answer wraps and pushes the signature block onto
+  // the next page (David, Oct 6 2026). Breakdowns belong in the Section A comments.
+  COUNT_KEYS.forEach(k => { out.page2[k] = shortCount(p2[k]); });
   PAGE2_CHECKS.forEach(k => { out.page2.checks[k] = !!(p2.checks && p2.checks[k]); });
   const pr = src.prior || {};
   Object.keys(out.prior).forEach(k => { out.prior[k] = str(pr[k]); });
@@ -247,15 +250,25 @@ function normalize(input) {
 }
 
 // JSON schema for the Claude tool call (structured output).
+const COUNT_KEYS = ['totalUnitCount', 'unitsWithEEE', 'totalEEE', 'eeeInspected', 'immediateThreatCount'];
+const COUNT_MAX = 8;
+function shortCount(v) {
+  const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  if (s.length <= COUNT_MAX) return s;
+  const m = s.match(/^(\d[\d,]*|NS|N\/A|NA)\b/i);
+  return m ? m[1] : 'NS'; // words instead of a count = not stated
+}
+
 function toolInputSchema() {
   const S = { type: 'string' };
   const en = list => ({ type: 'string', enum: list });
   const checks = {}; PAGE2_CHECKS.forEach(k => { checks[k] = { type: 'boolean' }; });
+  const CNT = { type: 'string', maxLength: COUNT_MAX, description: 'A bare number, "NS" or "N/A" only (max 8 characters). Put any breakdown in Section A comments.' };
   return {
     type: 'object',
     properties: {
       page2: { type: 'object', properties: {
-        reviewInspectionDate: S, totalUnitCount: S, unitsWithEEE: S, totalEEE: S, eeeInspected: S, immediateThreatCount: S,
+        reviewInspectionDate: S, totalUnitCount: CNT, unitsWithEEE: CNT, totalEEE: CNT, eeeInspected: CNT, immediateThreatCount: CNT,
         checks: { type: 'object', properties: checks } } },
       prior: { type: 'object', properties: {
         applicableLaw: en(OPTIONS.law), propertyType: en(OPTIONS.propertyType), company: S, inspector: S, license: S,
@@ -271,4 +284,4 @@ function toolInputSchema() {
   };
 }
 
-module.exports = { OPTIONS, A_ITEMS, B_ITEMS, C_ITEMS, D_ROWS, PAGE2_CHECKS, emptyFields, normalize, toolInputSchema };
+module.exports = { OPTIONS, A_ITEMS, B_ITEMS, C_ITEMS, D_ROWS, PAGE2_CHECKS, COUNT_KEYS, shortCount, emptyFields, normalize, toolInputSchema };
