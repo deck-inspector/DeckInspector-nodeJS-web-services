@@ -230,7 +230,7 @@ function normalize(input) {
   const p2 = src.page2 || {};
   out.page2.reviewInspectionDate = str(p2.reviewInspectionDate).slice(0, 60);
   // The count cells on the Review Report's first page are narrow: keep them to a short
-  // number / "NS" / "N/A", or a long answer wraps and pushes the signature block onto
+  // number / "NA" / "N/A", or a long answer wraps and pushes the signature block onto
   // the next page (David, Oct 6 2026). Breakdowns belong in the Section A comments.
   COUNT_KEYS.forEach(k => { out.page2[k] = shortCount(p2[k]); });
   PAGE2_CHECKS.forEach(k => { out.page2.checks[k] = !!(p2.checks && p2.checks[k]); });
@@ -254,16 +254,19 @@ const COUNT_KEYS = ['totalUnitCount', 'unitsWithEEE', 'totalEEE', 'eeeInspected'
 const COUNT_MAX = 8;
 function shortCount(v) {
   const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  // "NA" (not "NS") when the Prior Report gives no count - the report defines no "NS"
+  // abbreviation (David, Oct 6 2026). "N/A" stays for the apartment total unit count.
+  if (/^(NS|not stated|not determinable|unknown|none stated)$/i.test(s)) return 'NA';
   if (s.length <= COUNT_MAX) return s;
-  const m = s.match(/^(\d[\d,]*|NS|N\/A|NA)\b/i);
-  return m ? m[1] : 'NS'; // words instead of a count = not stated
+  const m = s.match(/^(\d[\d,]*|N\/A|NA)\b/i);
+  return m ? m[1] : 'NA'; // words instead of a count = not stated
 }
 
 function toolInputSchema() {
   const S = { type: 'string' };
   const en = list => ({ type: 'string', enum: list });
   const checks = {}; PAGE2_CHECKS.forEach(k => { checks[k] = { type: 'boolean' }; });
-  const CNT = { type: 'string', maxLength: COUNT_MAX, description: 'A bare number, "NS" or "N/A" only (max 8 characters). Put any breakdown in Section A comments.' };
+  const CNT = { type: 'string', maxLength: COUNT_MAX, description: 'A bare number, "NA" (not stated) or "N/A" (apartment total unit count) only (max 8 characters). Put any breakdown in Section A comments.' };
   return {
     type: 'object',
     properties: {
