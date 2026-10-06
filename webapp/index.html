@@ -151,6 +151,19 @@ input,select{font-family:inherit;font-size:16px}
 .kindrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
 .kind{padding:11px 20px;border-radius:99px;font-weight:700;font-size:15px;background:var(--bg);color:var(--ink-soft);border:1.5px solid var(--line)}
 .kind.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+/* Review of Prior Inspection Report (Oct 2026) */
+.rvstep{border:1.5px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0}
+.rvstep>.rvh{font-weight:800;font-size:16px;margin-bottom:6px}
+.rvdrop{display:block;border:2px dashed var(--line);border-radius:12px;padding:18px;text-align:center;cursor:pointer;font-weight:700;color:var(--ink-soft);margin:6px 0}
+.rvdrop.over{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-dark)}
+.rvgrid{display:grid;grid-template-columns:minmax(150px,240px) 1fr;gap:6px 12px;align-items:center}
+.rvgrid input,.rvgrid select,.rvrow select,.rvrow input{padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:100%;box-sizing:border-box}
+.rvta{width:100%;box-sizing:border-box;min-height:58px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;font:inherit;font-size:14px;resize:vertical}
+.rvrow{border-top:1px solid var(--line);padding:8px 0}
+.rvrow .rvt{font-weight:700}.rvrow .rvc{font-size:12px;color:var(--ink-soft);margin:2px 0 4px}
+.rvsec{margin:8px 0}.rvsec>summary{font-weight:800;cursor:pointer;padding:6px 0}
+.rvchecks{display:flex;flex-wrap:wrap;gap:4px 16px;margin:6px 0}
+@media (max-width:700px){.rvgrid{grid-template-columns:1fr}}
 
 /* ---------- modal / toast ---------- */
 .overlay{position:fixed;inset:0;background:rgba(18,30,40,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
@@ -899,17 +912,122 @@ input,select{font-family:inherit;font-size:16px}
             <button class="kind" :class="{on: reportKind==='Invasive'}" @click="reportKind='Invasive'">Invasive</button>
             <button class="kind" :class="{on: reportKind==='InvasiveOnly'}" @click="reportKind='InvasiveOnly'">Invasive Only</button>
             <button class="kind" :class="{on: reportKind==='UnsafeConditions'}" :style="reportKind==='UnsafeConditions' ? 'background:#C62828;color:#fff;border-color:#C62828' : ''" @click="reportKind='UnsafeConditions'">Unsafe Conditions</button>
+            <button class="kind" :class="{on: reportKind==='Review'}" title="Review another company's inspection report" @click="reportKind='Review'; rvLoad()">Review of Prior Report</button>
+          </div>
+          <!-- REVIEW OF PRIOR INSPECTION REPORT (David, Oct 6 2026): instead of the
+               Visual Report, the E3 Inspection Report incorporates a review of ANOTHER
+               company's report. Upload their PDF, let Claude draft every answer from
+               their pages + this project's own E3 inspection, edit on screen, then
+               generate the Word report (every answer stays an editable control). -->
+          <div v-if="reportKind==='Review'">
+            <div class="hint">Your E3 Inspection Report with the <b>Review of Prior Inspection Report</b> in place of the Visual Report: your letter and property page, your review of the other company's report, your signature page, and their report attached as <b>Annex 1</b>.</div>
+            <div v-if="rv.loading" class="hint">Loading&hellip;</div>
+            <template v-else-if="rv.f">
+              <div class="rvstep">
+                <div class="rvh">1. Prior inspection report</div>
+                <label class="rvdrop" :class="{over: rv.over}" @dragenter.prevent="rv.over=true" @dragover.prevent="rv.over=true" @dragleave.prevent="rv.over=false" @drop.prevent="rvDrop($event)">
+                  <input type="file" accept=".pdf,application/pdf" style="display:none" :disabled="!!rv.busy" @change="rvPick">
+                  {{ rv.busy==='upload' ? rv.progress : (rv.data.prior ? '\u21BB Replace: drop another PDF here, or click to choose' : '\u2B06 Drop the prior inspection report (PDF) here, or click to choose') }}
+                </label>
+                <div v-if="rv.data.prior" class="hint">&#128196; <b>{{ rv.data.prior.fileName }}</b> &mdash; {{ rv.data.prior.pageCount }} pages, uploaded {{ shortDate(rv.data.prior.uploadedAt) }}
+                  <a v-if="rv.data.prior.pageUrls && rv.data.prior.pageUrls.length" :href="rv.data.prior.pageUrls[0]" target="_blank">view page 1</a></div>
+              </div>
+              <div class="rvstep">
+                <div class="rvh">2. Draft with Claude</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                  <button class="btn-dl" :disabled="!rv.data.prior || !!rv.data.status || !!rv.busy || !rv.data.aiConfigured" @click="rvAnalyze">&#129302; {{ rv.data.status==='analyzing' ? 'Claude is reviewing the report\u2026' : 'Review with Claude' }}</button>
+                  <span v-if="rv.data.status==='analyzing'" class="hint" style="margin:0">Usually 2&ndash;5 minutes. You can keep working; this page updates by itself.</span>
+                </div>
+                <div class="hint">Claude reads every page of the prior report and your E3 inspection of this property, then fills in every answer below as a draft. Nothing is final until you generate the report.</div>
+                <div v-if="!rv.data.aiConfigured" class="hint" style="color:#B00020;font-weight:600">The AI key has not been added to the server yet (App Service setting ANTHROPIC_API_KEY). You can still fill in the answers by hand.</div>
+                <div v-if="rv.data.ai" class="hint">Last draft {{ shortDate(rv.data.ai.at) }} &middot; {{ rv.data.ai.model }} &middot; {{ rv.data.ai.pagesSent }} pages &middot; {{ rv.data.ai.seconds }} s</div>
+              </div>
+              <div v-if="rv.data.error" style="color:#B00020;font-weight:700;margin:6px 0">{{ rv.data.error }}</div>
+              <div class="rvstep">
+                <div class="rvh">3. Check and edit the answers</div>
+                <div class="hint">Every answer stays editable here and in the Word report. <b>{{ rv.dirty ? 'Unsaved changes.' : 'All changes saved.' }}</b></div>
+                <details class="rvsec" open><summary>Property page (page 2)</summary>
+                  <div class="rvgrid" @input="rv.dirty=true" @change="rv.dirty=true">
+                    <label>Date of review inspection</label><input v-model="rv.f.page2.reviewInspectionDate" placeholder="MM/DD/YYYY">
+                    <label>Property total unit count</label><input v-model="rv.f.page2.totalUnitCount" placeholder="N/A for apartments">
+                    <label># Units with EEE</label><input v-model="rv.f.page2.unitsWithEEE">
+                    <label>Total # EEE count</label><input v-model="rv.f.page2.totalEEE">
+                    <label>Total # EEE inspected</label><input v-model="rv.f.page2.eeeInspected">
+                    <label>EEE posing an immediate threat</label><input v-model="rv.f.page2.immediateThreatCount">
+                  </div>
+                  <div class="rvchecks" @change="rv.dirty=true">
+                    <label v-for="k in (rv.schema ? rv.schema.page2Checks : [])" :key="k"><input type="checkbox" v-model="rv.f.page2.checks[k]"> {{ rvCheckLabel(k) }}</label>
+                  </div>
+                </details>
+                <details class="rvsec" open><summary>Prior report information</summary>
+                  <div class="rvgrid" @input="rv.dirty=true" @change="rv.dirty=true">
+                    <label>Applicable law</label><select v-model="rv.f.prior.applicableLaw"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.law" :key="o">{{ o }}</option></select>
+                    <label>Property type</label><select v-model="rv.f.prior.propertyType"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.propertyType" :key="o">{{ o }}</option></select>
+                    <label>Prior inspection company</label><textarea class="rvta" v-model="rv.f.prior.company"></textarea>
+                    <label>Prior inspector name</label><textarea class="rvta" v-model="rv.f.prior.inspector"></textarea>
+                    <label>Prior inspector license / certification</label><textarea class="rvta" v-model="rv.f.prior.license"></textarea>
+                    <label>Date of prior inspection</label><textarea class="rvta" v-model="rv.f.prior.inspectionDate"></textarea>
+                    <label>Date of prior report</label><input v-model="rv.f.prior.reportDate">
+                    <label>Prior report title / reference</label><textarea class="rvta" v-model="rv.f.prior.reference"></textarea>
+                    <label>Basis of this review</label><select v-model="rv.f.prior.basis"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.basis" :key="o">{{ o }}</option></select>
+                    <label>Date(s) of this review</label><input v-model="rv.f.prior.reviewDate">
+                  </div>
+                </details>
+                <details class="rvsec"><summary>Section A &ndash; Statutory compliance ({{ rv.f.A.filter(r => r.finding).length }}/{{ rv.f.A.length }} answered)</summary>
+                  <div class="rvrow" v-for="(r,i) in rv.f.A" :key="'A'+i" @input="rv.dirty=true" @change="rv.dirty=true">
+                    <div class="rvt">{{ i+1 }}. {{ rv.schema.A[i].title }}</div><div class="rvc">{{ rv.schema.A[i].cite }}</div>
+                    <select v-model="r.finding" style="max-width:340px"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.finding" :key="o">{{ o }}</option></select>
+                    <textarea class="rvta" v-model="r.comments" placeholder="Reviewer comments"></textarea>
+                  </div>
+                </details>
+                <details class="rvsec"><summary>Section B &ndash; Items not required by law ({{ rv.f.B.filter(r => r.present).length }} present)</summary>
+                  <div class="rvrow" v-for="(r,i) in rv.f.B" :key="'B'+i" @input="rv.dirty=true" @change="rv.dirty=true">
+                    <label class="rvt"><input type="checkbox" v-model="r.present"> {{ rv.schema.B[i].text }}</label>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0"><input v-model="r.ref" placeholder="Prior report page / unit" style="max-width:200px"><select v-model="r.opinion" style="max-width:340px"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.scope" :key="o">{{ o }}</option></select></div>
+                    <textarea class="rvta" v-model="r.comments" placeholder="Reviewer comments"></textarea>
+                  </div>
+                </details>
+                <details class="rvsec"><summary>Section C &ndash; Inspection practices and site conditions</summary>
+                  <div class="rvrow" v-for="(r,i) in rv.f.C" :key="'C'+i" @input="rv.dirty=true" @change="rv.dirty=true">
+                    <div class="rvt">{{ rv.schema.C[i].text }}</div>
+                    <select v-model="r.status" style="max-width:260px;margin:4px 0"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.obs" :key="o">{{ o }}</option></select>
+                    <textarea class="rvta" v-model="r.comments" placeholder="Reviewer comments"></textarea>
+                  </div>
+                </details>
+                <details class="rvsec"><summary>Section D &ndash; Repairs required by the prior report</summary>
+                  <div class="rvrow" v-for="(r,i) in rv.f.D" :key="'D'+i" @input="rv.dirty=true" @change="rv.dirty=true">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap"><input v-model="r.location" placeholder="Unit / location" style="max-width:220px"><select v-model="r.opinion" style="max-width:300px"><option value="">Reviewer opinion&hellip;</option><option v-for="o in rv.schema.options.opinion" :key="o">{{ o }}</option></select></div>
+                    <textarea class="rvta" v-model="r.recommendation" placeholder="Prior report recommendation"></textarea>
+                    <textarea class="rvta" v-model="r.basis" placeholder="Basis / citation"></textarea>
+                  </div>
+                </details>
+                <details class="rvsec" open><summary>Section E &ndash; Reviewer conclusion</summary>
+                  <div class="rvgrid" @input="rv.dirty=true" @change="rv.dirty=true">
+                    <label>Overall opinion</label><select v-model="rv.f.E.overall"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.overall" :key="o">{{ o }}</option></select>
+                    <label>Accuracy of findings</label><select v-model="rv.f.E.accuracy"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.accuracy" :key="o">{{ o }}</option></select>
+                    <label>Recommendation</label><select v-model="rv.f.E.recommendation"><option value="">Choose&hellip;</option><option v-for="o in rv.schema.options.recommendation" :key="o">{{ o }}</option></select>
+                  </div>
+                  <div style="margin-top:8px" @input="rv.dirty=true"><b>Summary of opinion</b><textarea class="rvta" style="min-height:140px" v-model="rv.f.E.summary"></textarea>
+                  <b>Additional critique and comments</b><textarea class="rvta" style="min-height:100px" v-model="rv.f.E.critique"></textarea></div>
+                </details>
+              </div>
+              <div class="genrow">
+                <button class="btn btn-big" style="background:#1F7A33" :disabled="!!rv.busy || !rv.dirty" @click="rvSave()">&#128190; {{ rv.busy==='save' ? 'Saving\u2026' : 'Save Answers' }}</button>
+                <button class="btn btn-big btn-word" :disabled="!!rv.busy || rv.data.status==='generating' || rv.data.status==='analyzing'" @click="rvGenerate">&#128196; Create Review Report (Word)</button>
+              </div>
+              <div class="progress" v-if="rv.data.status==='generating'"><div class="spinner"></div><div>Building the Review Report with the prior report as Annex 1 &mdash; it appears in the list below when ready.</div></div>
+            </template>
           </div>
           <!-- REPORT SCOPE (David, Sep 22 2026: "only ONE or two locations, not the
                entire inspection"): whole project (default) or only the ticked
                buildings / locations. Partial reports are Word only and never
                replace the whole-project report. -->
-          <div class="hint" style="margin-top:10px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+          <div v-if="reportKind!=='Review'" class="hint" style="margin-top:10px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
             <b>Report covers:</b>
             <label style="cursor:pointer"><input type="radio" v-model="repScope" value="all"> Whole project</label>
             <label style="cursor:pointer"><input type="radio" v-model="repScope" value="selected"> Only selected buildings / locations</label>
           </div>
-          <div v-if="repScope==='selected'" style="margin:8px 0 4px;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px">
+          <div v-if="repScope==='selected' && reportKind!=='Review'" style="margin:8px 0 4px;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px">
             <div class="hint" style="margin-bottom:6px">Tick what the report should include
               &mdash; <a href="#" @click.prevent="repPickAll(true)">all</a> &middot; <a href="#" @click.prevent="repPickAll(false)">none</a>
               &middot; <b>{{ repChildren().filter(c => repPick[c.id]).length }}</b> of {{ repChildren().length }} selected.
@@ -926,8 +1044,8 @@ input,select{font-family:inherit;font-size:16px}
                Final Report Upon Completion download for Final-Inspection
                projects (David, Aug 20). -->
           <div class="genrow">
-            <button class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create {{ kindLabel }} (Word)</button>
-            <button class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="generating" @click="generateReport('pdf')">&#128462; Create {{ kindLabel }} (PDF)</button>
+            <button v-if="reportKind!=='Review'" class="btn btn-big btn-word" :disabled="generating" @click="generateReport('docx')">&#128196; Create {{ kindLabel }} (Word)</button>
+            <button v-if="reportKind!=='Review'" class="btn btn-big btn-word" style="background:var(--charcoal)" :disabled="generating" @click="generateReport('pdf')">&#128462; Create {{ kindLabel }} (PDF)</button>
             <button class="btn btn-big btn-final" :disabled="downloadingFinal" @click="downloadFinal">&#11015; Download Latest Final Report</button>
             <button class="btn btn-big" :class="{dropready:repDrag}" style="background:#1F7A33" :disabled="uploadingReport" @click="$refs.repUp.click()"
                     @dragover.prevent="repDrag=true" @dragleave.prevent="repDrag=false" @drop.prevent="onRepDrop"
@@ -1899,7 +2017,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-09-24.3';
+const APP_BUILD = '2026-10-06.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -1969,6 +2087,7 @@ createApp({
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
+      rv: { loading: false, busy: '', progress: '', over: false, data: {}, f: null, schema: null, dirty: false, timer: null, pid: '' },
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {}, tenantId: '',
@@ -2235,6 +2354,135 @@ createApp({
         if (m && m[1] && m[1] !== APP_BUILD) this.updateAvailable = m[1];
       } catch (e) { /* offline - try again later */ }
     },
+    /* ---------- Review of Prior Inspection Report (Oct 2026) ---------- */
+    rvCheckLabel(k) {
+      return ({ decks: 'Decks', railings: 'Railings', stairs: 'Stairs', walkways: 'Walkways', entryAreas: 'Entry areas', otherEEE: 'Other EEE',
+        flashings: 'Flashings', membranes: 'Membranes', coatings: 'Coatings', sealants: 'Sealants', otherAWE: 'Other waterproofing',
+        allInspectedYes: 'All unit EEE inspected: Yes', allInspectedNo: 'All unit EEE inspected: No' })[k] || k;
+    },
+    async rvLoad(quiet) {
+      if (!this.current) return;
+      const pid = this.projectId(this.current);
+      if (!quiet) this.rv.loading = true;
+      try {
+        if (!this.rv.schema) {
+          const s = await this.api('/review/schema');
+          if (!s.ok) throw new Error('schema ' + s.status);
+          this.rv.schema = await s.json();
+        }
+        const res = await this.api('/review/' + encodeURIComponent(pid));
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || ('HTTP ' + res.status));
+        const d = await res.json();
+        if (!this.current || this.projectId(this.current) !== pid) return;
+        const wasBusy = this.rv.data && this.rv.data.status;
+        this.rv.data = d; this.rv.pid = pid;
+        if (!this.rv.f || !this.rv.dirty || (wasBusy === 'analyzing' && !d.status)) { this.rv.f = JSON.parse(JSON.stringify(d.fields)); this.rv.dirty = false; }
+        if (wasBusy === 'analyzing' && !d.status && !d.error) this.toast('Claude finished the draft \u2014 check the answers below.');
+        if (wasBusy === 'generating' && !d.status) { this.loadReports(); if (!d.error) this.toast('Review Report is ready in the list below.'); }
+        if (d.status && !this.rv.timer) this.rv.timer = setInterval(() => {
+          if (this.view !== 'reports' || !this.current || this.projectId(this.current) !== pid) { clearInterval(this.rv.timer); this.rv.timer = null; return; }
+          this.rvLoad(true);
+        }, 6000);
+        if (!d.status && this.rv.timer) { clearInterval(this.rv.timer); this.rv.timer = null; }
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not load the review: ' + e.message, 'err');
+      } finally { this.rv.loading = false; }
+    },
+    rvPick(e) { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) this.rvUpload(f); },
+    rvDrop(e) {
+      this.rv.over = false;
+      const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+      if (files.length !== 1) { this.toast('Drop one PDF file.', 'err'); return; }
+      this.rvUpload(files[0]);
+    },
+    async rvPdfLib() {
+      if (window.pdfjsLib) return window.pdfjsLib;
+      const base = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+      await new Promise((ok, bad) => { const s = document.createElement('script'); s.src = base + 'pdf.min.js'; s.onload = ok; s.onerror = () => bad(new Error('could not load the PDF reader')); document.head.appendChild(s); });
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = base + 'pdf.worker.min.js';
+      return window.pdfjsLib;
+    },
+    // The browser turns each PDF page into a JPEG (long edge 1400 px) and uploads
+    // it; the same images feed Claude and Annex 1 of the Word report.
+    async rvUpload(file) {
+      if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { this.toast('Please choose the prior report as a PDF file.', 'err'); return; }
+      if (this.rv.data.prior && !confirm('Replace the uploaded prior report "' + this.rv.data.prior.fileName + '" with "' + file.name + '"?')) return;
+      const pid = this.projectId(this.current);
+      this.rv.busy = 'upload'; this.rv.progress = 'Opening ' + file.name + '\u2026';
+      try {
+        const pdfjs = await this.rvPdfLib();
+        const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+        const total = pdf.numPages;
+        if (total > 500) throw new Error('that PDF has ' + total + ' pages (500 maximum)');
+        const st = await this.api('/review/' + encodeURIComponent(pid) + '/prior/start', { method: 'POST', json: {} });
+        if (!st.ok) throw new Error('start ' + st.status);
+        const { uploadId } = await st.json();
+        for (let n = 1; n <= total; n++) {
+          this.rv.progress = 'Uploading page ' + n + ' of ' + total + '\u2026';
+          const page = await pdf.getPage(n);
+          const vp1 = page.getViewport({ scale: 1 });
+          const scale = 1400 / Math.max(vp1.width, vp1.height);
+          const vp = page.getViewport({ scale });
+          const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+          const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+          await page.render({ canvasContext: ctx, viewport: vp }).promise;
+          const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.72));
+          let ok = false;
+          for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+            const fd = new FormData(); fd.append('uploadId', uploadId); fd.append('n', String(n)); fd.append('page', blob, 'p' + n + '.jpg');
+            const up = await this.api('/review/' + encodeURIComponent(pid) + '/prior/page', { method: 'POST', body: fd });
+            ok = up.ok; if (!ok) await new Promise(r => setTimeout(r, 1500));
+          }
+          if (!ok) throw new Error('page ' + n + ' did not upload');
+          page.cleanup();
+        }
+        const fin = await this.api('/review/' + encodeURIComponent(pid) + '/prior/finish', { method: 'POST', json: { uploadId, pageCount: total, fileName: file.name } });
+        if (!fin.ok) throw new Error('finish ' + fin.status);
+        this.rv.data = await fin.json();
+        this.toast(file.name + ' uploaded (' + total + ' pages).' + (total > (this.rv.schema ? this.rv.schema.maxPages : 100) ? ' Claude reads the first ' + this.rv.schema.maxPages + ' pages.' : ''));
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Upload failed: ' + e.message, 'err');
+      } finally { this.rv.busy = ''; this.rv.progress = ''; }
+    },
+    async rvSave(quiet) {
+      const pid = this.projectId(this.current);
+      this.rv.busy = 'save';
+      try {
+        const res = await this.api('/review/' + encodeURIComponent(pid) + '/fields', { method: 'PUT', json: { fields: this.rv.f } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        this.rv.data = await res.json(); this.rv.dirty = false;
+        if (!quiet) this.toast('Answers saved.');
+        return true;
+      } catch (e) { if (e.message !== 'auth') this.toast('Save failed: ' + e.message, 'err'); return false; }
+      finally { this.rv.busy = ''; }
+    },
+    async rvAnalyze() {
+      const hasAnswers = this.rv.f && (this.rv.f.E.summary || this.rv.f.A.some(r => r.finding));
+      if (hasAnswers && !confirm('Claude will replace the answers below with a fresh draft. Continue?')) return;
+      const pid = this.projectId(this.current);
+      try {
+        const res = await this.api('/review/' + encodeURIComponent(pid) + '/analyze', { method: 'POST', json: {} });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
+        this.rv.data = d; this.rv.dirty = false;
+        this.toast('Claude is reviewing the report \u2014 usually 2\u20135 minutes.');
+        this.rvLoad(true);
+      } catch (e) { if (e.message !== 'auth') this.toast(e.message, 'err'); }
+    },
+    async rvGenerate() {
+      if (!this.rv.data.prior && !confirm('No prior report is uploaded \u2014 create the Review Report without Annex 1?')) return;
+      const pid = this.projectId(this.current);
+      this.rv.busy = 'gen';
+      try {
+        const res = await this.api('/review/' + encodeURIComponent(pid) + '/generate', { method: 'POST', json: { fields: this.rv.f } });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
+        this.rv.data = d; this.rv.dirty = false;
+        this.toast('Building the Review Report \u2014 about a minute.');
+        this.rvLoad(true);
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not start the report: ' + e.message, 'err'); }
+      finally { this.rv.busy = ''; }
+    },
     toast(msg, kind = 'ok') {
       const id = ++this.toastSeq;
       this.toasts.push({ id, msg, kind });
@@ -2327,6 +2575,9 @@ createApp({
       history.pushState({ v: 'reports', pid: this.projectId(p) }, '');
       this.current = p; this.view = 'reports'; this.reports = [];
       this.generating = false; this.generateStartedAt = null;
+      if (this.rv.timer) clearInterval(this.rv.timer);
+      this.rv = Object.assign({}, this.rv, { busy: '', progress: '', data: {}, f: null, dirty: false, timer: null, pid: '' });
+      if (this.reportKind === 'Review') this.$nextTick(() => this.rvLoad());
       this.assignPick = ''; this.emailReportPick = ''; this.emailDocs = []; this.reportProp = null;
       this.signerPick = (p && p.signer && p.signer.id) || '';
       this.loadSigners();

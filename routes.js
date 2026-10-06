@@ -17,6 +17,8 @@ var migrateRouter = require("./routes/migrate-endpoint");
 var qboRouter = require("./routes/qbo-endpoint");
 var apkRouter = require("./routes/apk-endpoint");
 var clientsRouter = require("./routes/clients-endpoint");
+// Review of Prior Inspection Report - prior-report upload, Claude draft, Word generation (routes/review-endpoint.js)
+var reviewRouter = require("./routes/review-endpoint");
 const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
 
@@ -36,6 +38,7 @@ module.exports = function (app) {
   app.use("/api/tenants", authenticateToken, tenantRouter);
   // Client portfolios - owners / property managers and their properties (routes/clients-endpoint.js)
   app.use("/api/clients", authenticateToken, clientsRouter);
+  app.use("/api/review", authenticateToken, reviewRouter);
   app.use("/api/login", loginRouter);
   app.use("/api/locationforms", locationFormRouter);
   app.use("/api/migrate", migrateRouter);
