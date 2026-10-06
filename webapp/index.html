@@ -1397,6 +1397,9 @@ input,select{font-family:inherit;font-size:16px}
               <!-- Rename / describe from the unit page itself (David, Sep 17 2026:
                    "we cannot edit this name"). Same dialog as the pencil on the list. -->
               <button class="btn-dl" style="padding:4px 10px;font-size:12px;font-weight:normal" title="Edit name and description" @click="openStructEdit('unit', unit)">&#9998; Edit</button>
+              <!-- DOWNLOAD THIS UNIT'S PHOTOS (David, Oct 6 2026 - an inspector's suggestion):
+                   every section photo of this unit (+ the unit photo) as one ZIP, one folder per section. -->
+              <button class="btn-dl" style="padding:4px 10px;font-size:12px;font-weight:normal" :disabled="unitZip.busy || loadingSections" title="Download every photo of this unit as a ZIP file" @click="downloadUnitPhotos">&#11015; {{ unitZip.busy ? ('Downloading ' + unitZip.done + ' of ' + unitZip.total + '\u2026') : 'Download Photos (' + unitPhotoCount() + ')' }}</button>
             </h2>
             <div class="hint" v-if="unit.description">{{ unit.description }}</div>
             <div class="hint" v-if="unit.url">Apartment photo &mdash; click to enlarge</div>
@@ -2139,7 +2142,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-06.3';
+const APP_BUILD = '2026-10-06.4';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2215,6 +2218,7 @@ createApp({
         { k: 'conditionalassessment', label: 'Condition assessment', opts: 'assess' }, { k: 'eee', label: 'Life expectancy (EEE)', opts: 'life' },
         { k: 'lbc', label: 'Life expectancy (LBC)', opts: 'life' }, { k: 'awe', label: 'Life expectancy (AWE)', opts: 'life' }],
       rv: { loading: false, busy: '', progress: '', over: false, data: {}, f: null, schema: null, dirty: false, timer: null, pid: '', now: Date.now(), tick: null },
+      unitZip: { busy: false, done: 0, total: 0 },
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {}, tenantId: '',
@@ -3677,6 +3681,54 @@ createApp({
           this.toast('Could not build the PDF — use Download Word (then Save as PDF in Word) as a fallback.', 'err');
         }
       } finally { this.formEd.busy = false; this.formEd.busyKind = ''; }
+    },
+    // ---- Download this unit's photos as a ZIP (David, Oct 6 2026) ----
+    // The browser fetches the original photos straight from blob storage (it allows
+    // e3-web.com) and zips them; nothing is stored on the server.
+    unitPhotoCount() {
+      return (this.sections || []).reduce((n, s) => n + (s.images || []).filter(Boolean).length, 0) + (this.unit && this.unit.url ? 1 : 0);
+    },
+    async downloadUnitPhotos() {
+      const clean = t => String(t || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Untitled';
+      const pad = n => String(n).padStart(2, '0');
+      const extOf = u => { const m = String(u).split('?')[0].match(/\.(jpe?g|png|heic|webp|gif)$/i); return m ? m[1].toLowerCase() : 'jpg'; };
+      const items = [];
+      if (this.unit && this.unit.url) items.push({ url: this.unit.url, name: clean(this.unit.locationName) + ' - unit photo.' + extOf(this.unit.url) });
+      (this.sections || []).forEach((sec, i) => {
+        const folder = pad(i + 1) + ' ' + clean(sec.name);
+        (sec.images || []).filter(Boolean).forEach((u, k) => items.push({ url: u, name: folder + '/' + clean(sec.name) + ' ' + pad(k + 1) + '.' + extOf(u) }));
+      });
+      if (!items.length) { this.toast('This unit has no photos yet.', 'err'); return; }
+      this.unitZip = { busy: true, done: 0, total: items.length };
+      try {
+        if (!window.JSZip) await new Promise((ok, bad) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'; sc.onload = ok; sc.onerror = () => bad(new Error('could not load the ZIP tool')); document.head.appendChild(sc); });
+        const zip = new window.JSZip();
+        const failed = [];
+        let idx = 0;
+        const worker = async () => {
+          while (idx < items.length) {
+            const it = items[idx++];
+            try {
+              const r = await fetch(it.url, { mode: 'cors', credentials: 'omit', cache: 'no-store' });
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              zip.file(it.name, await r.arrayBuffer(), { binary: true });
+            } catch (e) { failed.push(it.name); }
+            this.unitZip.done++;
+          }
+        };
+        await Promise.all([worker(), worker(), worker(), worker()]);
+        if (failed.length === items.length) throw new Error('none of the photos could be downloaded');
+        if (failed.length) zip.file('_photos that could not be downloaded.txt', failed.join('\r\n'));
+        const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = clean(this.current && this.current.name) + ' - ' + clean(this.unit.locationName) + ' - Photos.zip';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        this.toast(failed.length ? ((items.length - failed.length) + ' photos downloaded; ' + failed.length + ' could not be fetched (listed in the ZIP).') : (items.length + ' photos downloaded.'), failed.length ? 'err' : 'ok');
+      } catch (e) {
+        this.toast('Photo download failed: ' + e.message, 'err');
+      } finally { this.unitZip = { busy: false, done: 0, total: 0 }; }
     },
     async fcLoadDocxPreview() {
       if (window.docx && window.docx.renderAsync) return true;
