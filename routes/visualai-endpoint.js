@@ -23,7 +23,6 @@ const uploadBlob = require('../database/uploadimage');
 const projects = require('../model/project');
 const location = require('../model/location');
 const subProject = require('../model/subproject');
-const sectionsModel = require('../model/sections');
 const tenantsDAO = require('../model/tenantsDAO');
 const SectionService = require('../service/sectionService');
 const FRG = require('../service/ReportGeneration/FinalReportGenerator');
@@ -96,25 +95,44 @@ function inspectorValues(s) {
     eee: V.lifeOf(s.eee) || s.eee || '', lbc: V.lifeOf(s.lbc) || s.lbc || '', awe: V.lifeOf(s.awe) || s.awe || '',
   };
 }
+// Reads are retried and FAIL LOUDLY (the model functions return {error:{code:500}} instead of
+// throwing): a silently-missing unit would leave sections out of Claude's draft and the counts.
+// Sections come from ONE bulk query for every unit (was one query per unit: 7-12 s live).
+const SectionDAO = require('../model/sectionDAO');
+async function retry(label, fn) {
+  let last;
+  for (let a = 0; a < 3; a++) {
+    try { return await fn(); } catch (e) { last = e; await new Promise(r => setTimeout(r, 800 * (a + 1))); }
+  }
+  throw new Error('Could not read the inspection (' + label + '): ' + (last && last.message) + ' - please try again.');
+}
+function rowsOf(r, label) {
+  if (r && r.data && Array.isArray(r.data.item)) return r.data.item;
+  if (r && r.error && r.error.code === 401) return [];          // "none found"
+  throw new Error(label + ' ' + ((r && r.error && r.error.message) || 'failed'));
+}
 async function collectSections(projectId) {
+  const locs = [];   // { loc, building }
+  (await retry('locations', async () => rowsOf(await location.getLocationByParentId(projectId), 'locations')))
+    .forEach(l => locs.push({ loc: l, building: '' }));
+  const subs = await retry('buildings', async () => rowsOf(await subProject.getSubProjectsByParentId(projectId), 'buildings'));
+  for (const b of subs) {
+    (await retry('locations of ' + (b.name || 'building'), async () => rowsOf(await location.getLocationByParentId(b.id || b._id), 'locations')))
+      .forEach(l => locs.push({ loc: l, building: b.name || '' }));
+  }
+  const ids = locs.map(x => String(x.loc.id || x.loc._id)).filter(Boolean);
+  const rows = ids.length ? await retry('sections', () => SectionDAO.getSectionsByParentIds(ids)) : [];
+  const byParent = new Map();
+  rows.forEach(s => { const k = String(s.parentid); if (!byParent.has(k)) byParent.set(k, []); byParent.get(k).push(s); });
   const out = [];
-  const addLoc = async (loc, building) => {
-    const id = loc.id || loc._id;
-    let items = [];
-    try { const r = await sectionsModel.getSectionMetaDataForLocationId(id); items = (r.data && r.data.item) || []; } catch (e) { /* none */ }
-    for (const s of items) {
-      out.push({ id: s._id || s.id, locationId: id, building: building || '', location: loc.name || '', locationType: LOC_TYPE[loc.type] || '',
+  for (const { loc, building } of locs) {
+    const id = String(loc.id || loc._id);
+    for (const s of (byParent.get(id) || [])) {
+      out.push({ id: s.id || s._id, locationId: id, building, location: loc.name || '', locationType: LOC_TYPE[loc.type] || '',
                  name: s.name || '', images: [].concat(s.images || []).filter(Boolean), unitUnavailable: !!s.unitUnavailable,
                  current: inspectorValues(s), raw: s });
     }
-  };
-  try { const d = await location.getLocationByParentId(projectId); for (const l of ((d.data && d.data.item) || [])) await addLoc(l, ''); } catch (e) { /* none */ }
-  try {
-    const sp = await subProject.getSubProjectsByParentId(projectId);
-    for (const b of ((sp.data && sp.data.item) || [])) {
-      try { const d = await location.getLocationByParentId(b.id || b._id); for (const l of ((d.data && d.data.item) || [])) await addLoc(l, b.name || ''); } catch (e) { /* none */ }
-    }
-  } catch (e) { /* none */ }
+  }
   return out;
 }
 
@@ -181,7 +199,8 @@ router.get('/:projectId', async (req, res) => {
   const master = await masterOptions(req.user.company);
   const m = await readManifest(ctx.pid);
   const view = publicView(m, master);
-  const list = await collectSections(ctx.pid);
+  let list;
+  try { list = await collectSections(ctx.pid); } catch (e) { return res.status(503).json({ message: e.message }); }
   // the inspection as it is NOW (for the editor and the cost estimate)
   view.inspection = list.map(x => ({ id: x.id, building: x.building, location: x.location, locationType: x.locationType, name: x.name,
                                      photos: x.images.length, images: x.images.slice(0, AI.MAX_PHOTOS), unitUnavailable: x.unitUnavailable, current: x.current }));
@@ -242,7 +261,8 @@ router.post('/:projectId/analyze', async (req, res) => {
     const p = await readProgress(ctx.pid, m.statusAt);
     if (RUNNING.has(ctx.pid) || (p && Date.now() - Date.parse(p.at) < STALE_MS)) return res.status(409).json({ message: 'Claude is already drafting this report.' });
   }
-  const list = await collectSections(ctx.pid);
+  let list;
+  try { list = await collectSections(ctx.pid); } catch (e) { return res.status(503).json({ message: e.message }); }
   if (!list.length) return res.status(400).json({ message: 'This project has no inspected sections yet.' });
   // resume = keep the sections already drafted by an interrupted / stopped run
   const resume = !!(req.body && req.body.resume);
@@ -365,7 +385,8 @@ router.post('/:projectId/apply', async (req, res) => {
   Object.entries(b.sections || {}).forEach(([id, d]) => { if (m.sections && m.sections[id]) m.sections[id].draft = V.normalizeSection(d); });
   if (b.summary) m.summary = V.normalizeSummary(b.summary, master.slots, master.exclusionOptions);
   const only = Array.isArray(b.ids) ? new Set(b.ids.map(String)) : null;
-  const list = await collectSections(ctx.pid);
+  let list;
+  try { list = await collectSections(ctx.pid); } catch (e) { return res.status(503).json({ message: e.message }); }
   const byId = new Map(list.map(x => [String(x.id), x]));
   const who = (req.user && req.user.username) || '';
   let ok = 0; const failed = [];
@@ -394,7 +415,7 @@ router.post('/:projectId/apply', async (req, res) => {
   }
   // the counts follow the inspection as it is now
   if (m.summary) {
-    const c = countsFrom(await collectSections(ctx.pid), {});
+    const c = countsFrom(await collectSections(ctx.pid).catch(() => list), {});
     Object.assign(m.summary, { totalEEE: String(c.totalEEE), eeeInspected: String(c.eeeInspected), immediateThreatCount: String(c.immediateThreatCount) });
     if (!V.isApartment(m.summary.propertyType)) m.summary.unitsWithEEE = String(c.unitsWithEEE);
     m.summary = V.normalizeSummary(m.summary, master.slots, master.exclusionOptions);
