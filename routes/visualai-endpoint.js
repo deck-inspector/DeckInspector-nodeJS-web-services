@@ -136,6 +136,20 @@ async function collectSections(projectId) {
   return out;
 }
 
+// David, Oct 6 2026: "Additional Considerations" prints in bright red, so it is only written
+// for a real concern. No concern (Pass, not Bad, no leaks / invasive / unsafe, not Future
+// Inspection) => keep the inspector's own text, or leave it empty when the inspector wrote none.
+function hasConcern(d) {
+  return d.conditionalassessment === 'Fail' || d.conditionalassessment === 'Future Inspection' || d.visualreview === 'Bad'
+    || d.visualsignsofleak === 'Yes' || d.furtherinvasivereviewrequired === 'Yes' || d.unsafecondition === 'Yes';
+}
+function quietWhenNoConcern(draft, inspector) {
+  if (!draft || hasConcern(draft)) return draft;
+  const own = String((inspector && inspector.additionalconsiderations) || '').trim();
+  if (!own) return Object.assign({}, draft, { additionalconsiderations: '' });
+  return draft;
+}
+
 // E3 counts from the section list + drafts (deterministic, not Claude's).
 function countsFrom(list, drafts) {
   const units = new Set(), inspected = list.filter(x => !x.unitUnavailable);
@@ -270,6 +284,8 @@ router.post('/:projectId/analyze', async (req, res) => {
   m.sections = m.sections || {};
   m.status = 'analyzing'; m.statusAt = new Date().toISOString(); m.error = ''; delete m.stopped;
   const run = m.statusAt;
+  // ONE CLICK (David, Oct 6 2026): the page creates the report as soon as this run finishes.
+  m.autoCreate = req.body && req.body.autoCreate ? { run, at: run, by: (req.user && req.user.username) || '' } : null;
   const todo = list.filter(x => !x.unitUnavailable && !(resume && m.sections[x.id] && m.sections[x.id].draft && !m.sections[x.id].error));
   const prog = progressWriter(ctx.pid, run);
   await prog.set({ phase: 'sections', done: 0, total: todo.length, all: list.length });
@@ -309,7 +325,7 @@ router.post('/:projectId/analyze', async (req, res) => {
           try {
             const r = await AI.draftSection({ sec, project, company, signal: controller.signal });
             AI.addUsage(usage, r.usage); model = r.model; photos += r.photosSent;
-            results[sec.id] = Object.assign(entry, { draft: r.draft, photosSent: r.photosSent, at: new Date().toISOString() });
+            results[sec.id] = Object.assign(entry, { draft: quietWhenNoConcern(r.draft, sec.current), photosSent: r.photosSent, at: new Date().toISOString() });
           } catch (e) {
             if (e.stopped || controller.signal.aborted) throw stoppedError();
             failed++;

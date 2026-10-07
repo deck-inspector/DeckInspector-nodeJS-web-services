@@ -163,6 +163,11 @@ input,select{font-family:inherit;font-size:16px}
 .rvprog .rvsteps span{padding:2px 8px;border-radius:10px;background:rgba(31,111,84,.10);color:var(--ink-soft)}
 .rvprog .rvsteps span.on{background:var(--brand);color:#fff}
 .rvprog .rvsteps span.ok{background:rgba(31,111,84,.30);color:var(--brand-dark)}
+.vasteps{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 2px}
+.vasteps span{padding:6px 12px;border-radius:99px;font-weight:700;font-size:13px;background:var(--bg);color:var(--ink-soft);border:1.5px solid var(--line)}
+.vasteps span.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.vasteps span.ok{background:#E3F5E8;color:#0E7A33;border-color:#9BD3AE}
+.vadone{margin:10px 0 2px;padding:12px 14px;border-radius:12px;background:#E3F5E8;color:#0E5E2A;display:flex;align-items:center;flex-wrap:wrap;gap:4px}
 .rvdrop.over{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-dark)}
 .rvgrid{display:grid;grid-template-columns:minmax(150px,240px) 1fr;gap:6px 12px;align-items:center}
 .rvgrid input,.rvgrid select,.rvrow select,.rvrow input{padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;width:100%;box-sizing:border-box}
@@ -1044,13 +1049,21 @@ input,select{font-family:inherit;font-size:16px}
                Overview / Additional Comments summary. Edit on screen, Apply, then create the
                report as usual. Nothing changes in the inspection until Apply. -->
           <details v-if="reportKind==='Visual'" class="rvstep" :open="va.open" @toggle="vaToggle($event)">
-            <summary class="rvh" style="cursor:pointer">&#129302; Draft with Claude &mdash; fill in every section and the Final Report summary</summary>
+            <summary class="rvh" style="cursor:pointer">&#129302; Create the Visual Report with Claude <span style="font-weight:400;font-size:13px;color:var(--ink-soft)">&mdash; 3 steps: Draft &middot; Check &middot; Create Report (click to open)</span></summary>
             <div v-if="va.loading" class="hint">Loading the inspection&hellip;</div>
             <template v-else-if="va.data.inspection">
-              <div class="hint">Claude looks at each section's photos (up to {{ va.schema ? va.schema.maxPhotos : 8 }}) and the inspector's entries, re-drafts every field (ratings, leaks, invasive, unsafe, Pass/Fail, life expectancy, Additional Considerations), then writes the Final Report cover, Inspection Overview and the summary of findings in Additional Comments. <b>Nothing changes in the inspection until you press Apply.</b></div>
+              <!-- 3-STEP FLOW (David, Oct 6 2026: "ONE click create report or a more intuitive
+                   method, such as step 1, 2 & 3 - Report is complete"). -->
+              <div class="vasteps">
+                <span v-for="st in vaSteps()" :key="st.n" :class="st.cls">{{ st.done ? '\u2714' : st.n }} {{ st.name }}</span>
+              </div>
+              <div class="rvstep">
+              <div class="rvh">Step 1 &mdash; Claude drafts the report</div>
+              <div class="hint">Claude looks at each section's photos (up to {{ va.schema ? va.schema.maxPhotos : 8 }}) and the inspector's entries, re-drafts every field (ratings, leaks, invasive, unsafe, Pass/Fail, life expectancy, Additional Considerations), then writes the Final Report cover, Inspection Overview and the summary of findings in Additional Comments. <b>Nothing changes in the inspection until you press Create Report.</b></div>
               <div class="hint"><b>{{ va.data.inspection.length }}</b> sections &middot; <b>{{ vaPhotoCount() }}</b> photos to read<template v-if="va.data.counts && va.data.counts.unavailable"> &middot; {{ va.data.counts.unavailable }} unit(s) unavailable (skipped)</template> &middot; estimated cost about <b>${{ vaEstimate() }}</b>, roughly {{ vaMinutes() }} min</div>
+              <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin:6px 0;color:var(--ink)"><input type="checkbox" v-model="va.auto" :disabled="!!va.data.status"> <b>One click:</b> create the report automatically as soon as Claude finishes (skip Step 2)</label>
               <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0">
-                <button class="btn-dl" :disabled="!!va.data.status || !!va.busy || !va.data.aiConfigured || !va.data.inspection.length" @click="vaAnalyze(false)">&#129302; {{ va.data.status==='analyzing' ? 'Claude is drafting…' : 'Draft with Claude' }}</button>
+                <button class="btn-dl" :disabled="!!va.data.status || !!va.busy || !va.data.aiConfigured || !va.data.inspection.length" @click="vaAnalyze(false)">&#129302; {{ va.data.status==='analyzing' ? 'Claude is drafting…' : (va.auto ? (vaDraftedCount() ? 'Draft Again and Create Report' : 'Draft and Create Report') : (vaDraftedCount() ? 'Start a New Draft with Claude' : 'Start Draft with Claude')) }}</button>
                 <button v-if="vaCanContinue()" class="btn-dl" :disabled="!!va.data.status || !!va.busy" @click="vaAnalyze(true)" title="Keep the sections already drafted and do the rest">&#9654; Continue ({{ vaDraftedCount() }} of {{ va.data.inspection.length }} done)</button>
               </div>
               <div v-if="!va.data.aiConfigured" class="hint" style="color:#B00020;font-weight:600">The AI key has not been added to the server yet (App Service setting ANTHROPIC_API_KEY).</div>
@@ -1067,10 +1080,12 @@ input,select{font-family:inherit;font-size:16px}
               <div v-if="va.data.stopped && va.data.status!=='analyzing'" class="hint" style="color:#8A5A00;font-weight:600">&#9632; Stopped{{ va.data.stopped.by ? ' by ' + va.data.stopped.by : '' }} at {{ rvTime(va.data.stopped.at) }} &mdash; the inspection was not changed. Press Continue to finish the rest.</div>
               <div v-if="va.data.error" style="color:#B00020;font-weight:700;margin:6px 0">{{ va.data.error }}</div>
               <div v-if="va.data.ai" class="hint">Last draft {{ shortDate(va.data.ai.at) }} &middot; {{ va.data.ai.model }} &middot; {{ va.data.ai.sections }} sections, {{ va.data.ai.photosSent }} photos &middot; {{ rvMinSec(va.data.ai.seconds) }}<template v-if="va.data.ai.usage"> &middot; {{ rvTok(va.data.ai.usage) }} (&asymp; ${{ vaCost(va.data.ai.usage) }})</template></div>
-              <div v-if="va.data.applied" class="hint" style="color:#1F7A33;font-weight:600">&#10004; Applied to the inspection {{ shortDate(va.data.applied.at) }}{{ va.data.applied.by ? ' by ' + va.data.applied.by : '' }} &mdash; {{ va.data.applied.sections }} sections<template v-if="va.data.applied.failed">, <span style="color:#B00020">{{ va.data.applied.failed }} failed</span></template>. Create the Visual Report (Word) below; the Final Report cover uses the summary.</div>
+              <div v-if="va.data.autoCreate && va.data.status==='analyzing'" class="hint" style="color:var(--brand-dark);font-weight:600">One click is on: the report will be created when Claude finishes. Keep this page open (or come back to it).</div>
+              </div>
 
-              <template v-if="va.f && va.data.status!=='analyzing'">
-                <div class="hint" style="margin-top:10px"><b>Check and edit the draft.</b> {{ va.dirty ? 'Unsaved changes.' : 'All changes saved.' }} Values that differ from the inspector's entries show what the inspector had.</div>
+              <div class="rvstep" v-if="va.f && va.data.status!=='analyzing' && vaDraftedCount()">
+                <div class="rvh">Step 2 &mdash; Check and edit the draft <span style="font-weight:400;font-size:13px;color:var(--ink-soft)">(optional)</span></div>
+                <div class="hint">Open any part below to change it. Values that differ from the inspector's entries show what the inspector had. {{ va.dirty ? 'Unsaved changes.' : 'All changes saved.' }}</div>
                 <details class="rvsec" v-if="va.f.summary" open><summary>Final Report cover &amp; summary</summary>
                   <div class="rvgrid" @input="va.dirty=true" @change="va.dirty=true">
                     <label>Property type</label><select v-model="va.f.summary.propertyType" @change="vaTypeChanged"><option value="">Choose&hellip;</option><option v-for="o in va.schema.options.propertyTypes" :key="o">{{ o }}</option></select>
@@ -1134,10 +1149,23 @@ input,select{font-family:inherit;font-size:16px}
                 </details>
                 <div class="genrow">
                   <button class="btn btn-big" style="background:#1F7A33" :disabled="!!va.busy || !va.dirty" @click="vaSave()">&#128190; {{ va.busy==='save' ? 'Saving…' : 'Save Draft' }}</button>
-                  <button class="btn btn-big btn-word" :disabled="!!va.busy || !vaPickedCount()" @click="vaApply">&#10004; {{ va.busy==='apply' ? 'Applying…' : 'Apply to Inspection (' + vaPickedCount() + ' sections + summary)' }}</button>
                   <button class="btn btn-big" style="background:#fff;color:#B00020;border:2px solid #B00020" :disabled="!!va.busy || !vaDraftedCount()" @click="vaClear">&#128465; {{ va.busy==='clear' ? 'Clearing…' : 'Clear Draft' }}</button>
                 </div>
-              </template>
+              </div>
+
+              <div class="rvstep" v-if="va.f && va.data.status!=='analyzing' && vaDraftedCount()">
+                <div class="rvh">Step 3 &mdash; Create the report</div>
+                <div class="hint">Writes the {{ vaPickedCount() }} ticked section(s) into the inspection, puts the summary on the Final Report cover, and builds the Visual + Final Report (Word).</div>
+                <div class="genrow">
+                  <button class="btn btn-big btn-word" :disabled="!!va.busy || !vaPickedCount() || generating" @click="vaApply(true)">&#128196; {{ va.busy==='apply' ? 'Saving the draft into the inspection…' : (generating ? 'Building the report…' : 'Create Report (Word)') }}</button>
+                </div>
+                <div class="progress" v-if="generating"><div class="spinner"></div><div>Building the Visual + Final Report &mdash; usually 1&ndash;3 minutes. It appears here and in the Reports list below.</div></div>
+                <div v-if="!generating && vaReadyReport()" class="vadone">
+                  &#10004; <b>Report is complete</b> &mdash; {{ vaReadyReport().name }} ({{ shortDate(vaReadyReport().timestamp) }})
+                  <a class="btn-dl" :href="reportDownloadHref(vaReadyReport())" style="margin-left:8px">&#11015; Download (Word)</a>
+                </div>
+                <div v-else-if="!generating && va.data.applied && va.data.applied.failed" class="hint" style="color:#B00020;font-weight:600">{{ va.data.applied.failed }} section(s) could not be saved &mdash; the report was not started.</div>
+              </div>
             </template>
           </details>
           <!-- REPORT SCOPE (David, Sep 22 2026: "only ONE or two locations, not the
@@ -2142,7 +2170,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-06.4';
+const APP_BUILD = '2026-10-06.6';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2212,7 +2240,7 @@ createApp({
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
-      va: { open: false, loading: false, busy: '', data: {}, f: null, schema: null, dirty: false, timer: null, tick: null, now: Date.now(), pick: {} },
+      va: { auto: true, autoDone: '', open: false, loading: false, busy: '', data: {}, f: null, schema: null, dirty: false, timer: null, tick: null, now: Date.now(), pick: {} },
       vaSelectFields: [{ k: 'visualreview', label: 'Visual review', opts: 'review' }, { k: 'visualsignsofleak', label: 'Visual signs of leaks', opts: 'yn' },
         { k: 'furtherinvasivereviewrequired', label: 'Further invasive review', opts: 'yn' }, { k: 'unsafecondition', label: 'Unsafe condition', opts: 'yn' },
         { k: 'conditionalassessment', label: 'Condition assessment', opts: 'assess' }, { k: 'eee', label: 'Life expectancy (EEE)', opts: 'life' },
@@ -2520,7 +2548,13 @@ createApp({
           this.va.f = this.vaFromData(d); this.va.dirty = false;
           const pick = {}; Object.keys(this.va.f.sections).forEach(id => { pick[id] = this.va.pick[id] !== false; }); this.va.pick = pick;
         }
-        if (wasBusy === 'analyzing' && !d.status && !d.error) this.toast('Claude finished the draft — check it, then press Apply.');
+        // ONE CLICK: the run was started with "create the report automatically" -> create it now
+        // (once per run; also when the page is opened again after Claude finished).
+        const ac = d.autoCreate;
+        const autoPending = ac && ac.run === d.statusAt && !d.status && d.summary && !d.error && this.vaDraftedCount() > 0
+          && !(d.applied && Date.parse(d.applied.at) >= Date.parse(ac.at)) && this.va.autoDone !== ac.run;
+        if (autoPending) { this.va.autoDone = ac.run; this.$nextTick(() => this.vaApply(true, true)); }
+        else if (wasBusy === 'analyzing' && !d.status && !d.error) this.toast('Claude finished the draft \u2014 check it (Step 2), then press Create Report (Step 3).');
         if (d.status && !this.va.timer) this.va.timer = setInterval(() => {
           if (this.view !== 'reports' || !this.current || this.projectId(this.current) !== pid) { clearInterval(this.va.timer); this.va.timer = null; this.vaStopTick(); return; }
           this.vaLoad(true);
@@ -2567,6 +2601,23 @@ createApp({
       return { pct: Math.min(99, Math.round(pct)), label, steps: names.map((name, i) => ({ name, cls: i < at ? 'ok' : (i === at ? 'on' : '') })) };
     },
     vaRows() { return this.va.data.inspection || []; },
+    // The newest Final Report (or Visual) created after the draft was applied = "Report is complete".
+    vaReadyReport() {
+      const ap = this.va.data.applied; if (!ap || !ap.at) return null;
+      const t0 = Date.parse(ap.at) - 60000;
+      const list = (this.reports || []).filter(r => r.url && !this.isFailed(r) && Date.parse(r.timestamp || 0) >= t0);
+      return list.find(r => this.isFinal(r)) || list[0] || null;
+    },
+    vaSteps() {
+      const d = this.va.data, drafted = this.vaDraftedCount() > 0 && !!d.summary;
+      const created = !!this.vaReadyReport();
+      const s1 = d.status === 'analyzing' ? 'on' : (drafted ? 'ok' : 'on');
+      return [
+        { n: 1, name: d.status === 'analyzing' ? 'Claude is drafting\u2026' : 'Claude drafts', done: drafted && d.status !== 'analyzing', cls: s1 },
+        { n: 2, name: 'Check & edit', done: created, cls: created ? 'ok' : (drafted && d.status !== 'analyzing' && !this.generating ? 'on' : '') },
+        { n: 3, name: created ? 'Report is complete' : (this.generating ? 'Building the report\u2026' : 'Create Report'), done: created, cls: created ? 'ok' : (this.generating ? 'on' : '') },
+      ];
+    },
     vaApt() { return /apartment|721/i.test((this.va.f && this.va.f.summary && this.va.f.summary.propertyType) || ''); },
     vaTypeChanged() {   // SB 721 apartments: unit counts are not applicable (David, Oct 6 2026)
       const s = this.va.f.summary; const c = this.va.data.counts || {};
@@ -2586,12 +2637,12 @@ createApp({
     vaPickedCount() { return this.va.f ? Object.keys(this.va.f.sections).filter(id => this.va.pick[id]).length : 0; },
     async vaAnalyze(resume) {
       const msg = resume ? 'Continue: Claude drafts the remaining sections and the summary. Sections already drafted are kept.'
-        : 'Claude will draft every section of this inspection (about $' + this.vaEstimate() + ', ~' + this.vaMinutes() + ' min). Any earlier draft is replaced. The inspection itself is not changed until you press Apply.';
+        : 'Claude will draft every section of this inspection (about $' + this.vaEstimate() + ', ~' + this.vaMinutes() + ' min). Any earlier draft is replaced.' + (this.va.auto ? '\n\nONE CLICK is on: when Claude finishes, the draft is written into the inspection and the Visual + Final Report (Word) is created automatically. Keep this page open, or come back to it.' : ' The inspection itself is not changed until you press Create Report (Step 3).');
       if (!confirm(msg + '\n\nContinue?')) return;
       const pid = this.projectId(this.current);
       this.va.busy = 'start';
       try {
-        const res = await this.api('/visualai/' + encodeURIComponent(pid) + '/analyze', { method: 'POST', json: { resume: !!resume } });
+        const res = await this.api('/visualai/' + encodeURIComponent(pid) + '/analyze', { method: 'POST', json: { resume: !!resume, autoCreate: !!this.va.auto } });
         const d = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
         this.va.dirty = false;
@@ -2627,9 +2678,9 @@ createApp({
       } catch (e) { if (e.message !== 'auth') this.toast('Save failed: ' + e.message, 'err'); return false; }
       finally { this.va.busy = ''; }
     },
-    async vaApply() {
+    async vaApply(createReport, auto) {
       const n = this.vaPickedCount();
-      if (!confirm('Write the draft into the inspection?\n\n' + n + ' section(s) will be REPLACED with the draft (ratings, life expectancy, considerations...), and the summary will print on the Final Report cover.\n\nThe Visual Report is then created as usual.')) return;
+      if (!auto && !confirm('Create the report from this draft?\n\n' + n + ' section(s) of the inspection will be REPLACED with the draft (ratings, life expectancy, considerations...), the summary will print on the Final Report cover, and the Visual + Final Report (Word) will be built.')) return;
       const pid = this.projectId(this.current);
       this.va.busy = 'apply';
       try {
@@ -2639,9 +2690,11 @@ createApp({
         if (!res.ok) throw new Error(d.message || ('HTTP ' + res.status));
         this.va.dirty = false;
         const r = d.applyResult || { ok: 0, failed: [] };
-        this.toast(r.failed.length ? (r.ok + ' sections applied, ' + r.failed.length + ' FAILED: ' + r.failed.map(x => x.name).join(', ')) : ('Applied to ' + r.ok + ' sections. Now create the Visual Report (Word).'), r.failed.length ? 'err' : 'ok');
+        this.toast(r.failed.length ? (r.ok + ' sections applied, ' + r.failed.length + ' FAILED: ' + r.failed.map(x => x.name).join(', ')) : ('Draft saved into ' + r.ok + ' sections - building the report now.'), r.failed.length ? 'err' : 'ok');
         await this.vaLoad(true);
         if (this.loadStructure) this.loadStructure();
+        if (createReport && r.ok && !r.failed.length) { this.reportKind = 'Visual'; await this.generateReport('docx'); }
+        else if (createReport && r.failed.length) this.toast('The report was NOT started because some sections failed to save - fix them and press Create Report again.', 'err');
       } catch (e) { if (e.message !== 'auth') this.toast('Apply failed: ' + e.message, 'err'); }
       finally { this.va.busy = ''; }
     },
