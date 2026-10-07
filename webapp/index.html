@@ -1061,6 +1061,17 @@ input,select{font-family:inherit;font-size:16px}
               <div class="rvh">Step 1 &mdash; Claude drafts the report</div>
               <div class="hint">Claude looks at each section's photos (up to {{ va.schema ? va.schema.maxPhotos : 8 }}) and the inspector's entries, re-drafts every field (ratings, leaks, invasive, unsafe, Pass/Fail, life expectancy, Additional Considerations), then writes the Final Report cover, Inspection Overview and the summary of findings in Additional Comments. <b>Nothing changes in the inspection until you press Create Report.</b></div>
               <div class="hint"><b>{{ va.data.inspection.length }}</b> sections &middot; <b>{{ vaPhotoCount() }}</b> photos to read<template v-if="va.data.counts && va.data.counts.unavailable"> &middot; {{ va.data.counts.unavailable }} unit(s) unavailable (skipped)</template> &middot; estimated cost about <b>${{ vaEstimate() }}</b>, roughly {{ vaMinutes() }} min</div>
+              <!-- COMPANY WRITING RULES (David, Oct 6 2026: "I need to be able to direct Claude on
+                   its summation or comments"): saved for the whole company, used on every draft. -->
+              <details class="rvsec" style="margin:8px 0" @toggle="$event.target.open && vaRulesLoad()">
+                <summary>&#9998; Your company's writing rules for Claude <span style="font-weight:400;font-size:13px;color:var(--ink-soft)">{{ va.rules.text ? '(' + va.rules.text.split('\n').filter(Boolean).length + ' rule lines saved)' : '(none yet - click to add)' }}</span></summary>
+                <div class="hint">Tell Claude how to write, in plain words. These rules are saved for your whole company and used on every Claude draft (sections and the Final Report summary). Edit them any time; the next draft follows them.</div>
+                <textarea class="rvta" style="min-height:150px" v-model="va.rules.text" @input="va.rulesDirty=true" placeholder="Examples:&#10;- Only comment when there is a concern; never describe good conditions.&#10;- Use: &quot;Repairs are necessary. Maintenance is recommended.&quot;&#10;- Do not mention soiling, debris or furniture.&#10;- Stairs with metal stringers: always comment on rust at the base.&#10;- Final Report summary: no more than 3 sentences."></textarea>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+                  <button class="btn-dl" :disabled="!va.rulesDirty || va.busy==='rules'" @click="vaRulesSave">&#128190; {{ va.busy==='rules' ? 'Saving…' : 'Save Writing Rules' }}</button>
+                  <span class="hint" style="margin:0" v-if="va.rules.at">Last saved {{ shortDate(va.rules.at) }}{{ va.rules.by ? ' by ' + va.rules.by : '' }}</span>
+                </div>
+              </details>
               <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin:6px 0;color:var(--ink)"><input type="checkbox" v-model="va.auto" :disabled="!!va.data.status"> <b>One click:</b> create the report automatically as soon as Claude finishes (skip Step 2)</label>
               <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0">
                 <button class="btn-dl" :disabled="!!va.data.status || !!va.busy || !va.data.aiConfigured || !va.data.inspection.length" @click="vaAnalyze(false)">&#129302; {{ va.data.status==='analyzing' ? 'Claude is drafting…' : (va.auto ? (vaDraftedCount() ? 'Draft Again and Create Report' : 'Draft and Create Report') : (vaDraftedCount() ? 'Start a New Draft with Claude' : 'Start Draft with Claude')) }}</button>
@@ -2170,7 +2181,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-06.6';
+const APP_BUILD = '2026-10-06.7';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2240,7 +2251,7 @@ createApp({
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
-      va: { auto: true, autoDone: '', open: false, loading: false, busy: '', data: {}, f: null, schema: null, dirty: false, timer: null, tick: null, now: Date.now(), pick: {} },
+      va: { rules: { text: '', by: '', at: '' }, rulesDirty: false, rulesLoaded: false, auto: true, autoDone: '', open: false, loading: false, busy: '', data: {}, f: null, schema: null, dirty: false, timer: null, tick: null, now: Date.now(), pick: {} },
       vaSelectFields: [{ k: 'visualreview', label: 'Visual review', opts: 'review' }, { k: 'visualsignsofleak', label: 'Visual signs of leaks', opts: 'yn' },
         { k: 'furtherinvasivereviewrequired', label: 'Further invasive review', opts: 'yn' }, { k: 'unsafecondition', label: 'Unsafe condition', opts: 'yn' },
         { k: 'conditionalassessment', label: 'Condition assessment', opts: 'assess' }, { k: 'eee', label: 'Life expectancy (EEE)', opts: 'life' },
@@ -2533,6 +2544,7 @@ createApp({
       const pid = this.projectId(this.current);
       if (!quiet) this.va.loading = true;
       try {
+        this.vaRulesLoad();
         if (!this.va.schema) {
           const s = await this.api('/visualai/schema');
           if (!s.ok) throw new Error('schema ' + s.status);
@@ -2601,6 +2613,23 @@ createApp({
       return { pct: Math.min(99, Math.round(pct)), label, steps: names.map((name, i) => ({ name, cls: i < at ? 'ok' : (i === at ? 'on' : '') })) };
     },
     vaRows() { return this.va.data.inspection || []; },
+    async vaRulesLoad(force) {
+      if (this.va.rulesLoaded && !force) return;
+      try {
+        const r = await this.api('/visualai/rules');
+        if (r.ok) { this.va.rules = Object.assign({ text: '', by: '', at: '' }, await r.json()); this.va.rulesLoaded = true; this.va.rulesDirty = false; }
+      } catch (e) { /* shown as empty */ }
+    },
+    async vaRulesSave() {
+      this.va.busy = 'rules';
+      try {
+        const r = await this.api('/visualai/rules', { method: 'PUT', json: { text: this.va.rules.text || '' } });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        this.va.rules = await r.json(); this.va.rulesDirty = false;
+        this.toast('Writing rules saved - the next Claude draft follows them.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not save the writing rules: ' + e.message, 'err'); }
+      finally { this.va.busy = ''; }
+    },
     // The newest Final Report (or Visual) created after the draft was applied = "Report is complete".
     vaReadyReport() {
       const ap = this.va.data.applied; if (!ap || !ap.at) return null;

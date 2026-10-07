@@ -199,6 +199,15 @@ async function stillMine(pid, run) { const m = await readManifest(pid); return m
 // A job dies with its server (deploy / restart). After 5 quiet minutes the run counts as interrupted.
 const STALE_MS = 5 * 60 * 1000;
 
+// ---------- COMPANY WRITING RULES for Claude (David, Oct 6 2026) ----------
+// One blob per company: visualdrafts/_rules/<company>.json { text, by, at }.
+// Every "Draft with Claude" run of that company follows them.
+const rulesName = company => `_rules/${String(company || 'unknown').replace(/[^A-Za-z0-9 _.-]/g, '').trim().replace(/\s+/g, '_').slice(0, 80) || 'unknown'}.json`;
+async function readRules(company) {
+  try { return JSON.parse((await uploadBlob.getBlobBuffer(rulesName(company), CONTAINER)).toString('utf8')); }
+  catch (e) { return { text: '', by: '', at: '' }; }
+}
+
 // ---------- routes ----------
 router.get('/schema', async (req, res) => {
   const master = await masterOptions(req.user && req.user.company);
@@ -206,6 +215,15 @@ router.get('/schema', async (req, res) => {
                         exterior: V.EXTERIOR, waterproof: V.WATERPROOF, exclusion: master.exclusionOptions },
              coverChecks: V.COVER_CHECKS, slots: master.slots.map(s => ({ key: s.key, label: s.label, typeOptions: s.typeOptions, conditionOptions: s.conditionOptions, labelOptions: s.labelOptions || null })),
              aiConfigured: AI.isConfigured(), model: AI.modelName(), maxPhotos: AI.MAX_PHOTOS });
+});
+
+router.get('/rules', async (req, res) => res.json(await readRules(req.user && req.user.company)));
+router.put('/rules', async (req, res) => {
+  const text = String((req.body && req.body.text) || '').replace(/\r/g, '').slice(0, 6000);
+  const r = { text, by: (req.user && req.user.username) || '', at: new Date().toISOString() };
+  await putBlob(rulesName(req.user && req.user.company), Buffer.from(JSON.stringify(r)), 'application/json');
+  console.log('Visual AI writing rules saved', req.user && req.user.company, r.by, text.length, 'chars');
+  res.json(r);
 });
 
 router.get('/:projectId', async (req, res) => {
@@ -312,6 +330,7 @@ router.post('/:projectId/analyze', async (req, res) => {
     try {
       const tenant = await tenantsDAO.getTenantByCompanyIdentifier(req.user.company).catch(() => null);
       const company = (tenant && tenant.name) || req.user.company;
+      const rules = (await readRules(req.user.company)).text || '';
       const project = { name: ctx.project.name || '', address: String(ctx.project.address || '').replace(/\s+/g, ' ').trim(),
                         description: ctx.project.description || '', projecttype: ctx.project.projecttype || '' };
       // sections: a small worker pool
@@ -323,7 +342,7 @@ router.post('/:projectId/analyze', async (req, res) => {
           const entry = { name: sec.name, building: sec.building, location: sec.location, locationType: sec.locationType,
                           locationId: sec.locationId, images: sec.images.slice(0, AI.MAX_PHOTOS), base: sec.current };
           try {
-            const r = await AI.draftSection({ sec, project, company, signal: controller.signal });
+            const r = await AI.draftSection({ sec, project, company, rules, signal: controller.signal });
             AI.addUsage(usage, r.usage); model = r.model; photos += r.photosSent;
             results[sec.id] = Object.assign(entry, { draft: quietWhenNoConcern(r.draft, sec.current), photosSent: r.photosSent, at: new Date().toISOString() });
           } catch (e) {
@@ -347,7 +366,7 @@ router.post('/:projectId/analyze', async (req, res) => {
       const counts = countsFrom(list, draftsById);
       let summary = null;
       try {
-        const s = await AI.draftSummary({ project, sectionsOut: drafted, counts, master, company, signal: controller.signal });
+        const s = await AI.draftSummary({ project, sectionsOut: drafted, counts, master, company, rules, signal: controller.signal });
         AI.addUsage(usage, s.usage);
         summary = s.input;
       } catch (e) {

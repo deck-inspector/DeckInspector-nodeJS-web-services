@@ -34,7 +34,7 @@ const DEFINITIONS = `DEFINITIONS (from the company's Final Report - use them exa
 - "Unsafe condition" = an element posing an immediate threat to the safety of the occupants (access should be prevented / emergency repairs or shoring). Use it rarely and only on clear evidence.
 - "Future Inspection" assessment: the element could not be fully evaluated now (blocked, covered, inaccessible).`;
 
-function sectionSystem(company) {
+function sectionSystem(company, rules) {
   return `You are a California exterior elevated element (EEE) inspector writing the Visual Inspection Report for ${company || 'the inspection company'} under SB 721 (Health & Safety Code 17973, apartments) / SB 326 (Civil Code 5551, HOA / condominiums). For ONE inspected section you receive the inspector's photographs and the inspector's own field entries, and you draft every field of that section by calling fill_section exactly once.
 
 ${DEFINITIONS}
@@ -47,10 +47,10 @@ RULES:
 - Do not cite current-code dimensional criteria (railing height, baluster spacing, slope) as defects of existing elements.
 - additionalconsiderations ("Additional Considerations or Concerns") prints in BRIGHT RED in the report and alarms readers. Write it ONLY when there is a real concern with the structure or the waterproofing (failed or missing waterproofing, wood rot, rust, split or loose railings, leaks, damage, an unsafe condition) or when the element could not be inspected (Future Inspection). Otherwise return an EMPTY string - never describe good conditions, never write "no concerns", never restate the ratings. When the inspector's entry is empty and there is no concern, it stays empty.
 - When you do write it: 1-3 short sentences in the house style - the concern, then the action. Examples: "Railings are splitting, allowing water to enter the structure. Repairs are necessary. Maintenance is recommended." / "The waterproofing has failed. Repair or replacement is necessary." / "Carpet covers the walking surface; the waterproofing could not be inspected. Future inspection is required." No locations or photo numbers (the section already shows where), no markdown, no bullets, no mention of AI.
-- exteriorelements / waterproofingelements: short names (e.g. ${V.EXTERIOR.slice(0, 6).join(', ')} / ${V.WATERPROOF.join(', ')}); keep the inspector's names where they are right.`;
+- exteriorelements / waterproofingelements: short names (e.g. ${V.EXTERIOR.slice(0, 6).join(', ')} / ${V.WATERPROOF.join(', ')}); keep the inspector's names where they are right.${rulesBlock(rules)}`;
 }
 
-function summarySystem(company) {
+function summarySystem(company, rules) {
   return `You are completing the first pages of the Final Report of a California EEE Visual Inspection for ${company || 'the inspection company'}: the property counts and checkboxes, the reason for exclusion, the Inspection Overview table (one row per element type: type of construction + conditions noted, chosen ONLY from the dropdown options given), and the Additional Comments. You receive every section of the inspection (already drafted) and the E3 project data. Call fill_summary exactly once.
 
 ${DEFINITIONS}
@@ -61,7 +61,15 @@ RULES:
 - overview: for each row pick the option that best describes the typical construction and the conditions noted on average; "None" / "N/A" when that element type is not present.
 - comments1 (printed in "Additional Comments"): a SHORT summary of the findings - one short sentence per TYPE of concern found, then the action. Do NOT recite each location, unit or section, do not list counts or ratings, do not describe good conditions. House style examples: "Waterproofing failures have been noted at specific locations identified within the report. Repairs are required to ensure water does not enter the structure." / "Railings are splitting, allowing water to enter the structure. Repairs are necessary. Maintenance is recommended." / "Where the waterproofing has failed, repair or replacement is necessary." / "Floor coverings prevented the inspection of some waterproofing; future inspection is required." If there are no concerns at all, one sentence: "No concerns were noted at the time of inspection." 1-5 sentences, no markdown, no bullets.
 - comments2: empty unless a further recommendation is needed (e.g. "Contact the inspector for a final inspection after repairs are completed."); at most 1-2 sentences.
-- Plain professional English. Do not mention AI.`;
+- Plain professional English. Do not mention AI.${rulesBlock(rules)}`;
+}
+
+// COMPANY WRITING RULES (David, Oct 6 2026: "I need to be able to direct Claude on its
+// summation or comments"). Typed by the company in the E3 App; they refine the defaults above.
+function rulesBlock(rules) {
+  const t = String(rules || '').trim();
+  if (!t) return '';
+  return '\n\nCOMPANY WRITING RULES (written by this company in the E3 App - follow them; where they conflict with the style rules above, these win; they never override the definitions or the law):\n' + t.slice(0, 6000);
 }
 
 // ---------- photos ----------
@@ -154,7 +162,7 @@ function addUsage(total, u) {
 }
 
 // sec = { id, building, location, locationType, name, current:{...inspector fields}, images:[urls], unitUnavailable }
-async function draftSection({ sec, project, company, signal }) {
+async function draftSection({ sec, project, company, rules, signal }) {
   const urls = (sec.images || []).slice(0, MAX_PHOTOS);
   return withRetry(async attempt => {
     const imgs = [];
@@ -171,12 +179,12 @@ async function draftSection({ sec, project, company, signal }) {
       `${imgs.length} photograph(s) of this section follow${(sec.images || []).length > MAX_PHOTOS ? ` (the first ${MAX_PHOTOS} of ${(sec.images || []).length})` : ''}.` }];
     imgs.forEach((b, i) => { content.push({ type: 'text', text: `Photo ${i + 1}:` }); content.push(b); });
     content.push({ type: 'text', text: 'Now call fill_section with every field for this section.' });
-    const r = await callTool({ system: sectionSystem(company), content, toolName: 'fill_section', toolSchema: V.sectionToolSchema(), maxTokens: 8000, signal });
+    const r = await callTool({ system: sectionSystem(company, rules), content, toolName: 'fill_section', toolSchema: V.sectionToolSchema(), maxTokens: 8000, signal });
     return { draft: V.normalizeSection(r.input), usage: r.usage, model: r.model, photosSent: imgs.length };
   }, signal);
 }
 
-async function draftSummary({ project, sectionsOut, counts, master, company, signal }) {
+async function draftSummary({ project, sectionsOut, counts, master, company, rules, signal }) {
   const compact = sectionsOut.map(x => ({
     building: x.building, location: x.location, locationType: x.locationType, section: x.name, unitUnavailable: !!x.unitUnavailable,
     elements: (x.draft.exteriorelements || []).join(', '), waterproofing: (x.draft.waterproofingelements || []).join(', '),
@@ -191,7 +199,7 @@ async function draftSummary({ project, sectionsOut, counts, master, company, sig
     (master.exclusionOptions && master.exclusionOptions.length ? `REASON FOR EXCLUSION OPTIONS: ${JSON.stringify(master.exclusionOptions)}\n\n` : '') +
     `ALL SECTIONS (${compact.length}, JSON):\n${JSON.stringify(compact)}\n\nNow call fill_summary.` }];
   return withRetry(async () => {
-    const r = await callTool({ system: summarySystem(company), content, toolName: 'fill_summary', toolSchema: V.summaryToolSchema(master), maxTokens: 12000, signal });
+    const r = await callTool({ system: summarySystem(company, rules), content, toolName: 'fill_summary', toolSchema: V.summaryToolSchema(master), maxTokens: 12000, signal });
     return { input: r.input, usage: r.usage, model: r.model };
   }, signal);
 }
