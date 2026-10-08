@@ -151,11 +151,29 @@ function quietWhenNoConcern(draft, inspector) {
 }
 
 // E3 counts from the section list + drafts (deterministic, not Claude's).
+// EEE COUNT (David, Oct 8 2026: "each section location has inspection points ... Stairs have
+// railings & landings"; he chose "statutory EEE elements only"). Total # EEE = the exterior
+// elements listed in every section that ARE EEE under SB 721 / SB 326 (decks, balconies, stairs,
+// landings, walkways, porches, entries, railings); Integrations, Door Threshold, Stucco Interface
+// and the waterproofing points (flashings, membranes, coatings, sealants) are not counted.
+// A section that lists no EEE element still counts as one. EEE Inspected = the same count over
+// the sections that were not "unit unavailable".
+const EEE_WORDS = /deck|balcon|stair|landing|walkway|corridor|breezeway|porch|entry|entries|entrance|rail|guard|bridge|catwalk/i;
+const NOT_EEE = /integration|threshold|stucco|flashing|membrane|coating|sealant|waterproof|door|window|siding|parapet\s*cap/i;
+function eeeElements(values) {
+  const names = [].concat(values.exteriorelements || []).join(',').split(',').map(t => t.trim()).filter(Boolean);
+  const seen = new Set();
+  return names.filter(n => EEE_WORDS.test(n) && !NOT_EEE.test(n)).filter(n => { const k = n.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+function eeeCountOf(values) { return Math.max(1, eeeElements(values).length); }
 function countsFrom(list, drafts) {
   const units = new Set(), inspected = list.filter(x => !x.unitUnavailable);
   list.forEach(x => units.add(x.locationId));
-  const threat = inspected.filter(x => ((drafts[x.id] && drafts[x.id].draft) || x.current).unsafecondition === 'Yes').length;
-  return { units: units.size, unitsWithEEE: units.size, totalEEE: list.length, eeeInspected: inspected.length, immediateThreatCount: threat,
+  const valuesOf = x => (drafts[x.id] && drafts[x.id].draft) || x.current;
+  const threat = inspected.filter(x => valuesOf(x).unsafecondition === 'Yes').length;
+  const total = list.reduce((n, x) => n + eeeCountOf(valuesOf(x)), 0);
+  const insp = inspected.reduce((n, x) => n + eeeCountOf(valuesOf(x)), 0);
+  return { units: units.size, unitsWithEEE: units.size, sections: list.length, totalEEE: total, eeeInspected: insp, immediateThreatCount: threat,
            unavailable: list.length - inspected.length };
 }
 
