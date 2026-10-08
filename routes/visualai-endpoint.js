@@ -170,7 +170,9 @@ function countsFrom(list, drafts) {
   const units = new Set(), inspected = list.filter(x => !x.unitUnavailable);
   list.forEach(x => units.add(x.locationId));
   const valuesOf = x => (drafts[x.id] && drafts[x.id].draft) || x.current;
-  const threat = inspected.filter(x => valuesOf(x).unsafecondition === 'Yes').length;
+  // Immediate threat (David, Oct 8 2026): "Only the unit location would be marked unsafe ... if one
+  // element is unsafe, the unit location is marked unsafe" - count LOCATIONS with any unsafe section.
+  const threat = new Set(inspected.filter(x => valuesOf(x).unsafecondition === 'Yes').map(x => x.locationId)).size;
   const total = list.reduce((n, x) => n + eeeCountOf(valuesOf(x)), 0);
   const insp = inspected.reduce((n, x) => n + eeeCountOf(valuesOf(x)), 0);
   return { units: units.size, unitsWithEEE: units.size, sections: list.length, totalEEE: total, eeeInspected: insp, immediateThreatCount: threat,
