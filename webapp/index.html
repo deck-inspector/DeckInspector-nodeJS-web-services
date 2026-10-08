@@ -1390,6 +1390,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="ucard" v-for="loc in sp.subProjectLocations" :key="loc.locationId" @click="openUnit(loc)" style="cursor:pointer">
                 <img class="uimg" v-if="loc.url" :src="loc.url" loading="lazy" alt=""><div class="uicon" v-else>&#128682;</div>
                 <div style="flex:1"><b :style="loc.rating==='Bad' ? 'color:#C62828' : ''">{{ loc.locationName }}</b><span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span><span>{{ loc.locationType || 'Unit' }}</span>
+                  <div class="hint" v-if="loc.description" style="margin:2px 0 0;font-size:12px">{{ loc.description }}</div>
                   <div class="rcrow" v-if="loc.ratingCounts && loc.ratingCounts.total">
                     <span class="rc done" v-if="!loc.ratingCounts.unrated">Inspected</span>
                     <span class="rc prog" v-else>{{ loc.ratingCounts.total - loc.ratingCounts.unrated }} of {{ loc.ratingCounts.total }} rated</span>
@@ -1410,6 +1411,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="ucard" v-for="loc in structure.locations" :key="loc.locationId" @click="openUnit(loc)" style="cursor:pointer">
                 <img class="uimg" v-if="loc.url" :src="loc.url" loading="lazy" alt=""><div class="uicon" v-else>&#128682;</div>
                 <div style="flex:1"><b :style="loc.rating==='Bad' ? 'color:#C62828' : ''">{{ loc.locationName }}</b><span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span><span>{{ loc.locationType || 'Unit' }}</span>
+                  <div class="hint" v-if="loc.description" style="margin:2px 0 0;font-size:12px">{{ loc.description }}</div>
                   <div class="rcrow" v-if="loc.ratingCounts && loc.ratingCounts.total">
                     <span class="rc done" v-if="!loc.ratingCounts.unrated">Inspected</span>
                     <span class="rc prog" v-else>{{ loc.ratingCounts.total - loc.ratingCounts.unrated }} of {{ loc.ratingCounts.total }} rated</span>
@@ -2181,7 +2183,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-06.7';
+const APP_BUILD = '2026-10-07.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -5483,6 +5485,18 @@ createApp({
         name: (kind === 'building' ? obj.name : obj.locationName) || '', description: obj.description || '',
         ltype: String(obj.locationType || 'apartment').toLowerCase().replace(/\s+/g, '') };
       this.structOpen = true;
+      // The description may be missing from an older (cached) structure list: read the saved
+      // record so the dialog never shows - and then saves - a blank over the real description
+      // (David, Oct 7 2026: "I am able to save, however within a few seconds the data disappears").
+      if (obj.description === undefined && this.struct.id) {
+        const id = this.struct.id, isB = kind === 'building';
+        this.api(isB ? '/subproject/getSubProjectById' : '/location/getLocationById', { method: 'POST',
+          json: isB ? { subprojectid: id, username: this.user.username } : { locationid: id, username: this.user.username } })
+          .then(r => r.json()).then(gd => {
+            const doc = gd.subproject || gd.location || gd.item || gd.data || {};
+            if (this.structOpen && this.struct.id === id && !this.struct.description && doc.description) this.struct.description = doc.description;
+          }).catch(() => {});
+      }
     },
     async saveStruct() {
       this.structBusy = true;
@@ -5526,6 +5540,13 @@ createApp({
         // the new name shows at once (Sep 17 2026).
         if (s.mode === 'edit' && s.kind !== 'building' && s.kind !== 'section' && this.unit && this.unit.locationId === s.id) {
           this.unit.locationName = s.name; this.unit.description = s.description;
+        }
+        // keep the list copy in step too, so reopening the dialog shows what was saved
+        if (s.mode === 'edit' && s.kind !== 'section') {
+          const st = this.structure || {};
+          const hit = s.kind === 'building' ? (st.subProjects || []).find(b => b.id === s.id)
+            : [].concat(st.locations || [], ...(st.subProjects || []).map(b => b.subProjectLocations || [])).find(l => l.locationId === s.id);
+          if (hit) { if (s.kind === 'building') hit.name = s.name; else hit.locationName = s.name; hit.description = s.description; }
         }
         if (s.kind === 'section') this.loadSections(); else this.loadStructure();
       } catch (e) {

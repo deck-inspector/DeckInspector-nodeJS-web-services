@@ -234,7 +234,7 @@ async function getProjectWiseLocationsMetaData(projectId, parentChildren) {
     if(locationData.data && locationData.data.item)
     {
         for (const loc of orderChildren(locationData.data.item, parentChildren, l => l.id || l._id)) {
-            locations.push({ locationId: loc.id || loc._id, locationName: loc.name, locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo, url: loc.url || '', rating: locConditionRollup(loc), ratingCounts: locConditionCounts(loc)});
+            locations.push({ locationId: loc.id || loc._id, locationName: loc.name, description: loc.description || '', locationType: loc.type ,isInvasive:loc.isInvasive?loc.isInvasive:false, sequenceNo: loc.sequenceNo, url: loc.url || '', rating: locConditionRollup(loc), ratingCounts: locConditionCounts(loc)});
         }
     }
     return locations;
@@ -259,6 +259,9 @@ async function getSubProjectsData(projectId, parentChildren) {
             // Always use 'id' in the response
             subProjectData.id = subProject.id || subProject._id;
             subProjectData.name = subProject.name;
+            // description travels with the structure (David, Oct 7 2026: unit descriptions
+            // "save, then disappear within a few seconds" - the list never carried them).
+            subProjectData.description = subProject.description || '';
             subProjectData.isInvasive = subProject.isInvasive ? subProject.isInvasive : false;
             subProjectData.sequenceNo = subProject.sequenceNo;
             const subProjectLocations = [];
@@ -275,6 +278,7 @@ async function getSubProjectsData(projectId, parentChildren) {
                         locationId: locId,
                         sequenceNo: sequenceNo,
                         locationName: locName,
+                        description: loc.description || '',
                         locationType: locType,
                         isInvasive: isInvasive,
                         url: loc.url || '',
