@@ -1438,6 +1438,9 @@ input,select{font-family:inherit;font-size:16px}
               <!-- Rename / describe from the unit page itself (David, Sep 17 2026:
                    "we cannot edit this name"). Same dialog as the pencil on the list. -->
               <button class="btn-dl" style="padding:4px 10px;font-size:12px;font-weight:normal" title="Edit name and description" @click="openStructEdit('unit', unit)">&#9998; Edit</button>
+              <!-- DELETE from the unit page (David, Oct 7 2026: "I have added a project location ... and
+                   cannot delete it" - the trash can was only on the project's location cards). -->
+              <button class="btn-del" style="padding:4px 10px;font-size:12px;font-weight:normal" title="Delete this location" @click="structDelete = { kind: 'unit', id: unit.locationId, name: unit.locationName, fromUnit: true }">&#128465; Delete</button>
               <!-- DOWNLOAD THIS UNIT'S PHOTOS (David, Oct 6 2026 - an inspector's suggestion):
                    every section photo of this unit (+ the unit photo) as one ZIP, one folder per section. -->
               <button class="btn-dl" style="padding:4px 10px;font-size:12px;font-weight:normal" :disabled="unitZip.busy || loadingSections" title="Download every photo of this unit as a ZIP file" @click="downloadUnitPhotos">&#11015; {{ unitZip.busy ? ('Downloading ' + unitZip.done + ' of ' + unitZip.total + '\u2026') : 'Download Photos (' + unitPhotoCount() + ')' }}</button>
@@ -1685,7 +1688,7 @@ input,select{font-family:inherit;font-size:16px}
   <div class="overlay" v-if="structDelete" @click.self="structDelete=null">
     <div class="modal">
       <h3>Delete {{ structDelete.kind==='building' ? 'building' : 'unit' }}?</h3>
-      <p><b>{{ structDelete.name }}</b><br><br>This removes it (and everything under it) from the inspection structure.</p>
+      <p><b>{{ structDelete.name }}</b><br><br>This removes it (and everything under it, including its inspection sections and photos) from the inspection structure. This cannot be undone.</p>
       <div class="mrow">
         <button class="btn-cancel" @click="structDelete=null">Cancel</button>
         <button class="btn-danger" @click="doStructDelete">Delete</button>
@@ -2183,7 +2186,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-07.1';
+const APP_BUILD = '2026-10-07.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -5559,6 +5562,8 @@ createApp({
         const res = await this.api((d.kind === 'building' ? '/subproject/' : '/location/') + encodeURIComponent(d.id), { method: 'DELETE' });
         if (!res.ok) throw new Error('bad');
         this.toast('Deleted.');
+        // deleted from its own page: go back to the project's location list
+        if (d.fromUnit && this.view === 'unit' && this.unit && this.unit.locationId === d.id) this.backToInspect();
         this.loadStructure();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not delete.', 'err');
