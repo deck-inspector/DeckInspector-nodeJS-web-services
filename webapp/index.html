@@ -394,6 +394,8 @@ input,select{font-family:inherit;font-size:16px}
 .ppdoc .pp-sub{text-align:center;margin-bottom:4px}
 .ppdoc .pp-head{text-align:center;margin-bottom:14px}
 .ppdoc .pp-head img{max-height:72px}
+.ppdoc .pp-photo{text-align:center;margin:10px 0 12px;break-inside:avoid;page-break-inside:avoid}
+.ppdoc .pp-photo img{max-width:100%;max-height:3.2in;object-fit:contain;border:1px solid #999}
 .ppdoc .pp-sec{font-weight:700;color:#C00000;margin:14px 0 6px}
 .ppdoc table{width:100%;border-collapse:collapse;margin:10px 0 14px}
 .ppdoc td{border:1px solid #444;padding:4px 7px;vertical-align:bottom}
@@ -749,6 +751,17 @@ input,select{font-family:inherit;font-size:16px}
               </select>
               <button type="button" class="btn-dl" @click="newClient('manager','prop')">&#65291; New</button>
             </div>
+            <!-- Property Photo (David, Oct 12 2026): same Satellite / Upload choice as
+                 the project's Location Photo. Prints on the proposal and, on Accept,
+                 becomes the project's photo = the inspection report cover photo. -->
+            <label>Property Photo</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn-dl" :disabled="photoBusy || !propAddress()" @click="propSatPhoto">&#128225; Satellite from address</button>
+              <label class="btn-dl" style="cursor:pointer">&#128247; Upload<input type="file" accept="image/*" style="display:none" @change="propPhotoFile($event)"></label>
+              <button type="button" class="btn-dl" v-if="prop.form.propertyPhoto" :disabled="photoBusy" @click="prop.form.propertyPhoto=''">&#10005; Remove</button>
+            </div>
+            <div class="hint" v-if="photoBusy" style="margin:6px 0 0">Working&hellip;</div>
+            <img v-if="prop.form.propertyPhoto" :src="prop.form.propertyPhoto" alt="property photo" style="margin-top:8px;width:100%;max-height:180px;object-fit:cover;border-radius:10px;border:1.5px solid var(--line)">
             <label>Owner / MGR</label><input v-model.trim="prop.form.ownerMgr" placeholder="Owner or property manager">
             <div style="display:flex;gap:8px"><div style="flex:1"><label>Contact Phone</label><input v-model.trim="prop.form.contactPhone" placeholder="760-555-0000"></div><div style="flex:1.4"><label>Contact Email</label><input v-model.trim="prop.form.contactEmail" placeholder="name@email.com"></div></div>
             <h4>Document selections</h4>
@@ -794,6 +807,7 @@ input,select{font-family:inherit;font-size:16px}
               <tr><td>Contact:</td><td>{{ prop.form.contactPhone || prop.form.contact }}</td><td colspan="2">{{ prop.form.contactEmail }}</td></tr>
               <tr><td style="text-transform:none">{{ pv(3) }}</td><td colspan="3">{{ pv(4) }}</td></tr>
             </table>
+            <div class="pp-photo" v-if="prop.form.propertyPhoto"><img :src="prop.form.propertyPhoto" alt="property photo"></div>
             <div class="pp-sec">INSPECTIONS PARAMETERS:</div>
             <p><b>{{ coName }},</b> a Certified E3 Inspector, will conduct an onsite inspection located at the address above. The complete inspection is conducted in multiple sections by State Licensed Architects, Engineers, ICC Inspectors or Contractors as required by City or State Civil Code, starting with a Visual Inspection of the Exterior Elevated Elements (EEE). The visual inspection looks at all decks, stairs, railing, and wooden structures (including metal structures and attachments where 604 Affidavits are required) supporting or attached to any structure which extends beyond the exterior walls where people may walk, stand, or sit (load or static). This inspection follows the guidelines as defined by the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551/ 2026 Updated Inspection Reporting Requirements (SB326) or Section 604 of The San Francisco Housing Code.</p>
             <p>This proposal and pricing have been developed using a 100% EEE review process versus a statistical sampling of the project outlined in California Civil Code &sect;5551 or California Health and 15% sampling for Safety Code &sect;17973 (SB721) and 100% for Section 604 of The San Francisco Housing Code. The reason {{ coName }} use the 100% inspection method for HOA / Condo is to verify all surfaces and structures are safe. The Statistical Sampling method does not provide 100% accuracy and leaves the possibility of an unsafe condition.</p>
@@ -6577,7 +6591,7 @@ createApp({
           : (f.value || '').trim();
       }
       this.propCustom = {};
-      this.prop = { id: null, status: 'draft', ownerClientId: null, managerClientId: null, form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', values } };
+      this.prop = { id: null, status: 'draft', ownerClientId: null, managerClientId: null, form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', propertyPhoto: '', values } };
     },
     // Proposal ATTACHED to an existing project (David, Aug 21: a recalled
     // Final-Inspection project like Virginia Gardens needs a new proposal on
@@ -6593,6 +6607,7 @@ createApp({
       this.prop.form.addressCity = parts[1] || '';
       this.prop.form.addressStateZip = parts.slice(2).join(' ') || '';
       this.prop.linkedProjectId = this.projectId(proj);
+      this.prop.form.propertyPhoto = (proj.url && /^https?:/i.test(proj.url)) ? proj.url : '';
       this.prop.ownerClientId = proj.ownerClientId || null;
       this.prop.managerClientId = proj.managerClientId || null;
       history.pushState({ v: 'proposals' }, '');
@@ -6620,7 +6635,7 @@ createApp({
         copy.form.addressStateZip = parts.slice(2).join(' ') || '';
       }
       if (!copy.form.contactPhone && copy.form.contact) copy.form.contactPhone = copy.form.contact;
-      for (const k of ['addressStreet','addressCity','addressStateZip','contactPhone','contactEmail']) {
+      for (const k of ['addressStreet','addressCity','addressStateZip','contactPhone','contactEmail','propertyPhoto']) {
         if (copy.form[k] == null) copy.form[k] = '';
       }
       if (copy.ownerClientId == null) copy.ownerClientId = null;
@@ -6729,6 +6744,8 @@ createApp({
           if (this.prop.managerClientId) await this.setClient(this.prop.linkedProjectId, 'manager', this.prop.managerClientId);
           if (!this.projects.length) await this.loadProjects();
           const linked = this.projects.find(p => this.projectId(p) === this.prop.linkedProjectId);
+          // Property photo -> the project's photo (= report cover photo)
+          if (linked) await this.propPhotoToProject(linked);
           this.toast('Proposal accepted — linked to ' + ((linked && linked.name) || 'its project') + '. Now upload the signed proposal to its Documents.');
           this.prop = null;
           this.goHome();
@@ -6744,7 +6761,9 @@ createApp({
             name: this.prop.form.property,
             description: 'Created from accepted proposal',
             address: [this.prop.form.addressStreet, this.prop.form.addressCity, this.prop.form.addressStateZip].filter(Boolean).join(', ') || this.prop.form.address || '',
-            createdby: this.user.username, url: '', assignedto: [],
+            // Property photo from the proposal = the project's photo, which is
+            // the inspection report's cover photo (Oct 12 2026).
+            createdby: this.user.username, url: this.prop.form.propertyPhoto || '', assignedto: [],
             projecttype: 'multilevel',
             editedat: new Date().toISOString(),
             formId: null,
@@ -6767,6 +6786,41 @@ createApp({
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not convert the proposal into a project.', 'err');
       } finally { this.propConverting = false; }
+    },
+    /* ---------- proposal property photo (Oct 12 2026) ---------- */
+    propAddress() {
+      const f = (this.prop && this.prop.form) || {};
+      return [f.addressStreet, f.addressCity, f.addressStateZip].map(x => String(x || '').trim()).filter(Boolean).join(', ') || String(f.address || '').trim();
+    },
+    // Reuse the project form's Satellite / Upload code: it reads .address/.name
+    // and writes .url, so hand it a stand-in and copy the result back.
+    async propSatPhoto() {
+      if (!this.prop) return;
+      const tmp = { address: this.propAddress(), name: this.prop.form.property || 'proposal', url: '' };
+      await this.satPhoto(tmp);
+      if (tmp.url && this.prop) this.prop.form.propertyPhoto = tmp.url;
+    },
+    async propPhotoFile(e) {
+      if (!this.prop) return;
+      const tmp = { name: this.prop.form.property || 'proposal', url: '' };
+      await this.photoFile(e, tmp);
+      if (tmp.url && this.prop) this.prop.form.propertyPhoto = tmp.url;
+    },
+    // Accept onto an EXISTING project: the proposal's photo becomes its cover
+    // photo. An existing project photo is kept unless the proposal's differs and
+    // David confirms the swap.
+    async propPhotoToProject(proj) {
+      const url = this.prop && this.prop.form && this.prop.form.propertyPhoto;
+      if (!url || !proj || proj.url === url) return;
+      const hasPhoto = proj.url && /^https?:/i.test(proj.url);
+      if (hasPhoto && !confirm('This project already has a cover photo.\n\nReplace it with the property photo from this proposal?')) return;
+      try {
+        const res = await this.api('/project/' + encodeURIComponent(this.projectId(proj)), {
+          method: 'PUT',
+          json: { url, formId: proj.formId || null, lasteditedby: (this.user && this.user.username) || '' },
+        });
+        if (res.ok) proj.url = url;
+      } catch (e) { /* the accept itself still succeeded */ }
     },
     async doDeleteProposal() {
       const pr = this.propDeleting; this.propDeleting = null;
