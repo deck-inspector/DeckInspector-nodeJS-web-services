@@ -772,7 +772,7 @@ input,select{font-family:inherit;font-size:16px}
               <div v-else style="display:flex;gap:6px;align-items:stretch">
                 <!-- pick from the template's dropdown choices, or (✎) free-type custom
                      pricing/language for THIS proposal (David, Aug 3) -->
-                <select v-if="!propCustom[f.idx]" v-model="prop.form.values[f.idx]" style="flex:1;min-width:0">
+                <select v-if="!propCustom[f.idx]" v-model="prop.form.values[f.idx]" style="flex:1;min-width:0" @change="propFieldChanged(f)">
                   <option v-for="o in propSelOptions(f)" :key="o" :value="o">{{ o }}</option>
                 </select>
                 <textarea v-else v-model="prop.form.values[f.idx]" :rows="String(prop.form.values[f.idx]||'').length > 60 ? 3 : 1"
@@ -5677,6 +5677,73 @@ createApp({
     // the Word document's dropdown has (parsed from the live template). If a
     // previously saved proposal holds a custom value that's not in the list,
     // it's kept as the first option so nothing silently changes on open.
+    // GOVERNING CODE DRIVES THE REST (David, Oct 12 2026): picking the code at
+    // the top (CA 5551 / SB326 HOA, H&S 17973 / SB721 Apartments, 5551
+    // Invasive, SF Sec 604) sets every other code-bearing selection to match,
+    // so they don't have to be picked one by one. Only fields that carry a
+    // code are touched: Client Type, Inspection Type (keeping Visual vs
+    // Invasive as already chosen), and Inspection Scope / Report Type when
+    // they currently hold a code-specific choice. Prices and free-typed (✎)
+    // fields are never changed. Options are found by their wording in the
+    // template's own lists, so a tenant's edited master still works.
+    propFieldChanged(f) {
+      if (!f || !this.prop) return;
+      const code = this.propCodeOf(this.prop.form.values[f.idx]);
+      if (f.idx !== 1 || !code) return;
+      const n = this.propApplyCode(code);
+      if (n) this.toast(n + ' field' + (n === 1 ? '' : 's') + ' matched to ' + ({ hoa: 'CA 5551 (SB326) HOA / Condo', hoaInv: 'CA 5551 (SB326) Invasive', apt: 'H&S 17973 (SB721) Apartments', sf: 'SF Housing Code Sec 604' })[code] + '.');
+    },
+    // Which code a selection's wording names (null = none).
+    propCodeOf(v) {
+      const t = String(v || '').toLowerCase().replace(/\s+/g, ' ');
+      if (/604/.test(t) && /san francisco/.test(t)) return 'sf';
+      if (/17973|sb ?721/.test(t)) return 'apt';
+      if (/5551|sb ?326/.test(t)) return /invasive/.test(t) ? 'hoaInv' : 'hoa';
+      return null;
+    },
+    propApplyCode(code) {
+      const vals = this.prop.form.values;
+      const field = idx => (this.propFields || []).find(x => x.idx === idx);
+      const norm = o => String(o || '').toLowerCase().replace(/\s+/g, ' ');
+      // tests = one test or a list tried in order (first one any option passes wins)
+      const pick = (idx, tests) => {
+        const f = field(idx);
+        if (!f || this.propCustom[idx]) return 0;
+        const opts = (f.options || []).map(o => String(o).trim()).filter(Boolean);
+        let opt = null;
+        for (const t of [].concat(tests)) { opt = opts.find(o => t(norm(o))); if (opt) break; }
+        if (!opt || String(vals[idx] || '').trim() === opt) return 0;
+        vals[idx] = opt;
+        return 1;
+      };
+      const isHoaCode = c => c === 'hoa' || c === 'hoaInv';
+      let n = 0;
+      // Client Type
+      if (isHoaCode(code)) n += pick(3, o => /hoa|condo/.test(o));
+      if (code === 'apt') n += pick(3, o => /apt|apartment/.test(o));
+      // Inspection Type - keep Visual vs Invasive as already chosen (5551 Invasive code = invasive)
+      const curType = norm(vals[4]);
+      const invasive = code === 'hoaInv' || (/invasive/.test(curType) && code !== 'sf');
+      if (isHoaCode(code)) n += invasive ? pick(4, [o => /5551/.test(o) && /invasive/.test(o) && /hoa|condo/.test(o), o => /5551/.test(o) && /invasive/.test(o)])
+                                         : pick(4, o => /5551/.test(o) && /visual/.test(o));
+      if (code === 'apt') n += invasive ? pick(4, o => /17973/.test(o) && /invasive/.test(o))
+                                        : pick(4, o => /17973/.test(o) && /visual/.test(o));
+      if (code === 'sf') n += pick(4, o => /604/.test(o) && /san francisco/.test(o));
+      // Inspection Scope - only when it currently holds a code-specific choice
+      if (this.propCodeOf(vals[9])) {
+        if (isHoaCode(code)) n += pick(9, o => /5551/.test(o));
+        if (code === 'apt') n += pick(9, o => /17973/.test(o));
+        // no 604 scope in the list - Sec 604 is a 100% inspection (proposal wording)
+        if (code === 'sf') n += pick(9, o => /100%/.test(o));
+      }
+      // Report Type - only when it currently holds a code-specific choice
+      if (this.propCodeOf(vals[20])) {
+        if (isHoaCode(code)) n += pick(20, o => /5551/.test(o));
+        if (code === 'apt') n += pick(20, o => /17973/.test(o));
+        if (code === 'sf') n += pick(20, o => /604/.test(o));
+      }
+      return n;
+    },
     propSelOptions(f) {
       const opts = (f.options || []).map(o => String(o).trim()).filter(o => o.length);
       const cur = String((this.prop && this.prop.form.values[f.idx]) || '').trim();
