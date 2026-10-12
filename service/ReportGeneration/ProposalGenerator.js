@@ -373,6 +373,81 @@ class ProposalGenerator {
         }
     }
 
+    // PROPERTY PHOTO (David, Oct 12 2026): the proposal's Satellite / Upload
+    // photo, small and centred, in the empty spacer paragraph that already
+    // follows the "Prepared for" table (Property / Address / Owner / Contact).
+    // Using that existing paragraph instead of adding a new one keeps the
+    // master's spacing, and the size cap (1.5in tall, never wider than 2.5in)
+    // keeps it well inside the 6.5in text width. jpg/png only - detected from
+    // the bytes, since uploads are all stored under a .jpg name. Phone photos
+    // are turned upright first (Word ignores the EXIF orientation tag).
+    async injectPropertyPhoto(zip, doc, url) {
+        try {
+            if (!url || !/^https?:/i.test(String(url))) return doc;
+            const resp = await axios.get(String(url), { responseType: 'arraybuffer', timeout: 60000 });
+            let buf = Buffer.from(resp.data);
+            let ext = null;
+            if (buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) ext = 'png';
+            else if (buf.length > 3 && buf[0] === 0xFF && buf[1] === 0xD8) ext = 'jpg';
+            if (!ext) { console.log('Proposal: property photo is not jpg/png - left out'); return doc; }
+            if (ext === 'jpg') {
+                try {
+                    const o = Number((require('exif-parser').create(buf).parse().tags || {}).Orientation || 1);
+                    if (o && o !== 1) {
+                        const Jimp = require('jimp');
+                        const img = await new Promise((ok, bad) => Jimp.read(buf, (e, i) => (e ? bad(e) : ok(i))));
+                        img.quality(88);
+                        buf = await new Promise((ok, bad) => img.getBuffer(Jimp.MIME_JPEG, (e, b) => (e ? bad(e) : ok(b))));
+                    }
+                } catch (e) { /* keep the photo as stored */ }
+            }
+            // anchor: the end of the table that holds "Property:"
+            const lm = doc.match(new RegExp('P(?:<[^>]+>)*r(?:<[^>]+>)*o(?:<[^>]+>)*p(?:<[^>]+>)*e(?:<[^>]+>)*r(?:<[^>]+>)*t(?:<[^>]+>)*y(?:<[^>]+>)*:'));
+            if (!lm) { console.log('Proposal: Property table not found - photo left out'); return doc; }
+            const tblEnd = doc.indexOf('</w:tbl>', lm.index);
+            if (tblEnd === -1) return doc;
+            const after = tblEnd + '</w:tbl>'.length;
+
+            const dims = this.getImageDims(buf, ext);
+            const EMU = 914400;
+            const MAX_H = 1.5, MAX_W = 2.5;
+            const ar = Math.max(1, dims.w) / Math.max(1, dims.h);
+            let hIn = MAX_H, wIn = MAX_H * ar;
+            if (wIn > MAX_W) { wIn = MAX_W; hIn = MAX_W / ar; }
+            const cx = Math.round(wIn * EMU), cy = Math.round(hIn * EMU);
+
+            zip.file('word/media/propertyphoto.' + ext, buf);
+            this.ensureContentType(zip, ext);
+            this.ensureImageRel(zip, 'word/_rels/document.xml.rels',
+                '<Relationship Id="rIdPropertyPhoto" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/propertyphoto.' + ext + '"/>',
+                'rIdPropertyPhoto');
+            const run = this.inlineImageXml('rIdPropertyPhoto', cx, cy, 990003, 'PropertyPhoto');
+
+            // The empty spacer paragraph right after the table: put the photo in it.
+            const pm = doc.slice(after).match(/^\s*(<w:p\b[^>]*>)([\s\S]*?)<\/w:p>/);
+            if (pm && pm[2].indexOf('<w:t') === -1 && pm[2].indexOf('<w:drawing') === -1) {
+                const pStart = after + pm.index + pm[0].indexOf(pm[1]);
+                const pEnd = after + pm.index + pm[0].length;
+                let inner = pm[2];
+                const pPrM = inner.match(/<w:pPr>[\s\S]*?<\/w:pPr>/);
+                let pPr = pPrM ? pPrM[0] : '<w:pPr></w:pPr>';
+                const rest = pPrM ? inner.replace(pPrM[0], '') : inner;
+                // centre it; a little air above/below so it doesn't touch the table or heading
+                pPr = pPr.replace(/<w:jc [^>]*\/>/g, '').replace(/<w:spacing [^>]*\/>/g, '');
+                pPr = pPr.replace(/(<w:pPr>(?:<w:pStyle [^>]*\/>)?)/, '$1<w:keepNext/><w:spacing w:before="120" w:after="120"/><w:jc w:val="center"/>');
+                doc = doc.slice(0, pStart) + pm[1] + pPr + rest + run + '</w:p>' + doc.slice(pEnd);
+            } else {
+                doc = doc.slice(0, after)
+                    + '<w:p><w:pPr><w:keepNext/><w:spacing w:before="120" w:after="120"/><w:jc w:val="center"/></w:pPr>' + run + '</w:p>'
+                    + doc.slice(after);
+            }
+            console.log('Proposal: property photo placed (' + wIn.toFixed(2) + 'in x ' + hIn.toFixed(2) + 'in)');
+        } catch (e) {
+            console.error('Proposal: property photo skipped (document continues):', e.message);
+        }
+        return doc;
+    }
+
     // Fill the template with the web form's values.
     // form = { property, address, ownerMgr, contact, values: { "<sdtIndex>": "text", ... } }
     async fillProposal(templateBuffer, companyIdentifier, form) {
@@ -400,6 +475,9 @@ class ProposalGenerator {
         const cPhone = (form && (form.contactPhone || form.contact)) || '';
         const cEmail = (form && form.contactEmail) || '';
         doc = this.fillRowCells(doc, 'tact:', [cPhone, cEmail]);
+
+        // Property photo under the "Prepared for" table (Oct 12 2026)
+        if (form && form.propertyPhoto) doc = await this.injectPropertyPhoto(zip, doc, form.propertyPhoto);
 
         // CLIENT company name + phone from the Admin panel wherever the master
         // says "Deck Inspectors" (identical rules to the Final Report).
