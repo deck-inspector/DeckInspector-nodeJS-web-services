@@ -395,7 +395,8 @@ input,select{font-family:inherit;font-size:16px}
 .ppdoc .pp-head{text-align:center;margin-bottom:14px}
 .ppdoc .pp-head img{max-height:72px}
 .ppdoc .pp-photo{text-align:center;margin:10px 0 12px;break-inside:avoid;page-break-inside:avoid}
-.ppdoc .pp-photo img{max-width:100%;max-height:3.2in;object-fit:contain;border:1px solid #999}
+.ppdoc .pp-photo img{max-width:2.5in;max-height:1.5in;object-fit:contain;border:1.25px solid #404040;box-shadow:2px 3px 5px rgba(0,0,0,.35)}
+.ppdoc .pp-photo .cap{margin-top:5px;font-size:8.5pt;font-style:italic;color:#595959}
 .ppdoc .pp-sec{font-weight:700;color:#C00000;margin:14px 0 6px}
 .ppdoc table{width:100%;border-collapse:collapse;margin:10px 0 14px}
 .ppdoc td{border:1px solid #444;padding:4px 7px;vertical-align:bottom}
@@ -807,7 +808,7 @@ input,select{font-family:inherit;font-size:16px}
               <tr><td>Contact:</td><td>{{ prop.form.contactPhone || prop.form.contact }}</td><td colspan="2">{{ prop.form.contactEmail }}</td></tr>
               <tr><td style="text-transform:none">{{ pv(3) }}</td><td colspan="3">{{ pv(4) }}</td></tr>
             </table>
-            <div class="pp-photo" v-if="prop.form.propertyPhoto"><img :src="prop.form.propertyPhoto" alt="property photo"></div>
+            <div class="pp-photo" v-if="prop.form.propertyPhoto"><img :src="prop.form.propertyPhoto" alt="property photo"><div class="cap">{{ [prop.form.property, propAddress()].filter(Boolean).join('  \u2022  ') }}</div></div>
             <div class="pp-sec">INSPECTIONS PARAMETERS:</div>
             <p><b>{{ coName }},</b> a Certified E3 Inspector, will conduct an onsite inspection located at the address above. The complete inspection is conducted in multiple sections by State Licensed Architects, Engineers, ICC Inspectors or Contractors as required by City or State Civil Code, starting with a Visual Inspection of the Exterior Elevated Elements (EEE). The visual inspection looks at all decks, stairs, railing, and wooden structures (including metal structures and attachments where 604 Affidavits are required) supporting or attached to any structure which extends beyond the exterior walls where people may walk, stand, or sit (load or static). This inspection follows the guidelines as defined by the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551/ 2026 Updated Inspection Reporting Requirements (SB326) or Section 604 of The San Francisco Housing Code.</p>
             <p>This proposal and pricing have been developed using a 100% EEE review process versus a statistical sampling of the project outlined in California Civil Code &sect;5551 or California Health and 15% sampling for Safety Code &sect;17973 (SB721) and 100% for Section 604 of The San Francisco Housing Code. The reason {{ coName }} use the 100% inspection method for HOA / Condo is to verify all surfaces and structures are safe. The Statistical Sampling method does not provide 100% accuracy and leaves the possibility of an unsafe condition.</p>

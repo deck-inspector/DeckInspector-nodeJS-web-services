@@ -250,9 +250,16 @@ class ProposalGenerator {
         return { w: 900, h: 260 };
     }
 
-    inlineImageXml(rid, cx, cy, id, name) {
+    // frame=true (property photo): thin charcoal border + soft drop shadow,
+    // the effect extents reserving room for the shadow so it is never clipped.
+    inlineImageXml(rid, cx, cy, id, name, frame) {
+        const eff = frame ? '<wp:effectExtent l="12700" t="12700" r="57150" b="57150"/>' : '<wp:effectExtent l="0" t="0" r="0" b="0"/>';
+        const deco = frame
+            ? '<a:ln w="15875"><a:solidFill><a:srgbClr val="404040"/></a:solidFill></a:ln>'
+              + '<a:effectLst><a:outerShdw blurRad="50800" dist="31750" dir="2700000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="35000"/></a:srgbClr></a:outerShdw></a:effectLst>'
+            : '';
         return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
-            + '<wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+            + '<wp:extent cx="' + cx + '" cy="' + cy + '"/>' + eff
             + '<wp:docPr id="' + id + '" name="' + name + '"/>'
             + '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
             + '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
@@ -261,7 +268,7 @@ class ProposalGenerator {
             + '<pic:nvPicPr><pic:cNvPr id="' + id + '" name="' + name + '"/><pic:cNvPicPr/></pic:nvPicPr>'
             + '<pic:blipFill><a:blip r:embed="' + rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
             + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>'
-            + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+            + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>' + deco + '</pic:spPr>'
             + '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
     }
 
@@ -381,7 +388,7 @@ class ProposalGenerator {
     // keeps it well inside the 6.5in text width. jpg/png only - detected from
     // the bytes, since uploads are all stored under a .jpg name. Phone photos
     // are turned upright first (Word ignores the EXIF orientation tag).
-    async injectPropertyPhoto(zip, doc, url) {
+    async injectPropertyPhoto(zip, doc, url, caption) {
         try {
             if (!url || !/^https?:/i.test(String(url))) return doc;
             const resp = await axios.get(String(url), { responseType: 'arraybuffer', timeout: 60000 });
@@ -421,7 +428,13 @@ class ProposalGenerator {
             this.ensureImageRel(zip, 'word/_rels/document.xml.rels',
                 '<Relationship Id="rIdPropertyPhoto" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/propertyphoto.' + ext + '"/>',
                 'rIdPropertyPhoto');
-            const run = this.inlineImageXml('rIdPropertyPhoto', cx, cy, 990003, 'PropertyPhoto');
+            const run = this.inlineImageXml('rIdPropertyPhoto', cx, cy, 990003, 'PropertyPhoto', true);
+            // Small grey caption under the photo (property name + address).
+            const cap = String(caption || '').trim();
+            const capP = cap ? '<w:p><w:pPr><w:spacing w:before="40" w:after="160"/><w:jc w:val="center"/></w:pPr>'
+                + '<w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi" w:cstheme="minorHAnsi"/><w:i/><w:color w:val="595959"/><w:sz w:val="17"/><w:szCs w:val="17"/></w:rPr>'
+                + '<w:t xml:space="preserve">' + this.xmlEscape(cap) + '</w:t></w:r></w:p>' : '';
+            const after2 = cap ? '0' : '120';
 
             // The empty spacer paragraph right after the table: put the photo in it.
             const pm = doc.slice(after).match(/^\s*(<w:p\b[^>]*>)([\s\S]*?)<\/w:p>/);
@@ -434,17 +447,56 @@ class ProposalGenerator {
                 const rest = pPrM ? inner.replace(pPrM[0], '') : inner;
                 // centre it; a little air above/below so it doesn't touch the table or heading
                 pPr = pPr.replace(/<w:jc [^>]*\/>/g, '').replace(/<w:spacing [^>]*\/>/g, '');
-                pPr = pPr.replace(/(<w:pPr>(?:<w:pStyle [^>]*\/>)?)/, '$1<w:keepNext/><w:spacing w:before="120" w:after="120"/><w:jc w:val="center"/>');
-                doc = doc.slice(0, pStart) + pm[1] + pPr + rest + run + '</w:p>' + doc.slice(pEnd);
+                pPr = pPr.replace(/(<w:pPr>(?:<w:pStyle [^>]*\/>)?)/, '$1<w:keepNext/><w:spacing w:before="160" w:after="' + after2 + '"/><w:jc w:val="center"/>');
+                doc = doc.slice(0, pStart) + pm[1] + pPr + rest + run + '</w:p>' + capP + doc.slice(pEnd);
             } else {
                 doc = doc.slice(0, after)
-                    + '<w:p><w:pPr><w:keepNext/><w:spacing w:before="120" w:after="120"/><w:jc w:val="center"/></w:pPr>' + run + '</w:p>'
+                    + '<w:p><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="' + after2 + '"/><w:jc w:val="center"/></w:pPr>' + run + '</w:p>' + capP
                     + doc.slice(after);
             }
             console.log('Proposal: property photo placed (' + wIn.toFixed(2) + 'in x ' + hIn.toFixed(2) + 'in)');
         } catch (e) {
             console.error('Proposal: property photo skipped (document continues):', e.message);
         }
+        return doc;
+    }
+
+    // GOVERNING CODE CENTRING (David, Oct 12 2026): the proposal date is a
+    // small floating table pinned to the right margin, level with the
+    // Governing Code line. Word wraps that line around the date box, so the
+    // "centred" code was centred in the narrower space to its left and looked
+    // shifted. Giving the code paragraph a left indent equal to the box width
+    // + its text gap makes the space symmetric, so the code sits on the true
+    // page centre. Nothing else moves (same lines, same height).
+    centerCodeBesideDate(doc) {
+        try {
+            const re = /<w:tbl>\s*<w:tblPr>(?:(?!<\/w:tblPr>)[\s\S])*?<w:tblpPr ([^>]*)\/>/g;
+            let m;
+            while ((m = re.exec(doc))) {
+                const tStart = m.index;
+                const tEnd = doc.indexOf('</w:tbl>', tStart);
+                if (tEnd === -1) break;
+                const tbl = doc.slice(tStart, tEnd);
+                const attrs = m[1];
+                if (tbl.indexOf('<w:date') === -1 || !/w:tblpXSpec="right"/.test(attrs)) continue;
+                const gap = Number((attrs.match(/w:leftFromText="(\d+)"/) || [0, 180])[1]) || 0;
+                const width = [...tbl.matchAll(/<w:gridCol w:w="(\d+)"/g)].reduce((a, g) => a + Number(g[1]), 0);
+                if (!width) continue;
+                // the paragraph that ends right before the date table
+                const pEnd = doc.lastIndexOf('</w:p>', tStart);
+                if (pEnd === -1) continue;
+                const between = doc.slice(pEnd + 6, tStart).replace(/<\/?w:sdt(Content|EndPr)?\s*\/?>|<w:sdtEndPr\/>/g, '').trim();
+                if (between) continue;          // something else sits between them
+                const pStart = Math.max(doc.lastIndexOf('<w:p ', pEnd), doc.lastIndexOf('<w:p>', pEnd));
+                if (pStart === -1) continue;
+                let para = doc.slice(pStart, pEnd);
+                if (!/<w:jc w:val="center"\/>/.test(para) || /<w:ind /.test(para)) continue;
+                para = para.replace('<w:jc w:val="center"/>', '<w:ind w:left="' + (width + gap) + '"/><w:jc w:val="center"/>');
+                doc = doc.slice(0, pStart) + para + doc.slice(pEnd);
+                console.log('Proposal: Governing Code line re-centred beside the date box (' + (width + gap) + ' twips)');
+                break;
+            }
+        } catch (e) { console.log('Proposal: code centring skipped', e.message); }
         return doc;
     }
 
@@ -477,7 +529,12 @@ class ProposalGenerator {
         doc = this.fillRowCells(doc, 'tact:', [cPhone, cEmail]);
 
         // Property photo under the "Prepared for" table (Oct 12 2026)
-        if (form && form.propertyPhoto) doc = await this.injectPropertyPhoto(zip, doc, form.propertyPhoto);
+        if (form && form.propertyPhoto) {
+            const capAddr = [form.addressStreet, form.addressCity, form.addressStateZip].map(x => String(x || '').trim()).filter(Boolean).join(', ') || String(form.address || '').trim();
+            const cap = [String(form.property || '').trim(), capAddr].filter(Boolean).join('  \u2022  ');
+            doc = await this.injectPropertyPhoto(zip, doc, form.propertyPhoto, cap);
+        }
+        doc = this.centerCodeBesideDate(doc);
 
         // CLIENT company name + phone from the Admin panel wherever the master
         // says "Deck Inspectors" (identical rules to the Final Report).
