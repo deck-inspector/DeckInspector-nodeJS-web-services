@@ -948,7 +948,7 @@ input,select{font-family:inherit;font-size:16px}
                their pages + this project's own E3 inspection, edit on screen, then
                generate the Word report (every answer stays an editable control). -->
           <div v-if="reportKind==='Review'">
-            <div class="hint">Your E3 Inspection Report with the <b>Review of Prior Inspection Report</b> in place of the Visual Report: your letter and property page, your review of the other company's report, your signature page, and their report attached as <b>Annex 1</b>.</div>
+            <div class="hint">Your E3 Inspection Report with the <b>Review of Prior Inspection Report</b> in place of the Visual Report: your letter and property page, your review of the other company's report and your conclusion, then a written <b>Summary of the Prior Inspection Report</b>, then your signature page. Their report itself is not attached.</div>
             <div v-if="rv.loading" class="hint">Loading&hellip;</div>
             <template v-else-if="rv.f">
               <div class="rvstep">
@@ -1048,13 +1048,17 @@ input,select{font-family:inherit;font-size:16px}
                   <div style="margin-top:8px" @input="rv.dirty=true"><b>Summary of opinion</b><textarea class="rvta" style="min-height:140px" v-model="rv.f.E.summary"></textarea>
                   <b>Additional critique and comments</b><textarea class="rvta" style="min-height:100px" v-model="rv.f.E.critique"></textarea></div>
                 </details>
+                <details class="rvsec" open><summary>Summary of the Prior Inspection Report</summary>
+                  <div class="hint" style="margin:4px 0">Printed after your conclusion, in place of their full report. State what their report says &mdash; who, when, what was inspected, how it was rated, what it requires.</div>
+                  <div @input="rv.dirty=true"><textarea class="rvta" style="min-height:160px" v-model="rv.f.E.priorSummary"></textarea></div>
+                </details>
               </div>
               <div class="genrow">
                 <button class="btn btn-big" style="background:#1F7A33" :disabled="!!rv.busy || !rv.dirty" @click="rvSave()">&#128190; {{ rv.busy==='save' ? 'Saving\u2026' : 'Save Answers' }}</button>
                 <button class="btn btn-big btn-word" :disabled="!!rv.busy || rv.data.status==='generating' || rv.data.status==='analyzing'" @click="rvGenerate">&#128196; Create Review Report (Word)</button>
                 <button class="btn btn-big" style="background:#fff;color:#B00020;border:2px solid #B00020" :disabled="!!rv.busy || !!rv.data.status || !rvHasAnswers()" @click="rvClear(false)">&#128465; {{ rv.busy==='clear' ? 'Clearing\u2026' : 'Clear Answers' }}</button>
               </div>
-              <div class="progress" v-if="rv.data.status==='generating'"><div class="spinner"></div><div>Building the Review Report with the prior report as Annex 1 &mdash; it appears in the list below when ready. <span style="white-space:nowrap">({{ rvElapsed() }} elapsed)</span></div></div>
+              <div class="progress" v-if="rv.data.status==='generating'"><div class="spinner"></div><div>Building the Review Report &mdash; it appears in the list below when ready. <span style="white-space:nowrap">({{ rvElapsed() }} elapsed)</span></div></div>
             </template>
           </div>
           <!-- VISUAL REPORT - DRAFT WITH CLAUDE (David, Oct 6 2026: "populate all Visual
@@ -2201,7 +2205,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-07.2';
+const APP_BUILD = '2026-10-13.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2834,7 +2838,7 @@ createApp({
     rvTime(d) { const x = new Date(d); return isNaN(x) ? '' : x.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); },
     rvHasAnswers() {
       const f = this.rv.f; if (!f) return false;
-      return !!(this.rv.data.ai || f.E.summary || f.E.critique || f.A.some(r => r.finding || r.comments) || f.B.some(r => r.present || r.comments)
+      return !!(this.rv.data.ai || f.E.summary || f.E.critique || f.E.priorSummary || f.A.some(r => r.finding || r.comments) || f.B.some(r => r.present || r.comments)
         || f.C.some(r => r.status || r.comments) || f.D.some(r => r.location || r.recommendation) || Object.values(f.prior || {}).some(v => v));
     },
     // STOP (David, Oct 6 2026): stop a running Claude review; the answers stay as they were.
@@ -2885,7 +2889,7 @@ createApp({
       return window.pdfjsLib;
     },
     // The browser turns each PDF page into a JPEG (long edge 1400 px) and uploads
-    // it; the same images feed Claude and Annex 1 of the Word report.
+    // it; Claude reads them to draft the review (they are not put into the Word report).
     async rvUpload(file) {
       if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { this.toast('Please choose the prior report as a PDF file.', 'err'); return; }
       if (this.rv.data.prior && !confirm('Replace the uploaded prior report "' + this.rv.data.prior.fileName + '" with "' + file.name + '"?')) return;
@@ -2952,7 +2956,7 @@ createApp({
       } catch (e) { if (e.message !== 'auth') this.toast(e.message, 'err'); }
     },
     async rvGenerate() {
-      if (!this.rv.data.prior && !confirm('No prior report is uploaded \u2014 create the Review Report without Annex 1?')) return;
+      if (!(this.rv.f && this.rv.f.E && String(this.rv.f.E.priorSummary || '').trim()) && !confirm('The Summary of the Prior Inspection Report is empty \u2014 create the Review Report anyway?')) return;
       const pid = this.projectId(this.current);
       this.rv.busy = 'gen';
       try {

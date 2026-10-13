@@ -211,7 +211,7 @@ function emptyFields() {
     prior: { applicableLaw: '', propertyType: '', company: '', inspector: '', license: '', inspectionDate: '',
              reportDate: '', reference: '', basis: '', reviewDate: '' },
     A: [], B: [], C: [], D: [],
-    E: { overall: '', accuracy: '', recommendation: '', summary: '', critique: '' },
+    E: { overall: '', accuracy: '', recommendation: '', summary: '', critique: '', priorSummary: '' },
   };
   PAGE2_CHECKS.forEach(k => { f.page2.checks[k] = false; });
   A_ITEMS.forEach(() => f.A.push({ finding: '', comments: '' }));
@@ -245,7 +245,8 @@ function normalize(input) {
   (src.D || []).slice(0, D_ROWS).forEach((r, i) => { out.D[i] = { location: str(r && r.location).slice(0, 120), recommendation: str(r && r.recommendation), opinion: pick(r && r.opinion, OPTIONS.opinion), basis: str(r && r.basis) }; });
   const e = src.E || {};
   out.E = { overall: pick(e.overall, OPTIONS.overall), accuracy: pick(e.accuracy, OPTIONS.accuracy),
-            recommendation: pick(e.recommendation, OPTIONS.recommendation), summary: str(e.summary), critique: str(e.critique) };
+            recommendation: pick(e.recommendation, OPTIONS.recommendation), summary: str(e.summary), critique: str(e.critique),
+            priorSummary: str(e.priorSummary).slice(0, 6000) };
   return out;
 }
 
@@ -280,8 +281,9 @@ function toolInputSchema() {
       B: { type: 'array', minItems: B_ITEMS.length, maxItems: B_ITEMS.length, items: { type: 'object', properties: { present: { type: 'boolean' }, ref: S, opinion: en(OPTIONS.scope), comments: S }, required: ['present', 'opinion'] } },
       C: { type: 'array', minItems: C_ITEMS.length, maxItems: C_ITEMS.length, items: { type: 'object', properties: { status: en(OPTIONS.obs), comments: S }, required: ['status', 'comments'] } },
       D: { type: 'array', maxItems: D_ROWS, items: { type: 'object', properties: { location: S, recommendation: S, opinion: en(OPTIONS.opinion), basis: S }, required: ['location', 'recommendation', 'opinion', 'basis'] } },
-      E: { type: 'object', properties: { overall: en(OPTIONS.overall), accuracy: en(OPTIONS.accuracy), recommendation: en(OPTIONS.recommendation), summary: S, critique: S },
-           required: ['overall', 'accuracy', 'recommendation', 'summary', 'critique'] },
+      E: { type: 'object', properties: { overall: en(OPTIONS.overall), accuracy: en(OPTIONS.accuracy), recommendation: en(OPTIONS.recommendation), summary: S, critique: S,
+                                         priorSummary: { type: 'string', description: 'Neutral written summary of the Prior Report (printed after the Reviewer Conclusion in place of attaching the Prior Report).' } },
+           required: ['overall', 'accuracy', 'recommendation', 'summary', 'critique', 'priorSummary'] },
     },
     required: ['page2', 'prior', 'A', 'B', 'C', 'D', 'E'],
   };

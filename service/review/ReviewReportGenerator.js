@@ -1,14 +1,22 @@
 // REVIEW REPORT generator (David, Oct 6 2026).
 // Deck_ReviewTemplate.docx = pages 1-2 of the Visual master (letter + property
 // page, retitled) + the review sections + the master's terms/signature block +
-// "Annex 1 - Prior Inspection Report Reviewed". Generation:
+// a written "Summary of Prior Inspection Report" (David, Oct 13 2026: the other
+// company's full report is NOT attached - no Annex 1, no prior pages under our
+// letterhead). Generation:
 //   1. FinalReportGenerator.fillTemplate() - the SAME address/date fill, client
 //      company name/phone, per-client signers, 0.25in header/footer and client
 //      logo/footer branding the E3 Inspection (Final) Report gets.
 //   2. Every review field is written INTO its content control. The controls are
 //      kept (never flattened), so every dropdown / text box stays editable in Word.
-//   3. The uploaded prior report's page images are placed after the Annex 1
-//      heading, one page each.
+//   3. Order: Sections A-D (findings) -> Section E (conclusion) -> OUR E3
+//      INSPECTION REPORT (the Visual report body: every building / location /
+//      section with ratings and photos; its cover page with the project photo /
+//      logo is removed - the review's own letter, property page and signature
+//      are used instead; David, Oct 13 2026) -> Summary of Prior Inspection
+//      Report -> limitations / terms / signature. The master's
+//      Annex 1 heading + placeholder are removed and its "attached as Annex 1"
+//      wording is rewritten, so the live master blob needs no re-upload.
 'use strict';
 const fs = require('fs');
 const os = require('os');
@@ -22,6 +30,8 @@ const location = require('../../model/location');
 const subProject = require('../../model/subproject');
 const sections = require('../../model/sections');
 const RatingMapping = require('../../model/ratingMapping');
+const GenerateReport = require('../ReportGeneration/GenerateReport');
+const RGU = require('../ReportGeneration/ReportGenerationUtil');
 
 const MASTER_FILE = 'Deck_ReviewTemplate.docx';
 const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -212,36 +222,158 @@ function capHeaderLogos(zip) {
   });
 }
 
-// ---------- Annex 1: prior report pages as full-page images ----------
-function placeAnnex(zip, doc, pageBuffers) {
-  const marker = doc.indexOf('[The Prior Report is attached here.]');
-  if (marker === -1) { console.log('ReviewReport: annex placeholder not found'); return doc; }
-  const ps = Math.max(doc.lastIndexOf('<w:p>', marker), doc.lastIndexOf('<w:p ', marker));
-  const pe = doc.indexOf('</w:p>', marker) + '</w:p>'.length;
-  if (!pageBuffers.length) {
-    return doc.slice(0, ps) + '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:i/></w:rPr><w:t>[No prior report has been uploaded.]</w:t></w:r></w:p>' + doc.slice(pe);
-  }
-  FRG.ensureContentType(zip, 'jpg');
-  const EMU = 914400, maxW = 6.5 * EMU, maxH = 8.6 * EMU;
-  let rels = zip.file('word/_rels/document.xml.rels').asText();
-  let paras = '';
-  pageBuffers.forEach((buf, i) => {
-    const n = String(i + 1).padStart(3, '0');
-    const rid = 'rIdPrior' + n;
-    zip.file(`word/media/prior_${n}.jpg`, buf);
-    rels = rels.replace('</Relationships>', `<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/prior_${n}.jpg"/></Relationships>`);
-    const d = FRG.getImageDims(buf, 'jpg');
-    const s = Math.min(maxW / Math.max(1, d.w), maxH / Math.max(1, d.h));
-    const cx = Math.round(d.w * s), cy = Math.round(d.h * s);
-    paras += '<w:p><w:pPr>' + (i ? '<w:pageBreakBefore/>' : '') + '<w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr>'
-      + FRG.inlineImageXml(rid, cx, cy, 996001 + i, 'PriorPage' + n) + '</w:p>';
-  });
-  zip.file('word/_rels/document.xml.rels', rels);
-  return doc.slice(0, ps) + paras + doc.slice(pe);
+// The closing signature table (Signature / Inspector Name / Qualifying Title / License #)
+// must never split across pages - the summary's length moves it (Oct 13 2026).
+function keepSignatureTogether(doc) {
+  const note = doc.lastIndexOf('This document, in its entirety, is protected');
+  const sig = doc.lastIndexOf('>Signature<', note === -1 ? doc.length : note);
+  if (sig === -1) return doc;
+  const ts = Math.max(doc.lastIndexOf('<w:tbl>', sig), doc.lastIndexOf('<w:tbl ', sig)), te = doc.indexOf('</w:tbl>', sig);
+  if (ts === -1 || te === -1) return doc;
+  const addKeepNext = para => para.includes('<w:keepNext/>') ? para
+    : para.includes('<w:pPr>') ? para.replace(/<w:pPr>(<w:pStyle [^>]*\/>)?/, (m, st) => '<w:pPr>' + (st || '') + '<w:keepNext/>')
+    : para.replace(/^(<w:p(?: [^>]*)?>)/, '$1<w:pPr><w:keepNext/></w:pPr>');
+  const rows = doc.slice(ts, te).split(/(?=<w:tr[ >])/);
+  const tbl = rows.map((r, i) => {
+    if (!/^<w:tr[ >]/.test(r)) return r;
+    r = r.includes('<w:trPr>') ? (r.includes('<w:cantSplit/>') ? r : r.replace('<w:trPr>', '<w:trPr><w:cantSplit/>'))
+                               : r.replace(/^(<w:tr(?: [^>]*)?>)/, '$1<w:trPr><w:cantSplit/></w:trPr>');
+    r = r.replace(/<w:p(?: [^>]*)?>[\s\S]*?<\/w:p>/g, addKeepNext);   // every row, incl. the last: keep with the NOTE
+    return r;
+  }).join('');
+  // the (empty) paragraphs between the table and the copyright NOTE also keep with it
+  const gapEnd = note === -1 ? te : paraStart(doc, note);
+  const gap = doc.slice(te, gapEnd).replace(/<w:p(?: [^>]*)?>[\s\S]*?<\/w:p>/g, addKeepNext);
+  return doc.slice(0, ts) + tbl + gap + doc.slice(gapEnd);
 }
 
-// fields: normalized review fields; pageBuffers: [Buffer jpeg] in page order
-async function generate({ projectId, companyName, fields, pageBuffers, uploader }) {
+// ---------- Our E3 inspection report (Visual report body) ----------
+// The Visual report = cover page (DeckProjectHeader: "Visual Inspection Report",
+// project name/address/description/created by + project photo or company logo)
+// followed by the building / location / section pieces, each joined by
+// merge_docx.py's 1-pt page-break paragraph. The cover is cut off here.
+const MERGE_BREAK_RE = /<w:p>(?:(?!<\/w:p>)[\s\S])*?<w:pageBreakBefore\/><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"\/>[\s\S]*?<\/w:p>/;
+function stripVisualCover(buf) {
+  const zip = new PizZip(buf);
+  let doc = zip.file('word/document.xml').asText();
+  const bodyOpen = doc.indexOf('<w:body>');
+  const bodyStart = bodyOpen === -1 ? -1 : bodyOpen + '<w:body>'.length;
+  const cover = doc.indexOf('Created By:');
+  if (bodyStart === -1 || cover === -1) { console.log('ReviewReport: Visual cover page not found - kept as is'); return buf; }
+  let cutTo = -1;
+  const rest = doc.slice(cover);
+  const m = rest.match(MERGE_BREAK_RE);
+  if (m) cutTo = cover + m.index + m[0].length;       // through the break paragraph after the cover
+  else {                                               // Node-merger fallback: through the cover photo paragraph
+    const img = doc.indexOf('<w:drawing>', cover);
+    if (img !== -1) cutTo = paraEnd(doc, img);
+  }
+  if (cutTo === -1) { console.log('ReviewReport: Visual cover end not found - kept as is'); return buf; }
+  doc = doc.slice(0, bodyStart) + doc.slice(cutTo);
+  doc = dropTrailingSpacerRows(doc);
+  zip.file('word/document.xml', doc);
+  return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+// Each section table ends with an empty spacer row. When the photos fill the page
+// exactly, that empty row spills onto a page of its own and the next location then
+// starts a page later - a blank page (seen in the 633 N Taylor sample, Oct 13 2026).
+// Remove that last row when it holds no text or picture and the table is followed
+// (bookmarks aside) by a page-break paragraph or the end of the body.
+function dropTrailingSpacerRows(doc) {
+  let removed = 0;
+  const out = doc.replace(/<w:tr[ >](?:(?!<w:tr[ >])[\s\S])*?<\/w:tr>((?:<w:bookmark(?:End|Start)[^>]*\/>)*)<\/w:tbl>((?:<w:bookmark(?:End|Start)[^>]*\/>)*)(?=<w:p><w:pPr><w:pageBreakBefore\/>|<w:sectPr)/g,
+    (row, b1, b2) => {
+      const tr = row.slice(0, row.lastIndexOf('</w:tr>') + '</w:tr>'.length);
+      if (/<w:drawing|<w:pict|<w:sdt/.test(tr)) return row;
+      const text = (tr.match(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g) || []).map(t => t.replace(/<[^>]+>/g, '')).join('');
+      if (text.trim() !== '') return row;
+      if ((row.match(/<w:tr[ >]/g) || []).length !== 1) return row;
+      removed++;
+      return b1 + '</w:tbl>' + b2;
+    });
+  if (removed) console.log('ReviewReport: removed', removed, 'empty spacer rows from the E3 report');
+  return out;
+}
+
+async function buildVisualBody(projectId) {
+  const url = await GenerateReport.generateReport(projectId, 'Visual');
+  if (!url) throw new Error('the E3 Visual Inspection Report could not be generated');
+  const parts = String(url).split('/');
+  const buf = await uploadBlob.getBlobBuffer(decodeURIComponent(parts[parts.length - 1]), parts[parts.length - 2]);
+  if (!buf || !buf.length) throw new Error('the E3 Visual Inspection Report file was empty');
+  return stripVisualCover(RGU.sanitizeDocxBuffer(buf));
+}
+
+// Split the filled review into [letter .. Section E] and [Summary of Prior Report .. end],
+// so our inspection report can be placed between them. Both halves keep the review's
+// own page setup, header (client logo) and footer.
+function splitReview(buf) {
+  const zip = new PizZip(buf);
+  const doc = zip.file('word/document.xml').asText();
+  const mark = doc.indexOf('>Summary of Prior Inspection Report<');
+  const bodyOpen = doc.indexOf('<w:body>');
+  const sect = doc.lastIndexOf('<w:sectPr');
+  if (mark === -1 || bodyOpen === -1 || sect === -1) throw new Error('ReviewReport: split point not found');
+  const bodyStart = bodyOpen + '<w:body>'.length;
+  const at = paraStart(doc, mark);
+  const dropOrphanBookmarks = x => {
+    const starts = new Set([...x.matchAll(/<w:bookmarkStart [^>]*w:id="(\d+)"/g)].map(m => m[1]));
+    const ends = new Set([...x.matchAll(/<w:bookmarkEnd [^>]*w:id="(\d+)"/g)].map(m => m[1]));
+    return x.replace(/<w:bookmarkStart [^>]*w:id="(\d+)"[^>]*\/>/g, (m, id) => ends.has(id) ? m : '')
+            .replace(/<w:bookmarkEnd [^>]*w:id="(\d+)"[^>]*\/>/g, (m, id) => starts.has(id) ? m : '');
+  };
+  const half = xml => { const z = new PizZip(buf); z.file('word/document.xml', dropOrphanBookmarks(xml)); return z.generate({ type: 'nodebuffer', compression: 'DEFLATE' }); };
+  return [half(doc.slice(0, at) + doc.slice(sect)), half(doc.slice(0, bodyStart) + doc.slice(at))];
+}
+
+// ---------- Summary of Prior Inspection Report (replaces Annex 1, Oct 13 2026) ----------
+const paraStart = (doc, at) => Math.max(doc.lastIndexOf('<w:p>', at), doc.lastIndexOf('<w:p ', at));
+const paraEnd = (doc, at) => doc.indexOf('</w:p>', at) + '</w:p>'.length;
+
+// Wording on pages 1-2 and in the Limitations that referred to the attached report.
+const ANNEX_WORDING = [
+  ['(excluding the Prior Report attached as Annex 1, which remains the work product of its author)',
+   '(excluding the Prior Report, which remains the work product of its author)'],
+  ['(the “Prior Report”, attached as Annex 1', '(the “Prior Report”, summarized at the end of this Review'],
+  ['The Prior Report remains the work product of its author and is attached as Annex 1 solely for reference.',
+   'The Prior Report remains the work product of its author; it is summarized in this Review for reference only and is not reproduced.'],
+];
+
+function removeAnnex(doc) {
+  ANNEX_WORDING.forEach(([a, b]) => { doc = doc.split(a).join(b); });
+  const ph = doc.indexOf('[The Prior Report is attached here.]');
+  const hd = doc.search(/Annex 1 [–-] Prior Inspection Report Reviewed/);
+  if (ph === -1 && hd === -1) return doc;
+  const from = paraStart(doc, hd !== -1 ? hd : ph);
+  const to = paraEnd(doc, ph !== -1 ? ph : hd);
+  return doc.slice(0, from) + doc.slice(to);
+}
+
+// Heading styled like the master's "Section E - Reviewer Conclusion" heading, then the
+// summary text (same red fill style as the other answers), placed right before the
+// "LIMITATIONS OF REVIEW" paragraph, i.e. after Section E.
+function placePriorSummary(doc, text) {
+  const lim = doc.indexOf('LIMITATIONS OF REVIEW');
+  if (lim === -1) { console.log('ReviewReport: Limitations paragraph not found - summary not placed'); return doc; }
+  const at = paraStart(doc, lim);
+  const se = doc.indexOf('Section E – Reviewer Conclusion');
+  let heading;
+  if (se !== -1) {
+    heading = doc.slice(paraStart(doc, se), paraEnd(doc, se)).replace('Section E – Reviewer Conclusion', 'Summary of Prior Inspection Report');
+  } else {
+    heading = '<w:p><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="60"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:caps/><w:sz w:val="20"/></w:rPr><w:t>Summary of Prior Inspection Report</w:t></w:r></w:p>';
+  }
+  const lines = String(text || '').replace(/\r/g, '').split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const pPr = '<w:pPr><w:spacing w:before="0" w:after="120" w:line="259" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>';
+  const body = lines.length
+    ? lines.map(l => '<w:p>' + pPr + runXml(l, true) + '</w:p>').join('')
+    : '<w:p>' + pPr + '<w:r><w:rPr><w:i/><w:color w:val="7F7F7F"/><w:sz w:val="20"/></w:rPr><w:t>[Summary of the Prior Inspection Report not provided.]</w:t></w:r></w:p>';
+  return doc.slice(0, at) + heading + body + doc.slice(at);
+}
+
+// fields: normalized review fields. The prior report's pages are NOT used here.
+async function generate({ projectId, companyName, fields, uploader }) {
   const f = schema.normalize(fields);
   const data = await FRG.collectProjectData(projectId);
   data.inspectionDate = f.page2.reviewInspectionDate || '';   // page 2 = the REVIEW inspection date
@@ -249,10 +381,18 @@ async function generate({ projectId, companyName, fields, pageBuffers, uploader 
   const zip = new PizZip(branded);
   let doc = zip.file('word/document.xml').asText();
   doc = fillReview(doc, f);
-  doc = placeAnnex(zip, doc, pageBuffers || []);
+  doc = removeAnnex(doc);
+  doc = placePriorSummary(doc, f.E.priorSummary);
+  doc = keepSignatureTogether(doc);
   zip.file('word/document.xml', doc);
   capHeaderLogos(zip);
-  const out = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  const review = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+
+  // Our E3 inspection report goes between Section E and the prior-report summary.
+  const visual = await buildVisualBody(projectId);
+  const [head, tail] = splitReview(review);
+  const out = RGU.mergeViaPython([head, visual, tail], `${projectId}_review`);
+  if (!out) throw new Error('combining the review with the E3 inspection report failed');
 
   const tmp = path.join(os.tmpdir(), `${projectId}_ReviewReport.docx`);
   fs.writeFileSync(tmp, out);
@@ -265,4 +405,4 @@ async function generate({ projectId, companyName, fields, pageBuffers, uploader 
   return { url: parsed.url, bytes: out.length };
 }
 
-module.exports = { generate, collectE3, fillReview, placeAnnex, getMaster, capHeaderLogos, keepCertTogether, MASTER_FILE };
+module.exports = { generate, collectE3, fillReview, removeAnnex, placePriorSummary, keepSignatureTogether, stripVisualCover, splitReview, getMaster, capHeaderLogos, keepCertTogether, MASTER_FILE };

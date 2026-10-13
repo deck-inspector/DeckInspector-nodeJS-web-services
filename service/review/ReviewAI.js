@@ -39,6 +39,7 @@ C - inspection practices and site conditions, 8 rows:
 ${C}
 D - up to 6 repairs the Prior Report requires, preferring the elements the Reviewer also inspected; opinion = whether the applicable law requires each; basis cites the Reviewer's observation and statute.
 E - overall opinion, accuracy, recommendation, a summary of opinion (3-5 short paragraphs separated by line breaks) and additional critique.
+E.priorSummary - a SUMMARY OF THE PRIOR INSPECTION REPORT. The Prior Report itself is NOT attached to the Review Report, so this summary is the reader's only account of it. Write it neutrally (what the Prior Report says, not the Reviewer's opinion of it): who prepared it and for whom, inspection and report dates, the law it cites, the number and types of EEE inspected, how it rated them (counts per rating, naming the elements given the worst ratings), the repairs and access restrictions it requires, and any immediate-threat statement. 2-4 short paragraphs separated by line breaks, with page citations ("p. 9"). No critique here - critique belongs in the summary of opinion and additional critique.
 
 RULES:
 - Be accurate and fair. Every statement about the Prior Report must be supported by its pages; cite page numbers ("p. 9"). Quote short phrases exactly when it matters.

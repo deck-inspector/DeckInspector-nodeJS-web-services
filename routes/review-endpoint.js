@@ -7,7 +7,7 @@
 //   status  - '' | 'analyzing' | 'generating' ; error / ai usage / last report
 // The browser turns the prior PDF into page images (pdf.js) and uploads them one
 // page at a time, so no PDF tooling is needed on the server and the same images
-// feed both Claude and Annex 1 of the Word report.
+// feed Claude (they are not put into the Word report).
 'use strict';
 const express = require('express');
 const router = express.Router();
@@ -267,8 +267,8 @@ router.post('/:projectId/generate', async (req, res) => {
   (async () => {
     const name = `${ctx.project.name || 'Project'} - Review Report`;
     try {
-      const pages = (await loadPages(m)).map(p => p.buffer);
-      const out = await Gen.generate({ projectId: ctx.pid, companyName: req.user.company, fields: m.fields, pageBuffers: pages,
+      // The prior report's pages are no longer attached (David, Oct 13 2026).
+      const out = await Gen.generate({ projectId: ctx.pid, companyName: req.user.company, fields: m.fields,
                                        uploader: (req.user && req.user.username) || '' });
       projectReports.addProjectReport({ project_id: ctx.pid, name, url: out.url, uploader: (req.user && req.user.username) || '',
                                         timestamp: new Date().toISOString() }, err => { if (err) console.log(err); });
