@@ -1356,6 +1356,11 @@ input,select{font-family:inherit;font-size:16px}
           <button class="btn-dl" :disabled="downloadingExcel" @click="downloadExcel">&#128202; Download Excel</button>
           <button class="btn-dl" @click="openEdit">&#9998; Edit</button>
           <button class="btn-dl" @click="openDocs(current)">&#128206; Documents</button>
+          <!-- Accepted proposal right inside the inspection (David, Oct 19 2026:
+               "save having to jump back and forth to look at the proposal").
+               Opens in a NEW TAB so the inspection stays where it is. Shown
+               only once the customer has accepted the proposal. -->
+          <button class="btn-dl" v-if="inspectProp" :disabled="openingInspProp" :title="inspectPropDoc ? ('Opens the signed proposal (' + (inspectPropDoc.name || 'Documents') + ') in a new tab') : 'Opens the accepted proposal as a PDF in a new tab'" @click="openInspectProposal">&#128196; {{ openingInspProp ? 'Opening&hellip;' : 'Proposal' }}</button>
           <button class="btn btn-reports" style="width:auto;padding:12px 22px" @click="openReports(current)">Reports</button>
         </div>
         <div class="inspect-layout">
@@ -2285,7 +2290,8 @@ createApp({
       downloadingFinal: false, deleting: null, downloadingExcel: false, unitGenerating: false, uploadingReport: false,
       clientForms: [], downloadingForm: '',
       emailTpl: 'C', brandInfo: {}, tenantId: '',
-      emailReportPick: '', emailDocs: [], reportProp: null, downloadingProp: false, emailBusy: false,
+      emailReportPick: '', emailDocs: [], reportProp: null, downloadingProp: false,
+      inspectProp: null, inspectPropDoc: null, openingInspProp: false, emailBusy: false,
       sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', logoWidth: 300, saving: false, uploading: false },
       signers: [], signerPick: '', signerSaving: false, sgEd: { open: false, rows: [], saving: false },
       finalByPid: {}, dataByPid: {},
@@ -4198,6 +4204,56 @@ createApp({
       this.current = p; this.view = 'inspect'; this.structTab = 'buildings';
       this.structure = { subProjects: [], locations: [] };
       this.loadStructure();
+      this.loadInspectProposal();
+    },
+    // The ACCEPTED proposal linked to this project, for the Proposal button in
+    // the Inspection header. Prefers the signed copy uploaded under project
+    // Documents (name contains "proposal", Word/PDF); otherwise the proposal
+    // is rendered to PDF from its saved form. Draft proposals never show.
+    async loadInspectProposal() {
+      this.inspectProp = null; this.inspectPropDoc = null;
+      const pid = this.projectId(this.current || {});
+      if (!pid) return;
+      try {
+        const res = await this.api('/project/proposals');
+        if (!res.ok) return;
+        const list = await res.json() || [];
+        const pr = list.find(x => x && x.linkedProjectId === pid && x.status === 'accepted') || null;
+        if (pid !== this.projectId(this.current || {})) return;   // user moved on
+        this.inspectProp = pr;
+      } catch (e) { return; }
+      if (!this.inspectProp) return;
+      // RAW fetch: this endpoint returns 401 when the list is empty (never use api()).
+      try {
+        const dres = await fetch(API + '/projectdocuments/' + encodeURIComponent(pid));
+        const dj = dres.ok ? await dres.json() : [];
+        const docs = Array.isArray(dj) ? dj : (dj.documents || dj.data || []);
+        if (pid !== this.projectId(this.current || {})) return;
+        this.inspectPropDoc = docs
+          .filter(d => d && d.url && /proposal/i.test(d.name || '') && /\.(docx|doc|pdf)(\?|$)/i.test(d.url))
+          .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))[0] || null;
+      } catch (e) { this.inspectPropDoc = null; }
+    },
+    async openInspectProposal() {
+      const pr = this.inspectProp; if (!pr) return;
+      if (this.inspectPropDoc && this.inspectPropDoc.url) {
+        window.open(this.inspectPropDoc.url, '_blank', 'noopener');
+        return;
+      }
+      // Open the tab now (inside the click) so pop-up blockers allow it,
+      // then point it at the PDF once it is generated.
+      const w = window.open('', '_blank');
+      if (w) { try { w.document.title = 'Proposal'; w.document.body.innerHTML = '<p style="font:16px sans-serif;padding:24px">Preparing the proposal&hellip;</p>'; } catch (e) {} }
+      this.openingInspProp = true;
+      try {
+        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: pr.form || {}, format: 'pdf' } });
+        if (!res.ok) throw new Error('bad');
+        const url = URL.createObjectURL(await res.blob());
+        if (w && !w.closed) w.location.href = url; else window.open(url, '_blank');
+      } catch (e) {
+        if (w && !w.closed) w.close();
+        if (e.message !== 'auth') this.toast('Could not open the proposal.', 'err');
+      } finally { this.openingInspProp = false; }
     },
     // Whole-card click on the dashboard opens the INSPECTION (never Reports).
     // Ignore clicks on anything with its own job: every button, the assign
@@ -6935,7 +6991,9 @@ createApp({
       if (st.v === 'reports' || st.v === 'inspect' || st.v === 'unit') {
         const p = this.projects.find(x => this.projectId(x) === st.pid);
         if (!p) { this.view = 'projects'; return; }
+        const projChanged = this.projectId(this.current || {}) !== st.pid || !this.inspectProp;
         this.current = p;
+        if (st.v !== 'reports' && projChanged) this.loadInspectProposal();
         if (st.v === 'reports') { this.view = 'reports'; this.reports = []; this.assignPick = ''; this.loadReports(); if (!this.users.length) this.loadUsers(); return; }
         if (st.v === 'inspect') { this.view = 'inspect'; this.structTab = 'buildings'; this.structure = { subProjects: [], locations: [] }; this.loadStructure(); return; }
         this.unit = st.loc; this.view = 'unit'; this.sections = []; this.loadSections(); this.repRecs = []; this.loadRepairs();
