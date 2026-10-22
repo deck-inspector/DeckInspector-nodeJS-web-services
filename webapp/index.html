@@ -61,6 +61,8 @@ input,select{font-family:inherit;font-size:16px}
 .search input{width:100%;padding:12px 16px 12px 42px;border:1.5px solid var(--line);border-radius:12px;background:#fff}
 .search input:focus{outline:none;border-color:var(--brand)}
 .search .icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ink-soft)}
+/* Proposal number tag (David, Oct 22 2026) */
+.propno{display:inline-block;font-weight:800;font-size:13px;letter-spacing:.3px;color:#fff;background:var(--charcoal,#333);border-radius:6px;padding:2px 8px;margin-right:6px;vertical-align:middle}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
 .pcard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .15s}
 .pcard.upcoming{background:#E9F8EC;border:4px solid #12A344;box-shadow:0 0 0 3px rgba(18,163,68,.28),0 6px 18px rgba(18,163,68,.35)}
@@ -699,19 +701,29 @@ input,select{font-family:inherit;font-size:16px}
       <template v-else-if="view==='proposals'">
         <button class="back" @click="prop ? closeProposal() : goHome()">&#8592; {{ prop ? 'All proposals' : 'All projects' }}</button>
         <div class="page-head">
-          <h2>Proposals <span class="count" v-if="!loadingProposals && !prop">({{ proposals.length }})</span><span v-if="prop" style="font-weight:400;font-size:16px;color:var(--ink-soft)"> — {{ prop.form.property || 'New proposal' }}</span></h2>
+          <h2>Proposals <span class="count" v-if="!loadingProposals && !prop">({{ filteredProposals.length }})</span><span v-if="prop" style="font-weight:400;font-size:16px;color:var(--ink-soft)"> — <span class="propno" v-if="prop.proposalNumber">{{ prop.proposalNumber }}</span>{{ prop.form.property || 'New proposal' }}<span v-if="!prop.proposalNumber" style="font-size:13px"> (number assigned on first save)</span></span></h2>
+          <div class="search" v-if="!prop">
+            <span class="icon">&#128269;</span>
+            <input v-model.trim="propQuery" placeholder="Search by proposal #, name, address, owner, email…">
+          </div>
           <button v-if="!prop" class="btn btn-reports" style="width:auto;padding:12px 20px" :disabled="propBusy" @click="newProposal">&#65291; New Proposal</button>
+        </div>
+        <div class="kindrow" v-if="!prop && !loadingProposals && proposals.length">
+          <button class="kind" :class="{on: propStatusFilter===''}" @click="propStatusFilter=''">All ({{ proposals.length }})</button>
+          <button class="kind" :class="{on: propStatusFilter==='draft'}" @click="propStatusFilter='draft'">Draft ({{ proposals.filter(x => x.status !== 'accepted').length }})</button>
+          <button class="kind" :class="{on: propStatusFilter==='accepted'}" @click="propStatusFilter='accepted'">Accepted ({{ proposals.filter(x => x.status === 'accepted').length }})</button>
         </div>
 
         <div class="empty" v-if="loadingProposals">Loading proposals&hellip;</div>
 
         <!-- list -->
         <div v-else-if="!prop" class="prop-listonly">
+          <div class="empty" v-if="proposals.length && filteredProposals.length===0">No proposals match.</div>
           <div class="empty" v-if="proposals.length===0">No proposals yet. Create one here before the project exists &mdash; once the client accepts, it converts into a project and the signed copy goes into that project&rsquo;s Documents.</div>
           <div class="grid" v-else>
-            <div class="pcard" v-for="pr in proposals" :key="pr.id">
+            <div class="pcard" v-for="pr in filteredProposals" :key="pr.id">
               <div class="body">
-                <h3>{{ pr.name }}</h3>
+                <h3><span class="propno" v-if="pr.proposalNumber">{{ pr.proposalNumber }}</span>{{ pr.name }}<span v-if="pr.cycle" style="color:#1565D8;font-size:12px;font-weight:800"> &bull; FINAL INSPECTION</span></h3>
                 <div class="addr">{{ (pr.form && ([pr.form.addressStreet, pr.form.addressCity, pr.form.addressStateZip].filter(Boolean).join(', ') || pr.form.address)) || 'No address' }}</div>
                 <div class="clrow" v-if="pr.ownerClientId || pr.managerClientId">
                   <span class="clchip" v-if="pr.ownerClientId" @click.stop="openClient(pr.ownerClientId)"><b>Owner</b>{{ clientName(pr.ownerClientId) }}</span>
@@ -807,6 +819,7 @@ input,select{font-family:inherit;font-size:16px}
             <div class="pp-sub" style="font-weight:700">{{ pv(0) }}</div>
             <div class="pp-sub" style="position:relative">{{ pv(1) }}<span style="position:absolute;right:0;top:-4px;border:1px solid #444;background:#f0f0f0;font-weight:700;padding:2px 12px">{{ pv(2) }}</span></div>
             <table class="pp-info">
+              <tr v-if="prop.proposalNumber"><td>Proposal No.:</td><td colspan="3"><b>{{ prop.proposalNumber }}</b></td></tr>
               <tr><td>Property:</td><td colspan="3">{{ prop.form.property }}</td></tr>
               <tr><td>Address:</td><td>{{ prop.form.addressStreet || prop.form.address }}</td><td>{{ prop.form.addressCity }}</td><td>{{ prop.form.addressStateZip }}</td></tr>
               <tr><td>Owner / MGR:</td><td colspan="3">{{ prop.form.ownerMgr }}</td></tr>
@@ -1252,7 +1265,7 @@ input,select{font-family:inherit;font-size:16px}
             <h3 style="margin:0 0 4px">Proposal<span v-if="cycleOf(current)" style="color:#1565D8"> &mdash; Final Inspection After Repairs</span></h3>
             <div v-if="cycleOf(current)" class="hint">This Final Inspection has its own proposal and its own invoice. The original Visual Inspection proposal and invoice are kept as they were.</div>
             <template v-if="reportProp">
-              <div class="hint">The accepted proposal for <b>{{ (reportProp.form && reportProp.form.property) || current.name }}</b> — download it, email it, or open it for edits without leaving this page.</div>
+              <div class="hint"><span class="propno" v-if="reportProp.proposalNumber">{{ reportProp.proposalNumber }}</span>The {{ reportProp.status === 'accepted' ? 'accepted' : 'draft' }} proposal for <b>{{ (reportProp.form && reportProp.form.property) || current.name }}</b> — download it, email it, or open it for edits without leaving this page.</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
                 <button class="btn-dl" :disabled="downloadingProp" @click="downloadReportProposal">&#11015; {{ downloadingProp ? 'Preparing&hellip;' : 'Download Proposal (Word)' }}</button>
                 <button class="btn-dl" @click="emailProposal(reportProp)">&#9993; Email Proposal (Outlook)</button>
@@ -2333,7 +2346,7 @@ createApp({
 
       structTab: 'buildings',
       docsOpen: false, docsProject: null, docs: [], loadingDocs: false, docFiles: [], docProgress: '', uploadingDoc: false, docDeleting: null, docDrag: false, repDrag: false,
-      proposals: [], loadingProposals: false, prop: null, propFields: [], propBranding: null,
+      proposals: [], loadingProposals: false, propQuery: '', propStatusFilter: '', prop: null, propFields: [], propBranding: null,
       // client portfolios (Sep 19)
       clients: [], loadingClients: false, clientQuery: '', clientTypeFilter: '', clientShowArchived: false, clientFilter: '',
       clientOpen: null, clientPortfolio: [], loadingPortfolio: false, clientEd: null, clientEdCtx: '', clientBusy: false,
@@ -2446,7 +2459,12 @@ createApp({
       if (this.filterMode === 'done') list = list.filter(p => p.iscomplete);
       if (this.clientFilter === '__none') list = list.filter(p => !p.ownerClientId && !p.managerClientId);
       else if (this.clientFilter) list = list.filter(p => p.ownerClientId === this.clientFilter || p.managerClientId === this.clientFilter);
-      if (q) list = list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q));
+      if (q) {
+        // ...or by the number of a proposal linked to it (Oct 22 2026)
+        const qn = q.replace(/^p-?\s*/, '');
+        const byNo = new Set(/^\d+$/.test(qn) ? (this.proposals || []).filter(pr => pr.linkedProjectId && String(pr.proposalNo || '').includes(qn)).map(pr => pr.linkedProjectId) : []);
+        list = list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q) || byNo.has(this.projectId(p)));
+      }
       // Scheduling order (David, Aug 15): the work IN FRONT of us first -
       // projects whose inspection date (editedat) hasn't arrived yet, furthest
       // out at the top, descending to today; THEN past inspections, most
@@ -2457,6 +2475,22 @@ createApp({
       const upcoming = list.filter(p => when(p) >= today).sort((x, y) => when(y) - when(x));
       const past = list.filter(p => when(p) < today).sort((x, y) => when(y) - when(x));
       return upcoming.concat(past);
+    },
+    // Proposal search (David, Oct 22 2026): number ("P-1001", "1001"), property,
+    // address, owner/MGR, contact, phone, email and client names. Newest number first.
+    filteredProposals() {
+      let list = this.proposals || [];
+      if (this.propStatusFilter === 'accepted') list = list.filter(x => x.status === 'accepted');
+      else if (this.propStatusFilter === 'draft') list = list.filter(x => x.status !== 'accepted');
+      const q = String(this.propQuery || '').toLowerCase().trim();
+      if (q) {
+        const terms = q.split(/\s+/).filter(Boolean);
+        list = list.filter(pr => {
+          const hay = this.propSearchText(pr);
+          return terms.every(t => hay.includes(t));
+        });
+      }
+      return [...list].sort((a, b) => (b.proposalNo || 0) - (a.proposalNo || 0) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     },
     // Home-screen sections (David, Sep 23 2026).
     projectGroups() {
@@ -3031,6 +3065,7 @@ createApp({
         if (!this.users.length) this.loadUsers();
         this.sweepFinalReports();
         this.loadPayStatus();
+        this.loadProposals();   // lets the home search find a project by proposal number
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not load projects.', 'err');
       } finally { this.loadingProjects = false; }
@@ -3293,6 +3328,7 @@ createApp({
         let base = f.addressStreet ? [f.addressStreet, f.addressCity, f.addressStateZip].filter(Boolean).join(', ')
                                    : String(f.property || 'Proposal').trim();
         base = base.replace(/\./g, '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 150) || 'Proposal';
+        if (pr.proposalNumber) base = pr.proposalNumber + ' ' + base;
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = base + ' Proposal.docx';
@@ -6758,6 +6794,14 @@ createApp({
       if (lead.phone) f.contactPhone = lead.phone;
       if (lead.email) f.contactEmail = lead.email;
     },
+    propSearchText(pr) {
+      const f = (pr && pr.form) || {};
+      const no = pr.proposalNo ? String(pr.proposalNo) : '';
+      return [pr.proposalNumber, no, pr.name, f.property, f.address, f.addressStreet, f.addressCity, f.addressStateZip,
+              f.ownerMgr, f.contact, f.contactPhone, f.contactEmail, pr.status, pr.cycle ? 'final inspection' : '',
+              pr.ownerClientId ? this.clientName(pr.ownerClientId) : '', pr.managerClientId ? this.clientName(pr.managerClientId) : '']
+        .filter(Boolean).join(' \u2022 ').toLowerCase();
+    },
     async loadProposals() {
       this.loadingProposals = this.proposals.length === 0;
       try {
@@ -6861,7 +6905,8 @@ createApp({
         if (!res.ok) throw new Error('bad');
         const j = await res.json();
         if (j && j.id) this.prop.id = j.id;
-        if (!silent) this.toast('Proposal saved.');
+        if (j && j.proposalNumber) { this.prop.proposalNo = j.proposalNo; this.prop.proposalNumber = j.proposalNumber; }
+        if (!silent) this.toast(j && j.proposalNumber ? ('Proposal ' + j.proposalNumber + ' saved.') : 'Proposal saved.');
         this.loadProposals();
         return j;
       } catch (e) {
@@ -6882,6 +6927,7 @@ createApp({
                         : String(f.property || 'Proposal').trim();
       // strip periods (Chrome extension-truncation) + illegal filename chars; tidy spacing
       base = base.replace(/\./g, '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+      if (this.prop && this.prop.proposalNumber) base = this.prop.proposalNumber + ' ' + base;
       return base.slice(0, 150) || 'Proposal';
     },
     async downloadPropWord() {
