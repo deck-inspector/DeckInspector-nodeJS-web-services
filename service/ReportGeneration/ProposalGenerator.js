@@ -500,6 +500,36 @@ class ProposalGenerator {
         return doc;
     }
 
+    // PROPOSAL NUMBER (David, Oct 22 2026): "top right corner" = a second
+    // line in the grey date box pinned to the right margin, UNDER the date so
+    // the date itself does not move. Same box detection as the code centring
+    // (floating table, right-aligned, holding the date control). A template
+    // without that box simply gets no number (logged).
+    addProposalNumber(doc, numberText) {
+        const label = String(numberText || '').trim();
+        if (!label) return doc;
+        try {
+            const re = /<w:tbl>\s*<w:tblPr>(?:(?!<\/w:tblPr>)[\s\S])*?<w:tblpPr ([^>]*)\/>/g;
+            let m;
+            while ((m = re.exec(doc))) {
+                const tStart = m.index;
+                const tEnd = doc.indexOf('</w:tbl>', tStart);
+                if (tEnd === -1) break;
+                const tbl = doc.slice(tStart, tEnd);
+                if (tbl.indexOf('<w:date') === -1 || !/w:tblpXSpec="right"/.test(m[1])) continue;
+                const width = Number((tbl.match(/<w:gridCol w:w="(\d+)"/) || [0, 1631])[1]) || 1631;
+                const row = '<w:tr><w:trPr><w:trHeight w:val="300"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="' + width + '" w:type="dxa"/><w:shd w:val="pct10" w:color="auto" w:fill="auto"/></w:tcPr>'
+                    + '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="right"/></w:pPr>'
+                    + '<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">No. ' + this.xmlEscape(label) + '</w:t></w:r></w:p></w:tc></w:tr>';
+                doc = doc.slice(0, tEnd) + row + doc.slice(tEnd);
+                console.log('Proposal: number ' + label + ' placed under the date (top right)');
+                return doc;
+            }
+            console.log('Proposal: date box not found - number ' + label + ' left out');
+        } catch (e) { console.log('Proposal: number placement skipped', e.message); }
+        return doc;
+    }
+
     // Fill the template with the web form's values.
     // form = { property, address, ownerMgr, contact, values: { "<sdtIndex>": "text", ... } }
     async fillProposal(templateBuffer, companyIdentifier, form) {
@@ -535,6 +565,7 @@ class ProposalGenerator {
             doc = await this.injectPropertyPhoto(zip, doc, form.propertyPhoto, cap);
         }
         doc = this.centerCodeBesideDate(doc);
+        doc = this.addProposalNumber(doc, form && form.proposalNumber);
 
         // CLIENT company name + phone from the Admin panel wherever the master
         // says "Deck Inspectors" (identical rules to the Final Report).

@@ -3321,7 +3321,7 @@ createApp({
       const pr = this.reportProp; if (!pr) return;
       this.downloadingProp = true;
       try {
-        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: pr.form || {} } });
+        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.propFormWithNo(pr) } });
         if (!res.ok) throw new Error('bad');
         const blob = await res.blob();
         const f = pr.form || {};
@@ -4330,7 +4330,7 @@ createApp({
       if (w) { try { w.document.title = 'Proposal'; w.document.body.innerHTML = '<p style="font:16px sans-serif;padding:24px">Preparing the proposal&hellip;</p>'; } catch (e) {} }
       this.openingInspProp = true;
       try {
-        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: pr.form || {}, format: 'pdf' } });
+        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.propFormWithNo(pr), format: 'pdf' } });
         if (!res.ok) throw new Error('bad');
         const url = URL.createObjectURL(await res.blob());
         if (w && !w.closed) w.location.href = url; else window.open(url, '_blank');
@@ -6123,10 +6123,10 @@ createApp({
         // file if the converter is unreachable so the draft still goes out.
         const attachments = [];
         try {
-          let res = await this.api('/project/generateproposal', { method: 'POST', json: { form: f, format: 'pdf' } });
+          let res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.propFormWithNo(src, f), format: 'pdf' } });
           let ext = 'pdf';
           if (!res.ok) {
-            res = await this.api('/project/generateproposal', { method: 'POST', json: { form: f } });
+            res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.propFormWithNo(src, f) } });
             ext = 'docx';
           }
           if (res.ok) {
@@ -6794,6 +6794,10 @@ createApp({
       if (lead.phone) f.contactPhone = lead.phone;
       if (lead.email) f.contactEmail = lead.email;
     },
+    // The Word/PDF generator prints the proposal number in the date box (top right).
+    propFormWithNo(pr, form) {
+      return Object.assign({}, form || (pr && pr.form) || {}, { proposalNumber: (pr && pr.proposalNumber) || '' });
+    },
     propSearchText(pr) {
       const f = (pr && pr.form) || {};
       const no = pr.proposalNo ? String(pr.proposalNo) : '';
@@ -6934,7 +6938,7 @@ createApp({
       await this.saveProposal(true);
       this.propBusy = true;
       try {
-        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.prop.form } });
+        const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.propFormWithNo(this.prop) } });
         if (!res.ok) throw new Error('bad');
         const blob = await res.blob();
         const a = document.createElement('a');
