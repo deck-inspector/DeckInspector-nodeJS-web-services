@@ -344,4 +344,24 @@ async function invoiceStatus(companyIdentifier, invoiceId) {
   };
 }
 
-module.exports = { configured, authorizeUrl, verifyState, completeConnect, freshConnection, createAndSendInvoice, invoiceStatus, apiBase };
+// Balances of many invoices in as few calls as possible (paid badge on the
+// project cards, Oct 22 2026). Returns { invoiceId: {paid, balance, total, docNumber} }.
+async function invoiceBalances(companyIdentifier, ids) {
+  const out = {};
+  const list = Array.from(new Set((ids || []).map(x => String(x || "").trim()).filter(x => /^\d+$/.test(x))));
+  if (!list.length) return out;
+  const conn = await freshConnection(companyIdentifier);
+  if (!conn) return out;
+  for (let i = 0; i < list.length; i += 100) {
+    const chunk = list.slice(i, i + 100);
+    const sql = "select Id, DocNumber, TotalAmt, Balance from Invoice where Id in (" + chunk.map(x => "'" + x + "'").join(",") + ") maxresults 100";
+    const j = await qapi(conn, "GET", "/query?query=" + encodeURIComponent(sql));
+    const rows = (j && j.QueryResponse && j.QueryResponse.Invoice) || [];
+    for (const inv of rows) {
+      out[String(inv.Id)] = { paid: Number(inv.Balance) === 0, balance: inv.Balance, total: inv.TotalAmt, docNumber: inv.DocNumber };
+    }
+  }
+  return out;
+}
+
+module.exports = { configured, authorizeUrl, verifyState, completeConnect, freshConnection, createAndSendInvoice, invoiceStatus, invoiceBalances, apiBase };

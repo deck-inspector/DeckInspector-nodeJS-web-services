@@ -1958,14 +1958,23 @@ router.route('/qbo/summary')
       }
       if (conn) { out.connected = true; out.qboCompanyName = conn.qboCompanyName || ''; }
       const projectId = (req.query.projectId || '').toString();
+      const cycle = (req.query.cycle || '').toString().trim();   // '' = original visual inspection
+      out.cycle = cycle;
       if (projectId) {
-        const ref = await qboDAO.getInvoiceRef(projectId);
+        const ref = await qboDAO.getInvoiceRef(projectId, cycle);
         if (ref && ref.invoiceId && out.connected) {
-          try { out.invoice = await qboService.invoiceStatus(cid, ref.invoiceId); }
+          try {
+            out.invoice = await qboService.invoiceStatus(cid, ref.invoiceId);
+            if (out.invoice) { try { await qboDAO.setInvoiceRefStatus(ref.id, out.invoice); paidCache.delete(cid); } catch (e) { /* cache only */ } }
+          }
           catch (e) { out.invoice = { invoiceId: ref.invoiceId, error: 'Could not reach QuickBooks: ' + e.message }; }
         }
-        // defaults from the accepted proposal that became this project
-        const prop = await qboDAO.getProposalByProjectId(projectId);
+        // defaults from the accepted proposal that became this project. A
+        // Final Inspection cycle uses ITS proposal; until one exists, the
+        // original proposal still supplies the customer/contact (no prices).
+        let prop = await qboDAO.getProposalByProjectId(projectId, cycle);
+        let pricesFromProp = true;
+        if (!prop && cycle) { prop = await qboDAO.getProposalByProjectId(projectId, ''); pricesFromProp = false; }
         if (prop && prop.form) {
           const f = prop.form;
           const val = (i) => (f.values && (f.values[i] != null ? f.values[i] : f.values[String(i)])) || '';
@@ -1984,8 +1993,8 @@ router.route('/qbo/summary')
             ship: { line1: f.addressStreet || '', city: f.addressCity || '', stateZip: f.addressStateZip || '' },
             txnDate: inspDate,
             poNumber: 'Contract',
-            inspectionAmount: parseMoney(val(10)),        // proposal "Inspection Price"
-            reportAmount: parseMoney(val(21)),            // proposal "Report Fee"
+            inspectionAmount: pricesFromProp ? parseMoney(val(10)) : null,   // proposal "Inspection Price"
+            reportAmount: pricesFromProp ? parseMoney(val(21)) : null,       // proposal "Report Fee"
           };
         }
       }
@@ -1993,6 +2002,49 @@ router.route('/qbo/summary')
     } catch (err) {
       console.error('QBO summary failed:', err && err.message);
       return res.status(500).json({ message: 'Could not read QuickBooks status.' });
+    }
+  });
+
+// PAID BADGE ON THE PROJECT CARDS (David, Oct 22 2026): one call for the
+// whole home screen. -> { connected, byProject: { <projectId>: { <cycle>:
+// { paid, docNumber, total } } } } where cycle '' = the original visual
+// inspection and any other key = a Final Inspection cycle. Paid invoices are
+// remembered on their reference and never re-asked; unpaid ones are checked
+// in batches of 100, with a 2-minute per-tenant cache.
+const paidCache = new Map();
+router.route('/qbo/paidstatus')
+  .get(async function (req, res) {
+    try {
+      const cid = req.user && req.user.company;
+      if (!qboService.configured()) return res.status(200).json({ connected: false, byProject: {} });
+      const hit = paidCache.get(cid);
+      if (hit && Date.now() - hit.at < 2 * 60 * 1000) return res.status(200).json(hit.body);
+      const refs = await qboDAO.listInvoiceRefs(cid);
+      let connected = false, live = {};
+      const open = refs.filter(r => r && r.invoiceId && r.paid !== true);
+      try {
+        const conn = await qboService.freshConnection(cid);
+        connected = !!conn;
+        if (conn && open.length) live = await qboService.invoiceBalances(cid, open.map(r => r.invoiceId));
+      } catch (e) { console.error('QBO paidstatus check failed:', e && e.message); }
+      const byProject = {};
+      for (const r of refs) {
+        if (!r || !r.projectId || !r.invoiceId) continue;
+        const st = live[String(r.invoiceId)];
+        if (st && (st.paid !== !!r.paid || st.balance !== r.balance)) {
+          try { await qboDAO.setInvoiceRefStatus(r.id || qboDAO.invoiceKey(r.projectId, r.cycle), st); } catch (e) { /* cache only */ }
+        }
+        const paid = st ? st.paid : !!r.paid;
+        (byProject[r.projectId] = byProject[r.projectId] || {})[String(r.cycle || '')] = {
+          paid, docNumber: (st && st.docNumber) || r.docNumber || '', total: st ? st.total : r.total,
+        };
+      }
+      const body = { connected, byProject };
+      paidCache.set(cid, { at: Date.now(), body });
+      return res.status(200).json(body);
+    } catch (err) {
+      console.error('QBO paidstatus failed:', err && err.message);
+      return res.status(500).json({ message: 'Could not read invoice status.' });
     }
   });
 
@@ -2014,12 +2066,13 @@ router.route('/qbo/invoice')
       const cid = req.user && req.user.company;
       const b = req.body || {};
       const { projectId, email, customerName, phone, poNumber, txnDate, ship, propertyName } = b;
+      const cycle = String(b.cycle || '').trim();   // '' = original visual inspection
       if (!projectId) return res.status(400).json({ message: 'projectId is required.' });
       const inspAmt = parseMoney(b.inspectionAmount);
       const repAmt = parseMoney(b.reportAmount);
       if (!inspAmt && !repAmt) return res.status(400).json({ message: 'A valid invoice amount is required.' });
-      const existing = await qboDAO.getInvoiceRef(projectId);
-      if (existing && existing.invoiceId) return res.status(409).json({ message: 'An invoice already exists for this project (#' + (existing.docNumber || existing.invoiceId) + ').' });
+      const existing = await qboDAO.getInvoiceRef(projectId, cycle);
+      if (existing && existing.invoiceId) return res.status(409).json({ message: 'An invoice already exists for this ' + (cycle ? 'Final Inspection' : 'project') + ' (#' + (existing.docNumber || existing.invoiceId) + ').' });
       const when = txnDate || new Date().toISOString();
       const lines = [];
       if (inspAmt > 0) lines.push({ amount: inspAmt, serviceDate: when });
@@ -2033,7 +2086,9 @@ router.route('/qbo/invoice')
       await qboDAO.upsertInvoiceRef(projectId, {
         companyIdentifier: cid, invoiceId: result.invoiceId,
         docNumber: result.docNumber, total: result.total, emailed: result.emailed,
-      });
+        paid: false,
+      }, cycle);
+      paidCache.delete(cid);
       return res.status(200).json(result);
     } catch (err) {
       console.error('QBO invoice failed:', err && err.message);
@@ -2073,7 +2128,7 @@ router.route('/proposals/save')
     .post(async function (req, res){
       try{
         const companyIdentifier = req.user && req.user.company;
-        const { id, name, status, form, linkedProjectId, ownerClientId, managerClientId } = req.body;
+        const { id, name, status, form, linkedProjectId, ownerClientId, managerClientId, cycle } = req.body;
         const result = await proposals.upsertProposal({
           id: id || undefined,
           companyIdentifier,
@@ -2083,6 +2138,7 @@ router.route('/proposals/save')
           linkedProjectId: linkedProjectId || null,
           ownerClientId: ownerClientId || null,      // client portfolios (Sep 19)
           managerClientId: managerClientId || null,
+          cycle: String(cycle || '').trim(),         // '' = visual; else Final Inspection cycle (Oct 22 2026)
           createdBy: (req.user && req.user.username) || ''
         });
         res.status(200).json(result);

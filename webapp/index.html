@@ -85,6 +85,10 @@ input,select{font-family:inherit;font-size:16px}
 .pcard:hover{box-shadow:0 6px 22px rgba(28,39,51,.14)}
 .pcard .thumb{height:150px;background:#e7edf2 center/cover no-repeat;position:relative}
 .pcard .thumb .noimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#a9b8c4;font-size:40px}
+/* Payment badge on the card photo (David, Oct 22 2026): green $ check = paid, amber $ = invoiced, not paid yet */
+.pcard .thumb .paybadge{position:absolute;top:8px;right:8px;min-width:34px;height:34px;padding:0 9px;border-radius:17px;display:flex;align-items:center;justify-content:center;gap:2px;font-weight:800;font-size:15px;color:#fff;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.pcard .thumb .paybadge.paid{background:#1F7A33}
+.pcard .thumb .paybadge.unpaid{background:#B7791F}
 .pcard .body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:6px;flex:1}
 .pcard h3{font-size:17px;line-height:1.3}
 .pcard .addr{color:var(--ink-soft);font-size:14px;min-height:20px}
@@ -550,6 +554,7 @@ input,select{font-family:inherit;font-size:16px}
           <div class="pcard" :class="{finalinsp: isFinalInsp(p), upcoming: !isFinalInsp(p) && isUpcoming(p), needsfinal: !isFinalInsp(p) && needsFinal(p), reportready: !isFinalInsp(p) && reportReady(p)}" v-for="p in g.items" :key="p.id" @click="cardClick(p, $event)">
             <div class="thumb" :style="thumbStyle(p)" style="cursor:pointer">
               <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
+              <span class="paybadge" v-if="payOf(p)" :class="payOf(p).paid ? 'paid' : 'unpaid'" :title="payTitle(p)">{{ payOf(p).paid ? '$\u2713' : '$' }}</span>
             </div>
             <div class="body">
               <h3 style="cursor:pointer">{{ p.name }}</h3>
@@ -1244,7 +1249,8 @@ input,select{font-family:inherit;font-size:16px}
             </div>
           </div>
           <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
-            <h3 style="margin:0 0 4px">Proposal</h3>
+            <h3 style="margin:0 0 4px">Proposal<span v-if="cycleOf(current)" style="color:#1565D8"> &mdash; Final Inspection After Repairs</span></h3>
+            <div v-if="cycleOf(current)" class="hint">This Final Inspection has its own proposal and its own invoice. The original Visual Inspection proposal and invoice are kept as they were.</div>
             <template v-if="reportProp">
               <div class="hint">The accepted proposal for <b>{{ (reportProp.form && reportProp.form.property) || current.name }}</b> — download it, email it, or open it for edits without leaving this page.</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
@@ -1278,7 +1284,7 @@ input,select{font-family:inherit;font-size:16px}
             </div>
           </div>
           <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
-            <h3 style="margin:0 0 4px">Invoicing (QuickBooks)</h3>
+            <h3 style="margin:0 0 4px">Invoicing (QuickBooks)<span v-if="cycleOf(current)" style="color:#1565D8"> &mdash; Final Inspection</span></h3>
             <div v-if="qbo.loading" class="hint">Checking QuickBooks&hellip;</div>
             <template v-else-if="!qbo.configured">
               <div class="hint">QuickBooks isn&rsquo;t configured on the server yet &mdash; the Intuit app keys need to be added. Ask your administrator.</div>
@@ -2294,7 +2300,7 @@ createApp({
       inspectProp: null, inspectPropDoc: null, openingInspProp: false, emailBusy: false,
       sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', logoWidth: 300, saving: false, uploading: false },
       signers: [], signerPick: '', signerSaving: false, sgEd: { open: false, rows: [], saving: false },
-      finalByPid: {}, dataByPid: {},
+      finalByPid: {}, dataByPid: {}, payByPid: {}, reportPropVisual: null,
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null,
              email: '', propertyName: '', customerName: '', phone: '', shipLine: '', ship: {}, txnDateStr: '', txnDateIso: '',
              inspectionAmount: '', reportAmount: '',
@@ -3024,11 +3030,43 @@ createApp({
         catch (e) { /* storage full */ }
         if (!this.users.length) this.loadUsers();
         this.sweepFinalReports();
+        this.loadPayStatus();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not load projects.', 'err');
       } finally { this.loadingProjects = false; }
     },
     hasImage(p) { return p && p.url && /^https?:/i.test(p.url); },
+    /* ---------- billing cycles + paid badge (David, Oct 22 2026) ----------
+       '' = the original Visual Inspection; a Final Inspection cycle is the
+       finalcycle timestamp written when "Schedule Final Inspection" is
+       clicked. Each cycle has its own proposal and its own invoice. */
+    cycleOf(p) { return String((p && p.finalcycle) || ''); },
+    payOf(p) {
+      const m = p && this.payByPid[this.projectId(p)];
+      return (m && m[this.cycleOf(p)]) || null;
+    },
+    payTitle(p) {
+      const x = this.payOf(p); if (!x) return '';
+      const what = this.cycleOf(p) ? 'Final Inspection invoice' : 'Invoice';
+      return what + (x.docNumber ? ' #' + x.docNumber : '') + (x.total != null ? ' ($' + x.total + ')' : '') + (x.paid ? ' \u2014 PAID' : ' \u2014 not paid yet');
+    },
+    async loadPayStatus() {
+      try {
+        const res = await this.api('/project/qbo/paidstatus');
+        if (!res.ok) return;
+        const j = await res.json();
+        this.payByPid = (j && j.byProject) || {};
+      } catch (e) { /* badge simply stays hidden */ }
+    },
+    setPay(pid, cycle, inv) {
+      const m = Object.assign({}, this.payByPid[pid] || {});
+      if (inv) m[cycle] = { paid: !!inv.paid, docNumber: inv.docNumber || inv.invoiceId || '', total: inv.total };
+      else delete m[cycle];
+      this.payByPid = Object.assign({}, this.payByPid, { [pid]: m });
+    },
+    // A Final Inspection that has not been given its date yet shows a BLANK
+    // date on the card (its stored date is still the visual inspection's).
+    cardBaseISO(p) { return (p && p.finalinspection && p.finalDateSet === false) ? '' : (p && p.editedat); },
     thumbStyle(p) { return this.hasImage(p) ? { backgroundImage: `url('${p.url}')` } : {}; },
     shortDate(d) { if (!d) return ''; const x = new Date(d); return isNaN(x) ? '' : x.toLocaleDateString(); },
     niceDate(d) { if (!d) return ''; const x = new Date(d); return isNaN(x) ? '' : x.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); },
@@ -3096,7 +3134,12 @@ createApp({
     // card or in Edit moves it to Scheduled. A project that already holds
     // inspection data is never "new".
     isUnscheduled(p) {
-      if (!p || p.iscomplete || p.inspDateSet) return false;
+      if (!p || p.iscomplete) return false;
+      // Final Inspection After Repairs (Oct 22 2026): back in "New - not yet
+      // scheduled" until its own date is set. Finals scheduled before this
+      // change carry no finalDateSet flag and keep their old placement.
+      if (p.finalinspection) return p.finalDateSet === false;
+      if (p.inspDateSet) return false;
       if (this.dataByPid && this.dataByPid[this.projectId(p)]) return false;
       if (!p.editedat) return true;
       if (!p.createdat) return false;
@@ -3233,7 +3276,10 @@ createApp({
         if (!res.ok) return;
         const list = await res.json() || [];
         const pid = this.projectId(this.current || {});
-        this.reportProp = list.find(pr => pr && pr.linkedProjectId === pid) || null;
+        const cyc = this.cycleOf(this.current);
+        this.reportProp = list.find(pr => pr && pr.linkedProjectId === pid && String(pr.cycle || '') === cyc) || null;
+        // the original visual-inspection proposal, kept for the final's prefill
+        this.reportPropVisual = cyc ? (list.find(pr => pr && pr.linkedProjectId === pid && !pr.cycle) || null) : null;
       } catch (e) { /* section simply hides */ }
     },
     async downloadReportProposal() {
@@ -4218,7 +4264,9 @@ createApp({
         const res = await this.api('/project/proposals');
         if (!res.ok) return;
         const list = await res.json() || [];
-        const pr = list.find(x => x && x.linkedProjectId === pid && x.status === 'accepted') || null;
+        const cyc = this.cycleOf(this.current);
+        const acc = list.filter(x => x && x.linkedProjectId === pid && x.status === 'accepted');
+        const pr = acc.find(x => String(x.cycle || '') === cyc) || acc.find(x => !x.cycle) || null;
         if (pid !== this.projectId(this.current || {})) return;   // user moved on
         this.inspectProp = pr;
       } catch (e) { return; }
@@ -4270,19 +4318,19 @@ createApp({
          "make all of the project cards look and act like 147 Berendo") ------- */
     decorateCardDates(list) {
       for (const p of list) {
-        p._inspD = this.toLocalDateStr(p.editedat);
-        p._inspT = this.toLocalTimeStr(p.editedat);
+        p._inspD = this.toLocalDateStr(this.cardBaseISO(p));
+        p._inspT = this.toLocalTimeStr(this.cardBaseISO(p));
         p._inspBusy = false;
         p._rsBusy = false;
       }
       return list;
     },
     cardDateDirty(p) {
-      return p._inspD !== this.toLocalDateStr(p.editedat) || p._inspT !== this.toLocalTimeStr(p.editedat);
+      return p._inspD !== this.toLocalDateStr(this.cardBaseISO(p)) || p._inspT !== this.toLocalTimeStr(this.cardBaseISO(p));
     },
     resetCardDate(p) {
-      p._inspD = this.toLocalDateStr(p.editedat);
-      p._inspT = this.toLocalTimeStr(p.editedat);
+      p._inspD = this.toLocalDateStr(this.cardBaseISO(p));
+      p._inspT = this.toLocalTimeStr(this.cardBaseISO(p));
     },
     // Save as soon as a date/time is picked (David, Aug 18: typed 8/20 on a
     // card, never clicked the save check, and the card "didn't re-sort" -
@@ -4301,10 +4349,11 @@ createApp({
         // the key to null when absent and the DAO merges, which would wipe the
         // project's inspection form.
         const res = await this.api('/project/' + encodeURIComponent(this.projectId(p)), {
-          method: 'PUT', json: { editedat: iso, formId: p.formId || null, inspDateSet: true },
+          method: 'PUT', json: Object.assign({ editedat: iso, formId: p.formId || null, inspDateSet: true }, p.finalinspection ? { finalDateSet: true } : {}),
         });
         if (!res.ok) throw new Error('bad');
         p.editedat = iso;
+        if (p.finalinspection) p.finalDateSet = true;
         this.resetCardDate(p);
         this.toast('Inspection date updated.');
       } catch (e) {
@@ -4739,7 +4788,12 @@ createApp({
         // saveCardDate), then reopen. Reopen preserves the flag; only
         // COMPLETING clears it (backend updateProjectStatus).
         const repairsForm = await this.finalRepairsFormId();
-        const payload = { finalinspection: true, formId: p.formId || null };
+        // New billing cycle + "not scheduled" (Oct 22 2026): the final gets its
+        // own proposal and invoice, and sits in "New - not yet scheduled" until
+        // its date is set. The visual inspection's date is kept for the record.
+        const cycle = new Date().toISOString();
+        const payload = { finalinspection: true, formId: p.formId || null, finalcycle: cycle, finalDateSet: false };
+        if (!p.visualinspat) payload.visualinspat = p.editedat || null;
         if (repairsForm) {
           payload.prevFormId = p.formId || null;   // restored on complete/cancel
           payload.formId = repairsForm;
@@ -4754,6 +4808,9 @@ createApp({
           p.iscomplete = false;
         }
         p.finalinspection = true;
+        p.finalcycle = cycle; p.finalDateSet = false;
+        if (payload.visualinspat !== undefined) p.visualinspat = payload.visualinspat;
+        this.resetCardDate(p);
         if (repairsForm) { p.prevFormId = p.formId || null; p.formId = repairsForm; }
         // Prepare the phones: mark BAD units red, write original findings into
         // their descriptions, pre-create the REPAIRS records with the form
@@ -4771,9 +4828,18 @@ createApp({
           }
         } catch (e) { /* marking is best-effort; scheduling already succeeded */ }
         this.toast((repairsForm
-          ? 'Back on the schedule — inspection form switched to Final Repairs Inspection.'
-          : 'Back on the schedule for a Final Inspection.') + markedMsg + ' Set the new date on the card.');
-        this.loadProjects();
+          ? 'Final Inspection opened — inspection form switched to Final Repairs Inspection.'
+          : 'Final Inspection opened.') + markedMsg + ' It is under New \u2014 not yet scheduled; create the proposal and invoice here, then set the date on the card.');
+        // Open the project page (proposal + invoice live there), then refresh the list behind it.
+        const pid = this.projectId(p);
+        this.openReports(p);
+        await this.loadProjects();
+        const fresh = this.projects.find(x => this.projectId(x) === pid);
+        if (fresh && this.view === 'reports' && this.current && this.projectId(this.current) === pid) {
+          Object.assign(fresh, { finalinspection: true, finalcycle: cycle, finalDateSet: false, iscomplete: false });
+          this.resetCardDate(fresh);
+          this.current = fresh;
+        }
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not schedule the Final Inspection.', 'err');
       }
@@ -5392,7 +5458,7 @@ createApp({
     },
 
     openEdit() {
-      this.editForm = { name: this.current.name || '', address: this.current.address || '', description: this.current.description || '', formId: this.current.formId || null, inspDate: this.toLocalDateStr(this.current.editedat), inspTime: this.toLocalTimeStr(this.current.editedat), url: this.current.url || '' };
+      this.editForm = { name: this.current.name || '', address: this.current.address || '', description: this.current.description || '', formId: this.current.formId || null, inspDate: this.toLocalDateStr(this.cardBaseISO(this.current)), inspTime: this.toLocalTimeStr(this.cardBaseISO(this.current)), url: this.current.url || '' };
       if (!this.forms.length) this.loadForms();
       this.editOpen = true;
     },
@@ -5409,6 +5475,7 @@ createApp({
             lasteditedby: this.user.username,
             editedat: this.inspToISO(this.editForm.inspDate, this.editForm.inspTime),
             inspDateSet: !!this.editForm.inspDate,
+            ...((this.current.finalinspection && this.editForm.inspDate) ? { finalDateSet: true } : {}),
             projecttype: this.current.projecttype,
             formId: this.editForm.formId || null,
           },
@@ -5421,6 +5488,7 @@ createApp({
         this.current.formId = this.editForm.formId || null;
         this.current.editedat = this.editForm.inspDate ? this.inspToISO(this.editForm.inspDate, this.editForm.inspTime) : this.current.editedat;
         if (this.editForm.inspDate) this.current.inspDateSet = true;
+        if (this.editForm.inspDate && this.current.finalinspection) this.current.finalDateSet = true;
         this.resetCardDate(this.current);   // the card's own date/time fields follow the edit at once
         this.editOpen = false;
         this.toast('Project updated.');
@@ -5819,7 +5887,8 @@ createApp({
       this.qbo.loading = true; this.qbo.error = '';
       try {
         const pid = this.projectId(this.current || {});
-        const res = await this.api('/project/qbo/summary?projectId=' + encodeURIComponent(pid || ''));
+        const cyc = this.cycleOf(this.current);
+        const res = await this.api('/project/qbo/summary?projectId=' + encodeURIComponent(pid || '') + '&cycle=' + encodeURIComponent(cyc));
         if (!res.ok) throw new Error('bad');
         const j = await res.json();
         this.qbo.configured = !!j.configured;
@@ -5827,6 +5896,7 @@ createApp({
         this.qbo.qboCompanyName = j.qboCompanyName || '';
         this.qbo.message = j.message || '';
         this.qbo.invoice = j.invoice || null;
+        if (pid && (this.qbo.invoice ? !this.qbo.invoice.error : j.connected)) this.setPay(pid, cyc, this.qbo.invoice);
         const d = j.defaults || {};
         if (!this.qbo.invoice) {
           this.qbo.email = d.email || '';
@@ -5873,6 +5943,7 @@ createApp({
       try {
         const res = await this.api('/project/qbo/invoice', { method: 'POST', json: {
           projectId: this.projectId(this.current || {}),
+          cycle: this.cycleOf(this.current),
           email: this.qbo.email, propertyName: this.qbo.propertyName,
           customerName: this.qbo.customerName, phone: this.qbo.phone,
           ship: this.qboShipParts(), poNumber: 'Contract',
@@ -6735,6 +6806,14 @@ createApp({
       this.prop.form.addressCity = parts[1] || '';
       this.prop.form.addressStateZip = parts.slice(2).join(' ') || '';
       this.prop.linkedProjectId = this.projectId(proj);
+      this.prop.cycle = this.cycleOf(proj);   // Final Inspection proposal (Oct 22 2026)
+      // A final's proposal starts from the visual proposal's client details.
+      const vis = this.prop.cycle ? this.reportPropVisual : null;
+      if (vis && vis.form) {
+        for (const k of ['ownerMgr', 'contact', 'contactPhone', 'contactEmail', 'addressStreet', 'addressCity', 'addressStateZip']) {
+          if (vis.form[k]) this.prop.form[k] = vis.form[k];
+        }
+      }
       this.prop.form.propertyPhoto = (proj.url && /^https?:/i.test(proj.url)) ? proj.url : '';
       this.prop.ownerClientId = proj.ownerClientId || null;
       this.prop.managerClientId = proj.managerClientId || null;
@@ -6777,7 +6856,7 @@ createApp({
       try {
         const res = await this.api('/project/proposals/save', {
           method: 'POST',
-          json: { id: this.prop.id || undefined, name: this.prop.form.property || 'Untitled proposal', status: this.prop.status || 'draft', form: this.prop.form, linkedProjectId: this.prop.linkedProjectId || null, ownerClientId: this.prop.ownerClientId || null, managerClientId: this.prop.managerClientId || null },
+          json: { id: this.prop.id || undefined, name: this.prop.form.property || 'Untitled proposal', status: this.prop.status || 'draft', form: this.prop.form, linkedProjectId: this.prop.linkedProjectId || null, ownerClientId: this.prop.ownerClientId || null, managerClientId: this.prop.managerClientId || null, cycle: this.prop.cycle || '' },
         });
         if (!res.ok) throw new Error('bad');
         const j = await res.json();
