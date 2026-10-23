@@ -56,6 +56,48 @@ var addUser = async function (user) {
   }
 };
 
+// CLIENT PORTAL (Oct 23 2026): a read-only login for an owner / property
+// manager. role 'client' + clientId; access_type 'client' so it never counts
+// against the tenant's inspector seats (the seat checks only count
+// mobile / web / both). Password must already be hashed by the caller.
+var addClientUser = async function (user) {
+  try {
+    const userId = `user_${uuidv4()}`;
+    const userDoc = {
+      username: user.username,
+      first_name: user.first_name || "",
+      last_name: user.last_name || "",
+      email: user.email || "",
+      mobile: user.mobile || "",
+      password: user.password,
+      role: Role.Client,
+      clientId: user.clientId,
+      access_type: "client",
+      companyIdentifier: user.companyIdentifier,
+      isActive: true,
+      type: "User",
+      createdBy: user.createdBy || "",
+      createdAt: new Date().toISOString(),
+    };
+    // N1QL insert (query service) - same reason as the other Users writes.
+    const q = `INSERT INTO \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users (KEY, VALUE) VALUES ($1, $2)`;
+    await executeQuery(q, [userId, userDoc]);
+    return { insertedId: userId, ok: 1 };
+  } catch (error) {
+    console.error("addClientUser error:", error);
+    throw error;
+  }
+};
+
+var getClientUsers = async function (companyIdentifier, clientId) {
+  const query = `SELECT META(u).id as id, u.username, u.first_name, u.last_name, u.email, u.mobile,
+      u.isActive, u.createdAt
+    FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u
+    WHERE u.role = 'client' AND u.companyIdentifier = $1 AND u.clientId = $2
+    ORDER BY LOWER(u.username)`;
+  return await executeQuery(query, [companyIdentifier, clientId]);
+};
+
 var addSuperUser = async function (user) {
   try {
     const userId = `superuser_${uuidv4()}`;
@@ -352,7 +394,9 @@ var resetUserPassword = async function (username, companyIdentifier, newPassword
 
 var getAllUser = async function () {
   try {
-    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u LIMIT 500`;
+    // LIMIT raised 500 -> 5000 (Oct 23 2026): client portal logins live in the
+    // same collection and must never push inspectors off the end of this list.
+    const query = `SELECT META(u).id as id, u.* FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u LIMIT 5000`;
     const results = await executeQuery(query);
     
     if (results.length === 0) {
@@ -496,6 +540,8 @@ function verifyToken(req, res, next) {
 
 module.exports = {
   addUser: addUser,
+  addClientUser,
+  getClientUsers,
   getUser: getUser,
   addAdmin: addAdmin,
   getAllUser: getAllUser,
