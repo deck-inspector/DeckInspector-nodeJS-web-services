@@ -21,35 +21,54 @@ var clientsRouter = require("./routes/clients-endpoint");
 var reviewRouter = require("./routes/review-endpoint");
 // Visual Report - Claude drafts every section + the Final Report summary (routes/visualai-endpoint.js)
 var visualAiRouter = require("./routes/visualai-endpoint");
+// Client portal (Oct 23 2026): read-only owner / property-manager logins.
+const { clientGuard } = require("./service/clientAccess");
 const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
 
 module.exports = function (app) {
   app.use(express.json());
+  // CLIENT PORTAL LOCK (Oct 23 2026): runs before every router. Staff and
+  // token-less requests pass through untouched; a client (owner / property
+  // manager) token may only READ its own portfolio's inspection - see
+  // service/clientAccess.js.
+  app.use("/api", clientGuard);
   app.use("/api/user", authenticateToken, userRouter);
-  app.use("/api/projectdocuments", projectDocumentsRouter);
-  app.use("/api/projectreports", projectReportsRouter);
+  app.use("/api/projectdocuments", authenticateToken, projectDocumentsRouter);
+  // Report downloads stay link-friendly (plain <a href> in the web app, no
+  // header possible; they only proxy files from the E3 storage accounts).
+  // Listing / adding / deleting report entries needs a signed-in user.
+  app.use("/api/projectreports", tokenUnlessDownload, projectReportsRouter);
   app.use("/api/image", authenticateToken, imageRouter);
   app.use("/api/project", authenticateToken, projectRouter);
-  app.use("/api/subproject", subprojectRouter);
-  app.use("/api/location", locationRouter);
-  app.use("/api/section", sectionRouter);
-  app.use("/api/dynamicsection", dynamicSectionRouter);
-  app.use("/api/invasivesection", invasivesectionRouter);
-  app.use("/api/conclusivesection", conclusiveSectionRouter);
+  // These inspection routers used to accept requests with NO token at all
+  // (anyone could add / edit sections). The web app and admin site always send
+  // the token; the phone app writes through Sync Gateway, not these routes.
+  app.use("/api/subproject", authenticateToken, subprojectRouter);
+  app.use("/api/location", authenticateToken, locationRouter);
+  app.use("/api/section", authenticateToken, sectionRouter);
+  app.use("/api/dynamicsection", authenticateToken, dynamicSectionRouter);
+  app.use("/api/invasivesection", authenticateToken, invasivesectionRouter);
+  app.use("/api/conclusivesection", authenticateToken, conclusiveSectionRouter);
   app.use("/api/tenants", authenticateToken, tenantRouter);
   // Client portfolios - owners / property managers and their properties (routes/clients-endpoint.js)
   app.use("/api/clients", authenticateToken, clientsRouter);
   app.use("/api/review", authenticateToken, reviewRouter);
   app.use("/api/visualai", authenticateToken, visualAiRouter);
   app.use("/api/login", loginRouter);
-  app.use("/api/locationforms", locationFormRouter);
+  app.use("/api/locationforms", authenticateToken, locationFormRouter);
   app.use("/api/migrate", migrateRouter);
   // PUBLIC QuickBooks OAuth callback (state-signed; see routes/qbo-endpoint.js)
   app.use("/api/qbo", qboRouter);
   // PUBLIC Android APK install page + download (routes/apk-endpoint.js)
   app.use("/apk", apkRouter);
 };
+
+function tokenUnlessDownload(req, res, next) {
+  const p = String(req.path || "").toLowerCase();
+  if (req.method === "GET" && (p === "/downloadfile" || p === "/downloadpdf")) return next();
+  return authenticateToken(req, res, next);
+}
 
 function authenticateToken(req, res, next) {
   const token = req.headers.authorization;
