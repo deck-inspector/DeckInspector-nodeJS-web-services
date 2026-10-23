@@ -11,6 +11,10 @@ const conclusiveSections  = require("../../../../model/conclusiveSections");
 const blobManager = require("../../../../database/uploadimage");
 const jo = require('jpeg-autorotate');
 
+// Only a real true means unavailable - the STRING "false" is truthy (Oct 23 2026).
+const isUnitUnavailableFlag = v => v === true || /^(true|yes)$/i.test(String(v));
+
+
 
 const generateDocReportForLocation = async function (locationId,companyName, sectionImageProperties, reportType,subprojectName='') {
   try {
@@ -68,7 +72,7 @@ const generateDocReportForLocation = async function (locationId,companyName, sec
                   const conclusiveSectionData = await conclusiveSections.getConclusiveSectionByParentId((section.id || section._id));
                   if (conclusiveSectionData.data && conclusiveSectionData.data.item) {
                     sectionDocValues = {
-                      isUnitUnavailable: sectionData.data.item.unitUnavailable?'true':'false',
+                      isUnitUnavailable: isUnitUnavailableFlag(sectionData.data.item.unitUnavailable)?'true':'false',
                       reportType : reportType,
                       buildingName: subprojectName,
                       parentType: locationType,
@@ -88,7 +92,7 @@ const generateDocReportForLocation = async function (locationId,companyName, sec
                   }
                   else{
                     sectionDocValues = {
-                      isUnitUnavailable: sectionData.data.item.unitUnavailable?'true':'false',
+                      isUnitUnavailable: isUnitUnavailableFlag(sectionData.data.item.unitUnavailable)?'true':'false',
                       reportType : reportType,
                       buildingName: subprojectName,
                       parentType: locationType,
@@ -107,7 +111,7 @@ const generateDocReportForLocation = async function (locationId,companyName, sec
               else{
                   if (invasiveSectionData.data && invasiveSectionData.data.item) {
                     sectionDocValues = {
-                      isUnitUnavailable: sectionData.data.item.unitUnavailable?'true':'false',
+                      isUnitUnavailable: isUnitUnavailableFlag(sectionData.data.item.unitUnavailable)?'true':'false',
                       reportType : reportType,
                       buildingName: subprojectName,
                       parentType: locationType,
@@ -132,7 +136,7 @@ const generateDocReportForLocation = async function (locationId,companyName, sec
                   }
                   else{
                     sectionDocValues = {
-                      isUnitUnavailable: sectionData.data.item.unitUnavailable?'true':'false',
+                      isUnitUnavailable: isUnitUnavailableFlag(sectionData.data.item.unitUnavailable)?'true':'false',
                       reportType : reportType,
                       buildingName: subprojectName,
                       parentType: locationType,
@@ -184,9 +188,9 @@ const generateDocReportForLocation = async function (locationId,companyName, sec
 
             var sectionDocValues;
             
-            if (sectionData.data.item.unitUnavailable) {
+            if (isUnitUnavailableFlag(sectionData.data.item.unitUnavailable)) {
               sectionDocValues = {
-                isUnitUnavailable: sectionData.data.item.unitUnavailable?'true':'false',
+                isUnitUnavailable: isUnitUnavailableFlag(sectionData.data.item.unitUnavailable)?'true':'false',
                 reportType : reportType,
                 buildingName: subprojectName,
                 parentType: locationType,
@@ -201,7 +205,7 @@ const generateDocReportForLocation = async function (locationId,companyName, sec
                 // </body>
                 // `;
                 sectionDocValues = {
-                  isUnitUnavailable: sectionData.data.item.unitUnavailable?'true':'false',
+                  isUnitUnavailable: isUnitUnavailableFlag(sectionData.data.item.unitUnavailable)?'true':'false',
                   reportType : reportType,
                   buildingName: subprojectName,
                   parentType: locationType,

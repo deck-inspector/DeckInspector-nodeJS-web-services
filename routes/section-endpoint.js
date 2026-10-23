@@ -108,6 +108,11 @@ router.route('/:id')
       newData.visualsignsofleak = toBool(newData.visualsignsofleak);
     }
 
+    // Unit-unavailable can now be switched off from the web editor (Oct 23 2026).
+    if(newData.unitUnavailable !== undefined && newData.unitUnavailable !== null){
+      newData.unitUnavailable = toBool(newData.unitUnavailable);
+    }
+
     var result = await SectionService.editSetion(sectionId,newData);
 
     if (result.reason) {

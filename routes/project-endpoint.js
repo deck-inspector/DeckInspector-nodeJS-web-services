@@ -661,9 +661,24 @@ router.route('/generate-location-report')
             const timestampTemp = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}-${now.getMinutes().toString().padStart(2, '0')}-${now.getSeconds().toString().padStart(2, '0')}`;
             const docpath = `${projectName}_${reportType}_${timestampTemp}`;
             res.status(200).json({message: 'Generating report'});
-            const url = await generateLocationReportDoc(projectId,locationID, sectionImageProperties, companyName, reportType, reportFormat, docpath);
-            console.log(url.doc.filePath);
-            console.log('report uploaded');
+            // Unit report (Oct 23 2026): the file is now actually produced and
+            // listed under the project's Reports - or a FAILED line with the
+            // reason, never silence.
+            let url = null, failMsg = '';
+            try {
+                url = await generateLocationReportDoc(projectId,locationID, sectionImageProperties, companyName, reportType, reportFormat, docpath);
+            } catch (genErr) {
+                console.error('Unit report generation FAILED:', genErr);
+                failMsg = (genErr && genErr.message) ? String(genErr.message) : String(genErr);
+            }
+            projectReports.addProjectReport({
+                project_id: projectId,
+                name: url ? `${projectName} - ${reportType} (Unit)` : `${projectName} - ${reportType} unit report FAILED [${(failMsg || 'no file produced').slice(0,200)}]`,
+                url: url || '',
+                uploader,
+                timestamp: (new Date(Date.now())).toISOString()
+            }, function (err) { if (err) { console.log(err) } });
+            console.log('unit report:', url || ('FAILED ' + failMsg));
         } catch (err) {
             console.error('Error generating Report:', err);
         }

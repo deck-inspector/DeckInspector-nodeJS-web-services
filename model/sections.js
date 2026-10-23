@@ -148,9 +148,11 @@ var markInvasive = async function(section) {
 
 var transformData = function(section) {
       section.visualreview = capitalizeWords(section.visualreview);
-      section.visualsignsofleak = capitalizeWords(section.visualsignsofleak.toString());
-      section.furtherinvasivereviewrequired = capitalizeWords(section.furtherinvasivereviewrequired.toString());
-      section.conditionalassessment = capitalizeWords(section.conditionalassessment.toString());
+      // Guarded: a unit marked unavailable on the phone may be missing these.
+      const str = v => (v === undefined || v === null) ? v : v.toString();
+      section.visualsignsofleak = capitalizeWords(str(section.visualsignsofleak));
+      section.furtherinvasivereviewrequired = capitalizeWords(str(section.furtherinvasivereviewrequired));
+      section.conditionalassessment = capitalizeWords(str(section.conditionalassessment));
       // RatingMapping translates the mobile app's codes (one/four/seven/
       // sevenplus) to display labels. Sections edited on the WEB already
       // store the label ("0-1 Years", "1-4 Years", ...) - mapping those

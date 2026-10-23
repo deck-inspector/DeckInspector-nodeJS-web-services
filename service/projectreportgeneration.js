@@ -32,13 +32,32 @@ const generateProjectReport = async function generate(projectId,sectionImageProp
 const generateLocationReportDoc = async function generate(projectId,locationId,sectionImageProperties,companyName,reportType,
                                                           reportFormat, fileName)
 {
-    try{
-        return await GenerateReport.generateLocationReport(projectId,locationId,reportType);
+    // Errors now reach the route so it can record a FAILED entry in Reports
+    // instead of the button spinning forever (Oct 23 2026).
+    const wordUrl = await GenerateReport.generateLocationReport(projectId,locationId,reportType);
+    if (!wordUrl) throw new Error('unit report produced no file');
+    if (reportFormat !== 'pdf') return wordUrl;
+    try {
+        const axios = require('axios');
+        const os = require('os');
+        const path = require('path');
+        const fs = require('fs');
+        const uploadBlob = require('../database/uploadimage');
+        const { convertDocxToPdf } = require('./convertDocxToPdf');
+        const resp = await axios.get(wordUrl, { responseType: 'arraybuffer', timeout: 120000 });
+        const pdf = await convertDocxToPdf(Buffer.from(resp.data), 'unit-report.docx');
+        const fileName = `${locationId}_${reportType}_${new Date().toISOString().slice(0,19).replace(/[T:]/g, '-')}.pdf`;
+        const tmp = path.join(os.tmpdir(), fileName);
+        fs.writeFileSync(tmp, Buffer.from(pdf));
+        try {
+            const result = await uploadBlob.uploadFile('projectreports', fileName, tmp, { metadata: { uploader: 'system' }, tags: { id: String(locationId), reportType: String(reportType) } });
+            const url = JSON.parse(result).url;
+            if (url) return url;
+        } finally { try { fs.unlinkSync(tmp); } catch (e) { /* temp cleanup */ } }
+    } catch (e) {
+        console.error('Unit report: PDF conversion failed, delivering Word instead:', e && e.message);
     }
-    catch(err){
-        console.log(err);
-        // callback("");
-    }
+    return wordUrl;
 }
 
 async function getProjectDoc(projectId,project, sectionImageProperties,companyName, reportType) {

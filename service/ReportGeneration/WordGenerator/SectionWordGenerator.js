@@ -104,7 +104,7 @@ class SectionWordGenerator {
                 }
             }
             else if (reportType === projectReportType.VISUALREPORT) {
-                if (sectionData.data.item.unitUnavailable) {
+                if (this.isUnitUnavailable(sectionData)) {
                     sectionDocValues = {
                         ...baseSectionDocValues,
                     };
@@ -120,9 +120,16 @@ class SectionWordGenerator {
             // return await this.getWord(sectionData.data.item._id, template, sectionDocValues);
         }
     }
+    // Unit-unavailable flag (David, Oct 23 2026 - 522 Flower St, unit G): the
+    // phone stores it as true/"true"; the web editor can now switch it back to
+    // "inspected". Only a real true counts - the STRING "false" is truthy in JS.
+    isUnitUnavailable(sectionData) {
+        const v = sectionData && sectionData.data && sectionData.data.item && sectionData.data.item.unitUnavailable;
+        return v === true || /^(true|yes)$/i.test(String(v));
+    }
     getBaseSectionDocValues(sectionData, reportType, subprojectName, locationType, location) {
         return {
-            isUnitUnavailable: sectionData.data.item.unitUnavailable ? 'true' : 'false',
+            isUnitUnavailable: this.isUnitUnavailable(sectionData) ? 'true' : 'false',
             reportType: reportType,
             buildingName: subprojectName,
             parentType: locationType,

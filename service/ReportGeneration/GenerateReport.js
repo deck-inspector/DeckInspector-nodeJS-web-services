@@ -26,24 +26,9 @@ class GenerateReport {
         return await ProjectGenerator.createProject(projectId, reportType, { only: onlyIds, noCache: true });
     }
 
+    // Unit report (Oct 23 2026): always fresh, returns the uploaded Word url.
     async generateLocationReport(projectId,locationId,reportType) {
-        // check if project exist in DB/List
-        const existingDoc = await ProjectReportHashCodeService.getProjctReportHashCodeByIdAndReportType(locationId,reportType);
-        if  ( existingDoc == null ) {
-            let locationDoc = await LocationGenerator.createLocation(locationId,reportType);
-            const serialized = serialize(locationDoc);
-            const now = new Date();
-            const indianTime = now.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-            let locationDocEntity = {
-                projectId: projectId,
-                locationId: locationId,
-                data: serialized,
-                reportType: reportType,
-                createdAt: indianTime,
-            }
-            await ProjectReportHashCodeService.addProjectReportHashCode(locationDocEntity);
-            return locationDoc;
-        }
+        return await ProjectGenerator.createLocationReport(projectId, locationId, reportType);
     }
 }
 

@@ -1576,6 +1576,7 @@ input,select{font-family:inherit;font-size:16px}
               <button class="btn-edit" @click="openSecEdit(s)">&#9998; Edit</button>
             </div>
             <div class="tagrow">
+              <span class="tag" style="background:#B26A00;color:#fff" v-if="ynText(s.unitUnavailable)==='Yes'" title="Prints as unavailable - open Edit and choose Inspected to print comments and photos">Unit unavailable</span>
               <span class="tag" :class="ratingClass(s.visualreview)" v-if="s.visualreview">Visual: {{ s.visualreview }}</span>
               <span class="tag" :class="String(s.visualsignsofleak).toLowerCase()==='yes' ? 'bad' : 'good'" v-if="s.visualsignsofleak!==undefined">Leaks: {{ s.visualsignsofleak }}</span>
               <span class="tag" :class="String(s.furtherinvasivereviewrequired).toLowerCase()==='yes' ? 'fair' : 'good'" v-if="s.furtherinvasivereviewrequired!==undefined">Invasive: {{ s.furtherinvasivereviewrequired }}</span><span class="tag" style="background:#C62828;color:#fff" v-if="String(s.unsafecondition).toLowerCase()==='yes'">UNSAFE</span>
@@ -1745,6 +1746,17 @@ input,select{font-family:inherit;font-size:16px}
       <h3>Edit Inspection &mdash; matches the report exactly</h3>
       <div class="empty" v-if="loadingSec" style="padding:30px 0">Loading&hellip;</div>
       <template v-else>
+        <!-- UNIT STATUS (David, Oct 23 2026 - 522 Flower St unit G): a unit marked
+             unavailable on the phone printed "unavailable" and ignored everything
+             entered later in the office. Switch it to Inspected here; it also
+             switches automatically when comments/photos/ratings are added. -->
+        <div class="field"><label>Unit Status at Inspection</label>
+          <div class="kindrow" style="margin:0">
+            <button class="kind" :class="{on: secForm.unitUnavailable!=='Yes'}" @click="secForm.unitUnavailable='No'; secUnavailTouched=true">Inspected</button>
+            <button class="kind" :class="{on: secForm.unitUnavailable==='Yes'}" :style="secForm.unitUnavailable==='Yes' ? 'background:#B26A00;color:#fff;border-color:#B26A00' : ''" @click="secForm.unitUnavailable='Yes'; secUnavailTouched=true">Unavailable</button>
+          </div>
+          <div v-if="secForm.unitUnavailable==='Yes'" style="margin-top:6px;padding:8px 10px;border-radius:6px;background:#FFF4E0;border:1px solid #E8B04B;font-size:13px">This point is marked <b>UNAVAILABLE</b> (set on the phone). The report prints &ldquo;unavailable at the time of inspection&rdquo; and leaves out the comments and photos. Click <b>Inspected</b> &mdash; or just add your comments/photos and save &mdash; to print them.</div>
+        </div>
         <div class="field"><label>Section Name</label><input v-model.trim="secForm.name"></div>
         <div class="field"><label>Exterior Elements</label><input v-model="secForm.exteriorelements" placeholder="e.g. Decks, Railings, Integrations"><div style="font-size:12px;color:var(--ink-soft);margin-top:3px">Comma-separated, printed as-is on the report.</div></div>
         <div class="field"><label>Water Proofing Elements</label><input v-model="secForm.waterproofingelements" placeholder="e.g. Flashings, Waterproofing, Coatings, Sealants"></div>
@@ -2330,6 +2342,7 @@ createApp({
       assignPick: '',
       editOpen: false, savingEdit: false, editForm: { name: '', address: '', description: '', formId: null, inspDate: '', inspTime: '', url: '' },
       secEditOpen: false, loadingSec: false, savingSec: false, secOriginal: null, secId: null, secPhotoBusy: false,
+      secUnavailTouched: false, secFormAtOpen: null,
       secForm: { name: '', exteriorelements: '', waterproofingelements: '', visualreview: '', visualsignsofleak: 'No', furtherinvasivereviewrequired: 'No', unsafecondition: 'No', conditionalassessment: '', additionalconsiderations: '', eee: '', lbc: '', awe: '', images: [] },
       // Invasive inspection linked to the open section (InvasiveSection record)
       inv: { id: null, loading: false, invasiveDescription: '', postinvasiverepairsrequired: 'No', invasiveimages: [] },
@@ -4992,7 +5005,7 @@ createApp({
           },
         });
         if (!res.ok) throw new Error('bad');
-        this.toast('Unit report started.');
+        this.toast('Unit report started — it will appear in this project\u2019s Reports list in a couple of minutes.');
         setTimeout(() => { this.unitGenerating = false; }, 150000);
       } catch (e) {
         this.unitGenerating = false;
@@ -5031,6 +5044,7 @@ createApp({
         additionalconsiderations: doc.additionalconsiderations || '',
         eee: doc.eee || '', lbc: doc.lbc || '', awe: doc.awe || '',
         images: Array.isArray(doc.images) ? doc.images.slice() : [],
+        unitUnavailable: this.ynText(doc.unitUnavailable),
       };
     },
     async openSecEdit(s) {
@@ -5042,6 +5056,8 @@ createApp({
       // but never over anything the inspector has already changed.
       this.secId = s._id || s.id;
       this.secEditOpen = true;
+      this.secUnavailTouched = false;
+      this.secFormAtOpen = null;
       const localReal = s && typeof s === 'object'
         && (s.visualreview !== undefined || Array.isArray(s.images) || s.conditionalassessment !== undefined);
       let painted = false;
@@ -5055,6 +5071,7 @@ createApp({
         this.loadingSec = true;
       }
       const initial = painted ? JSON.parse(JSON.stringify(this.secForm)) : null;
+      if (initial) this.secFormAtOpen = JSON.parse(JSON.stringify(initial));
       try {
         const res = await this.api('/section/getSectionById', { method: 'POST', json: { sectionid: this.secId, username: this.user.username } });
         // GUARD (David, Aug 24): under load the server can answer with an
@@ -5071,6 +5088,7 @@ createApp({
         const fresh = this.secFormFrom(doc, s);
         if (!painted) {
           this.secForm = fresh;
+          this.secFormAtOpen = JSON.parse(JSON.stringify(fresh));
           await this.loadInvasive();
         } else {
           // merge: only fields the inspector has NOT touched follow the server
@@ -5128,6 +5146,16 @@ createApp({
     async saveSecEdit() {
       this.savingSec = true;
       const o = this.secOriginal || {};
+      // AUTO-SWITCH (Oct 23 2026): unit was unavailable on the phone, the office
+      // has now added comments / photos / ratings and did not touch the status
+      // switch -> it was inspected after all, so it must print like the others.
+      let autoInspected = false;
+      if (this.secForm.unitUnavailable === 'Yes' && !this.secUnavailTouched && this.secFormAtOpen) {
+        const a = this.secFormAtOpen, f = this.secForm;
+        const changed = ['visualreview', 'additionalconsiderations', 'exteriorelements', 'waterproofingelements', 'conditionalassessment', 'eee', 'lbc', 'awe', 'visualsignsofleak', 'furtherinvasivereviewrequired', 'unsafecondition', 'images']
+          .some(k => JSON.stringify(f[k]) !== JSON.stringify(a[k]));
+        if (changed) { this.secForm.unitUnavailable = 'No'; autoInspected = true; }
+      }
       const payload = {
         name: this.secForm.name,
         exteriorelements: this.backToType(o.exteriorelements, this.secForm.exteriorelements),
@@ -5142,6 +5170,7 @@ createApp({
         images: Array.isArray(this.secForm.images) ? this.secForm.images.slice() : [],
         editedat: new Date().toISOString(),
         lasteditedby: this.user.username,
+        unitUnavailable: this.secForm.unitUnavailable === 'Yes',
       };
       if (o.additionalconsiderationshtml !== undefined) payload.additionalconsiderationshtml = this.secForm.additionalconsiderations;
       // OPTIMISTIC SAVE (David, Aug 29: "is there any reason we have to deal
@@ -5161,7 +5190,7 @@ createApp({
         const invOk = await this.saveInvasive();
         this.toast(invOk === false
           ? 'Inspection saved, but the INVASIVE part failed — reopen and try again.'
-          : 'Inspection updated — it will print this way on the next report.', invOk === false ? 'err' : undefined);
+          : (autoInspected ? 'Inspection updated — this point was "unavailable"; it is now marked INSPECTED and will print with your comments and photos.' : 'Inspection updated — it will print this way on the next report.'), invOk === false ? 'err' : undefined);
         this.loadSections();
         // Refresh the left-hand structure too (David, Aug 29 - Northridge: a unit
         // rated Bad kept showing Fair in the menu until the project was

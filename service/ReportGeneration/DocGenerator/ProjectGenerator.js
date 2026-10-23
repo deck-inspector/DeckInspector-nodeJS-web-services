@@ -122,6 +122,54 @@ class ProjectGenerator{
         return projectDoc.doc.filePath;
     }
 
+    // UNIT REPORT (David, Oct 23 2026 - 522 Flower St unit G: "the icon simply
+    // spins"). The old unit path built the unit's pages, cached them and
+    // stopped: nothing was ever merged, uploaded or added to Reports, and a
+    // second click found the cache and returned nothing at all. This builds
+    // cover page + the one unit, fresh every time (never cached), and goes
+    // through the same merge/logo/footer/signer/upload as the full report.
+    async createLocationReport(projectId, locationId, reportType) {
+        console.log("Unit report started", projectId, locationId, reportType);
+        const projectResponse = await projects.getProjectById(projectId);
+        const project = projectResponse.project || projectResponse;
+        const projectDoc = new ProjectDocs();
+        projectDoc.projectId = projectId;
+        const hashes = [];
+        const docPath = [];
+        try {
+            projectDoc.projectHeaderDoc = await ProjectHeaderDocGenerator.createProjectHeaderDoc(projectId, project, "DeckInspectors", reportType);
+        } catch (e) {
+            console.error("Unit report: cover page failed, continuing without it:", e && e.message);
+        }
+        if (projectDoc.projectHeaderDoc && projectDoc.projectHeaderDoc.filePath) {
+            hashes.push(projectDoc.projectHeaderDoc.hashCode);
+            docPath.push(projectDoc.projectHeaderDoc.filePath);
+        }
+        // Building name prints beside the unit name, as on the full report.
+        let subprojectName = '';
+        try {
+            const loc = await require("../../../model/location").getLocationById(locationId);
+            const item = loc && loc.data && loc.data.item;
+            if (item && item.parenttype === 'subproject' && item.parentid) {
+                const sp = await require("../../../model/subproject").getSubProjectById(item.parentid);
+                subprojectName = (sp && sp.data && sp.data.item && sp.data.item.name) || '';
+            }
+        } catch (e) {
+            console.error("Unit report: building name lookup failed (continuing):", e && e.message);
+        }
+        const locationDoc = await LocationGenerator.createLocation(locationId, reportType, subprojectName);
+        if (!locationDoc || !locationDoc.doc || !locationDoc.doc.filePath) {
+            throw new Error('the unit produced no pages for a ' + reportType + ' report');
+        }
+        hashes.push(locationDoc.doc.hashCode);
+        docPath.push(locationDoc.doc.filePath);
+        await this.saveFileToS3(docPath, projectId, reportType, projectDoc, ReportGenerationUtil.combineHashesInArray(hashes), project && project.companyIdentifier);
+        if (!projectDoc.doc || !projectDoc.doc.filePath) {
+            throw new Error('merge or upload produced no file');
+        }
+        return projectDoc.doc.filePath;
+    }
+
     async updateProject(projectId,existingProjectDoc,reportType) {
         let projectResponse = await projects.getProjectById(projectId);
         // Extract project from wrapped response if needed
