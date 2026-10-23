@@ -2241,7 +2241,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-13.1';
+const APP_BUILD = '2026-10-23.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2562,6 +2562,14 @@ createApp({
   },
   methods: {
     /* ---------- infrastructure ---------- */
+    // Headers for the few RAW fetch() calls that bypass api() (they must not
+    // log the user out on a 401). Those routes now require the sign-in token
+    // (Oct 23 2026 - they used to accept anyone).
+    authHdr(extra) {
+      const h = Object.assign({}, extra || {});
+      if (this.user && this.user.token) h['Authorization'] = this.user.token;
+      return h;
+    },
     async api(pathname, opts = {}) {
       const headers = Object.assign({}, opts.headers || {});
       if (this.user && this.user.token) headers['Authorization'] = this.user.token;
@@ -3270,7 +3278,7 @@ createApp({
         // - load them too so the client email can attach one. RAW fetch: this
         // endpoint returns 401 when the list is empty (never use api()).
         try {
-          const dres = await fetch(API + '/projectdocuments/' + encodeURIComponent(this.projectId(this.current)));
+          const dres = await fetch(API + '/projectdocuments/' + encodeURIComponent(this.projectId(this.current)), { headers: this.authHdr() });
           const dj = dres.ok ? await dres.json() : [];
           this.emailDocs = Array.isArray(dj) ? dj : (dj.documents || dj.data || []);
         } catch (e) { this.emailDocs = []; }
@@ -4322,7 +4330,7 @@ createApp({
       if (!this.inspectProp) return;
       // RAW fetch: this endpoint returns 401 when the list is empty (never use api()).
       try {
-        const dres = await fetch(API + '/projectdocuments/' + encodeURIComponent(pid));
+        const dres = await fetch(API + '/projectdocuments/' + encodeURIComponent(pid), { headers: this.authHdr() });
         const dj = dres.ok ? await dres.json() : [];
         const docs = Array.isArray(dj) ? dj : (dj.documents || dj.data || []);
         if (pid !== this.projectId(this.current || {})) return;
@@ -5111,7 +5119,7 @@ createApp({
         // when the section simply has no invasive record yet, and api() reads
         // any 401 as an expired session and LOGS THE USER OUT.
         const res = await fetch(API + '/invasivesection/getInvasiveSectionByParentId', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: this.authHdr({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ parentSectionId: this.secId, username: this.user.username }),
         });
         if (res.ok) {
@@ -5859,7 +5867,7 @@ createApp({
     async loadDocs() {
       this.loadingDocs = true;
       try {
-        const res = await fetch(API + '/projectdocuments/' + encodeURIComponent(this.projectId(this.docsProject)));
+        const res = await fetch(API + '/projectdocuments/' + encodeURIComponent(this.projectId(this.docsProject)), { headers: this.authHdr() });
         if (res.ok) {
           const j = await res.json();
           this.docs = Array.isArray(j) ? j : (j.documents || j.data || []);
@@ -6531,7 +6539,7 @@ createApp({
             const url = ud.url || (ud.data && ud.data.url) || '';
             if (!url) throw new Error('upload');
             const res = await fetch(API + '/projectdocuments/add', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              method: 'POST', headers: this.authHdr({ 'Content-Type': 'application/json' }),
               body: JSON.stringify({ project_id: pid, name: item.name, url: url, uploader: this.user.username }),
             });
             if (!res.ok) throw new Error('bad');
@@ -6555,7 +6563,7 @@ createApp({
       const d = this.docDeleting; this.docDeleting = null;
       try {
         const res = await fetch(API + '/projectdocuments/delete', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: this.authHdr({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ _id: d._id }),
         });
         if (!res.ok) throw new Error('bad');
