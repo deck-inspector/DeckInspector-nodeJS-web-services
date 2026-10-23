@@ -53,8 +53,16 @@ router.route("/:username").get(async function (req, res) {
     const record = await getCouchbaseUser(username);
 
     if (record) {
-      const { password, ...user } = record;
-      res.status(201).json(user);
+      // PUBLIC route (no token): status fields only - no email, phone, device
+      // id or other personal details (Oct 23 2026, before client logins exist).
+      res.status(201).json({
+        username: record.username,
+        role: record.role,
+        companyIdentifier: record.companyIdentifier,
+        isActive: record.isActive !== false,
+        access_type: record.access_type,
+        hasDeviceId: !!record.deviceId,
+      });
     } else {
       res.status(401).send("user not found.");
     }
@@ -89,6 +97,17 @@ router.route("/login").post(async function (req, res) {
     const loginAllowed = await Tenants.isTenantActive(record.companyIdentifier);
     if (!loginAllowed.success || !loginAllowed.allowLogin) {
       return res.status(401).send("Invalid Credentials,company is inactive.");
+    }
+
+    // CLIENT PORTAL (Oct 23 2026): owner / property-manager logins are
+    // view-only and web-only for now. The phone app syncs every property of the
+    // tenant and is an editing tool, so a client login is refused there until
+    // the per-user read-only phone sync is built.
+    const isClientLogin = String(record.role || "").toLowerCase() === "client";
+    if (isClientLogin && isMobile) {
+      return res
+        .status(403)
+        .send("Client accounts use the website: open www.e3-web.com in your phone's browser.");
     }
 
     // Usernames listed in MULTI_DEVICE_USERS (comma-separated, case-insensitive)
@@ -133,12 +152,19 @@ router.route("/login").post(async function (req, res) {
     }
 
     const { password: pwd, ...user } = record;
+    const claims = {
+      user_id: record.id || record._id,
+      username,
+      company: record.companyIdentifier,
+    };
+    // Client logins carry their role + client in the token (the server lock in
+    // service/clientAccess.js also re-reads the user record on every request).
+    if (isClientLogin) {
+      claims.role = "client";
+      claims.clientId = record.clientId || null;
+    }
     const token = jwt.sign(
-      {
-        user_id: record.id || record._id,
-        username,
-        company: record.companyIdentifier,
-      },
+      claims,
       process.env.TOKEN_KEY,
       { expiresIn: "1d" },
     );
@@ -223,72 +249,10 @@ router.route("/superlogin").post(async function (req, res) {
     res.status(500).send("Internal server error");
   }
 });
-router.route("/registersuperuser").post(function (req, res) {
-  try {
-    // Get user input
-    const { first_name, last_name, email, password, username } = req.body;
-
-    // Validate user input
-    if (!(email && password && first_name && last_name && username)) {
-      res.status(400).send("All input is required");
-      return;
-    }
-
-    // check if user already exist
-    // Validate if user exist in our database
-
-    users.getSuperUser(email, async function (err, record) {
-      if (record) {
-        res.status(409).send("User with this email already exist.");
-        return;
-      } else {
-        users.getSuperUserbyUsername(username, async function (err, record) {
-          if (record) {
-            res.status(409).send("Username already exist.");
-            return;
-          } else {
-            //Encrypt user password
-            var encryptedPassword = await bcrypt.hash(password, 10);
-
-            // Create user in our database
-            users.addSuperUser(
-              {
-                first_name,
-                last_name,
-                username,
-                email: email.toLowerCase(), // sanitize: convert email to lowercase
-                password: encryptedPassword,
-              },
-              function (err, result) {
-                if (err) {
-                  res.status(err.status).send(err.message);
-                } else {
-                  const user = result;
-                  // Create token
-                  const token = jwt.sign(
-                    {
-                      user_id: user._id,
-                      email,
-                    },
-                    process.env.TOKEN_KEY,
-                    {
-                      expiresIn: "2d",
-                    },
-                  );
-                  // save user token
-                  user.token = token;
-                  // return new user
-                  res.status(201).json(user);
-                }
-              },
-            );
-          }
-        });
-      }
-    });
-  } catch (err) {
-    console.log(err);
-  }
+// DISABLED (Oct 23 2026): this was a PUBLIC route - anyone on the internet could
+// try to create a super user. Nothing calls it (the admin site only signs in).
+router.route("/registersuperuser").all(function (req, res) {
+  return res.status(410).send("Super-user registration is disabled.");
 });
 
 router.route("/loginSuperUser").post(async function (req, res) {

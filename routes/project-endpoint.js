@@ -113,8 +113,11 @@ router.route('/allprojects')
           const isAdmin = !!(me && String(me.role || '').toLowerCase() === 'admin');
           if (!isAdmin) {
             const all = await usersModel.getAllUser();
+            // client portal logins (Oct 23 2026) are not inspectors - keep them out
+            // of the nickname / initials uniqueness check
             const others = (all.users || []).filter(u =>
-              u && u.companyIdentifier === companyIdentifier && u.username !== req.user.username);
+              u && u.companyIdentifier === companyIdentifier && u.username !== req.user.username &&
+              String(u.role || '').toLowerCase() !== 'client');
             result.projects = result.projects.filter(p => projectAssignedToUser(p, me, others));
           }
         } catch (visErr) {

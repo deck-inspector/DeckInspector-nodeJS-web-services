@@ -11,6 +11,37 @@ const Tenants = require("../service/tenantService");
 
 require("dotenv").config();
 
+// ---------------------------------------------------------------------------
+// GUARD RAILS (Oct 23 2026, before outside client logins exist). Every route
+// here already needs a token, but ANY token could edit / delete ANY user in
+// ANY tenant and set role 'admin' on itself. Now:
+//   * super-user tokens (admin site - no company in the token) work as before;
+//   * a tenant user may only touch users of its own tenant;
+//   * changing someone's role needs an admin of that tenant;
+//   * client portal logins are managed only from the Client page
+//     (/api/clients/:id/logins), never from here.
+// ---------------------------------------------------------------------------
+function isSuperToken(req) {
+  return !!(req.user && !req.user.company);
+}
+async function requesterRecord(req) {
+  try { return await users.getUserbyUsername(req.user && req.user.username); } catch (e) { return null; }
+}
+function isClientRec(rec) {
+  return !!(rec && String(rec.role || "").toLowerCase() === "client");
+}
+// Resolves the target user and checks the requester may touch it. Sends the
+// error response itself and returns null when not allowed.
+async function targetUserOrDeny(req, res, username) {
+  if (!username) { res.status(400).send("username is required."); return null; }
+  const target = await users.getUserbyUsername(String(username));
+  if (!target) { res.status(404).send("User not found."); return null; }
+  if (isSuperToken(req)) return target;
+  if (target.companyIdentifier !== req.user.company) { res.status(403).send("That user belongs to another company."); return null; }
+  if (isClientRec(target)) { res.status(403).send("Client logins are managed on the client's page."); return null; }
+  return target;
+}
+
 //#region Register user
 
 router.route("/register").post(async function (req, res) {
@@ -272,6 +303,22 @@ router.route("/update").post(async function (req, res) {
     // Get user input
     const user = req.body;
     const companyIdentifier = req.user.company;
+
+    // Guard rails (Oct 23 2026) - see the top of this file.
+    const target = await targetUserOrDeny(req, res, user && user.username);
+    if (!target) return;
+    if (!isSuperToken(req)) {
+      delete user.companyIdentifier; // a user can never be moved to another tenant from here
+      delete user.clientId;
+      const wantRole = user.role === undefined ? undefined : String(user.role || "").toLowerCase();
+      const hadRole = String(target.role || "").toLowerCase();
+      if (wantRole !== undefined && wantRole !== hadRole) {
+        const me = await requesterRecord(req);
+        const meAdmin = !!(me && String(me.role || "").toLowerCase() === "admin" && me.companyIdentifier === companyIdentifier);
+        if (!meAdmin) return res.status(403).send("Only an admin can change a user's role.");
+        if (wantRole !== "admin" && wantRole !== "user") return res.status(400).send("Role must be admin or user.");
+      }
+    }
     //check if the count is exceeding the limit
     var tenant = await Tenants.getTenantByCompanyIdentifier(companyIdentifier);
     const result = await users.getAllUser();
@@ -333,7 +380,9 @@ router.route("/delete").post(async function (req, res) {
   try {
     // Get user input
     const user = req.body;
-    const result = await users.removeUser(user);
+    const target = await targetUserOrDeny(req, res, user && user.username);
+    if (!target) return;
+    const result = await users.removeUser({ username: target.username });
     res.status(result.status).send(result.message);
   } catch (err) {
     console.log(err);
@@ -347,8 +396,9 @@ router.route("/allusers").get(async function (req, res) {
   try {
     var companyIdentifier = req.user.company;
     const result = await users.getAllUser();
+    // Staff list only: client portal logins are not inspectors (Oct 23 2026).
     const filteredUsers = result.users.filter(
-      (user) => user.companyIdentifier === companyIdentifier
+      (user) => user.companyIdentifier === companyIdentifier && !isClientRec(user)
     );
     res.status(result.status).json(filteredUsers);
   } catch (err) {
@@ -360,10 +410,16 @@ router.route("/allusersbytenant").get(async function (req, res) {
   try {
     var companyIdentifier = req.query.company;
     const result = await users.getAllUser();
+    // Tenant users only (a tenant token may not list another tenant), and staff
+    // only - client portal logins live on the Client page (Oct 23 2026).
+    if (!isSuperToken(req) && companyIdentifier !== req.user.company) {
+      return res.status(403).send("That company is not yours.");
+    }
     result.users = result.users.filter(
       (user) =>
         user.companyIdentifier &&
-        user.companyIdentifier === companyIdentifier
+        user.companyIdentifier === companyIdentifier &&
+        !isClientRec(user)
     );
     res.status(result.status).json(result.users);
   } catch (exception) {
@@ -376,7 +432,9 @@ router.route("/deviceId")
   .put(async function (req, res) {
     try {
       const { username, deviceId } = req.body;
-      const result = await users.updateDevideId(username, deviceId);
+      const target = await targetUserOrDeny(req, res, username);
+      if (!target) return;
+      const result = await users.updateDevideId(target.username, deviceId);
       res.status(result.status).json(result);
     } catch {
       res.status(500).send("Internal server error.");
@@ -389,6 +447,9 @@ router
     try {
       const username = req.params.username;
       const result = await users.getUserbyUsername(username )
+      if (result && !isSuperToken(req) && result.companyIdentifier !== req.user.company) {
+        return res.status(401).send("user not found.");
+      }
       if (result) {
         const { password, ...user } = result;
         res.status(201).json(user);
@@ -405,7 +466,9 @@ router
     try {
       const username = req.params.username;
       const isActive = req.body.isActive;
-      const result = await users.updateUserStatus(username, isActive);
+      const target = await targetUserOrDeny(req, res, username);
+      if (!target) return;
+      const result = await users.updateUserStatus(target.username, isActive);
       res.status(result.status).json({ message: result.message });
     } catch {
       res.status(500).send("Internal server error.");
@@ -414,7 +477,9 @@ router
   .delete(async function (req, res) {
     try {
       const username = req.params.username;
-      const result = await users.removeUser({ username });
+      const target = await targetUserOrDeny(req, res, username);
+      if (!target) return;
+      const result = await users.removeUser({ username: target.username });
       res.status(result.status).json({ message: result.message });
     } catch {
       res.status(500).send("Internal server error.Failed to delete user.");
@@ -458,6 +523,11 @@ router.route("/superlogin").post(async function (req, res) {
   } catch (err) {
     console.log(err);
   }
+});
+// DISABLED (Oct 23 2026): any signed-in inspector could create a super user
+// here. Nothing calls it. (Registered first, so the old handler below never runs.)
+router.route("/registersuperuser").all(function (req, res) {
+  return res.status(410).send("Super-user registration is disabled.");
 });
 router.route("/registersuperuser").post(function (req, res) {
   try {
