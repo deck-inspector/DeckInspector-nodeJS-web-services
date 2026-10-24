@@ -496,6 +496,15 @@ input,select{font-family:inherit;font-size:16px}
 .ap-results div:hover,.ap-results div.on{background:var(--brand-soft)}
 .ap-results small{display:block;color:var(--ink-soft)}
 
+/* ---- MASTER VIEW (Oct 24 2026): admins use the client / contractor screens ---- */
+.mv-bar{position:sticky;top:0;z-index:30;background:#5B2C83;color:#fff;padding:8px clamp(16px,4vw,40px);display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px;font-weight:600}
+.mv-bar button{background:#fff;color:#5B2C83;border:0;border-radius:8px;padding:6px 12px;font-weight:800;cursor:pointer}
+.mv-list{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.mv-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--line)}
+.mv-row:last-child{border-bottom:0}
+.mv-row .nm{flex:1;min-width:160px}
+.mv-row .nm small{display:block;color:var(--ink-soft)}
+
 /* ---- CLIENT PORTAL view (Oct 23 2026): read-only, owners / property managers ---- */
 .cv-banner{background:var(--brand-soft);color:var(--brand);border-radius:10px;padding:10px 14px;font-size:13px;margin:0 0 14px}
 .cv-props{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
@@ -564,13 +573,15 @@ input,select{font-family:inherit;font-size:16px}
        The client's contractor / maintenance crew: repair items of the properties
        assigned to it, after-photos, Done. Nothing else (server: clientAccess.js). -->
   <template v-else-if="isContractor">
+    <div class="mv-bar" v-if="portalAs">&#128065; Master view &mdash; you are seeing exactly what {{ portalAs.label }} sees. Anything you do is recorded as you.
+      <span style="flex:1"></span><button @click="mvOpen()">Switch</button><button @click="mvExit()">Exit master view</button></div>
     <div class="topbar">
       <div class="logo" style="cursor:pointer" title="My repair jobs" @click="rpLoadList()"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
       <nav style="display:flex;gap:4px;margin-left:10px"><button class="btn-ghost navon" @click="rpLoadList()">My Repair Jobs</button></nav>
       <div class="spacer"></div>
       <img v-if="logo" :src="logo" alt="Company logo" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
-      <div class="userchip"><div class="avatar">{{ initials }}</div><span>{{ user.first_name || user.username }}</span></div>
-      <button class="btn-ghost" @click="logout">Sign out</button>
+      <div class="userchip"><div class="avatar">{{ initials }}</div><span>{{ portalAs ? portalAs.label : (user.first_name || user.username) }}</span></div>
+      <button class="btn-ghost" @click="portalAs ? mvExit() : logout()">{{ portalAs ? 'Exit' : 'Sign out' }}</button>
     </div>
     <div class="main">
       <div class="page-head"><h2>My Repair Jobs <span class="count" v-if="!rp.loading">({{ rp.list.length }})</span></h2></div>
@@ -588,6 +599,8 @@ input,select{font-family:inherit;font-size:16px}
   </template>
 
   <template v-else-if="isClient">
+    <div class="mv-bar" v-if="portalAs">&#128065; Master view &mdash; you are seeing exactly what {{ portalAs.label }} sees. Anything you do is recorded as you.
+      <span style="flex:1"></span><button @click="mvOpen()">Switch</button><button @click="mvExit()">Exit master view</button></div>
     <div class="topbar">
       <div class="logo" style="cursor:pointer" title="My properties" @click="cvHome()"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
       <nav style="display:flex;gap:4px;margin-left:10px">
@@ -599,9 +612,9 @@ input,select{font-family:inherit;font-size:16px}
       <img v-if="logo" :src="logo" alt="Company logo" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
       <div class="userchip">
         <div class="avatar">{{ initials }}</div>
-        <span>{{ user.first_name || user.username }}</span>
+        <span>{{ portalAs ? portalAs.label : (user.first_name || user.username) }}</span>
       </div>
-      <button class="btn-ghost" @click="logout">Sign out</button>
+      <button class="btn-ghost" @click="portalAs ? mvExit() : logout()">{{ portalAs ? 'Exit' : 'Sign out' }}</button>
     </div>
 
     <div class="main">
@@ -634,7 +647,7 @@ input,select{font-family:inherit;font-size:16px}
         <div v-else style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:6px 18px">
           <div class="pa-row" v-for="c in ct.list" :key="c.username">
             <div class="nm"><b>{{ [c.first_name, c.last_name].filter(Boolean).join(' ') || c.username }}<span v-if="c.company" style="font-weight:400"> &middot; {{ c.company }}</span></b>
-              <small>{{ c.username }}<span v-if="c.email"> &middot; {{ c.email }}</span><span v-if="c.mobile"> &middot; {{ c.mobile }}</span></small>
+              <small>{{ c.isActive===false && c.formerUsername ? c.formerUsername : c.username }}<span v-if="c.email"> &middot; {{ c.email }}</span><span v-if="c.mobile"> &middot; {{ c.mobile }}</span></small>
               <div class="ct-props"><span v-for="pid in (c.contractorProjects||[])" :key="pid">{{ cvPropName(pid) }}</span><span v-if="!(c.contractorProjects||[]).length">No properties assigned</span></div>
             </div>
             <span class="tag bad" v-if="c.isActive===false">Turned off</span><span class="tag good" v-else>Active</span>
@@ -807,6 +820,7 @@ input,select{font-family:inherit;font-size:16px}
         <button class="btn-ghost" :class="{navon: view!=='users' && view!=='clients' && view!=='repairs'}" @click="goHome()">Projects</button>
         <button class="btn-ghost" :class="{navon: view==='users'}" @click="openUsers">&#128100; Users</button>
         <button class="btn-ghost" :class="{navon: view==='clients'}" title="Clients — owners and property managers and their property portfolios" @click="openClients()">&#127970; Clients</button>
+        <button class="btn-ghost" v-if="user && user.role==='admin'" title="Master view - use the client and contractor screens of any client (set-up, testing, support)" @click="mvOpen()">&#128065; Master view</button>
         <button class="btn-ghost" :class="{navon: view==='repairs'}" title="Repairs submitted by clients for a Final Inspection" @click="openRepairs()">&#128295; Repairs<span v-if="rpQueueCount" class="rp-st submitted" style="margin-left:6px">{{ rpQueueCount }}</span></button>
       </nav>
       <div class="spacer"></div>
@@ -1022,7 +1036,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="empty" v-if="portal.loading" style="padding:8px 0">Loading&hellip;</div>
               <div class="hint" v-else-if="!portal.list.length" style="margin:0 0 6px">No logins yet.</div>
               <div class="pa-row" v-for="l in portal.list" :key="l.username">
-                <div class="nm"><b>{{ [l.first_name, l.last_name].filter(Boolean).join(' ') || l.username }}</b><small>{{ l.username }}<span v-if="l.email"> &middot; {{ l.email }}</span></small></div>
+                <div class="nm"><b>{{ [l.first_name, l.last_name].filter(Boolean).join(' ') || l.username }}</b><small>{{ l.isActive===false && l.formerUsername ? l.formerUsername : l.username }}<span v-if="l.email"> &middot; {{ l.email }}</span></small></div>
                 <span class="tag bad" v-if="l.isActive===false">Turned off</span>
                 <span class="tag good" v-else>Active</span>
                 <button class="btn-dl" :disabled="portal.busy" @click="portalToggle(l)">{{ l.isActive===false ? 'Turn on' : 'Turn off' }}</button>
@@ -1991,7 +2005,7 @@ input,select{font-family:inherit;font-size:16px}
             <li v-for="u in users" :key="u.username">
               <div class="ricon" :style="u.isActive===false ? 'background:var(--bg);color:var(--ink-soft)' : ''" :class="u.isActive===false ? '' : 'word'">&#128100;</div>
               <div class="rinfo">
-                <div class="rname">{{ u.first_name }} {{ u.last_name }} <span class="tag" style="margin-left:6px">{{ u.username }}</span> <span class="tag" v-if="u.access_type">{{ u.access_type }}</span> <span class="tag bad" v-if="u.isActive===false">inactive</span></div>
+                <div class="rname">{{ u.first_name }} {{ u.last_name }} <span class="tag" style="margin-left:6px">{{ u.isActive===false && u.formerUsername ? u.formerUsername : u.username }}</span> <span class="tag" v-if="u.access_type">{{ u.access_type }}</span> <span class="tag bad" v-if="u.isActive===false">inactive</span></div>
                 <div class="rdate">{{ u.email }}<span v-if="u.mobile"> · {{ u.mobile }}</span></div>
               </div>
               <div class="rbtns">
@@ -2005,6 +2019,35 @@ input,select{font-family:inherit;font-size:16px}
 
     </div>
   </template>
+
+  <!-- ============ MASTER VIEW PICKER (Oct 24 2026, admins) ============ -->
+  <div class="overlay" v-if="user && mv.open" @click.self="mv.open=false" style="z-index:70">
+    <div class="modal" style="max-width:640px">
+      <h3>Master view</h3>
+      <p class="hint" style="margin:0 0 10px">Open the client or contractor screens of any of your clients &mdash; for set-up, testing and support. You see and can do exactly what they can. Anything you do is recorded as you.</p>
+      <input v-model.trim="mv.q" class="cl-filter" style="width:100%;margin-bottom:8px" placeholder="&#128269; Search clients">
+      <div class="empty" v-if="mv.loading">Loading&hellip;</div>
+      <div class="mv-list" v-else>
+        <div v-for="c in mvClients" :key="c.id">
+          <div class="mv-row">
+            <div class="nm"><b>{{ c.name }}</b><small>{{ c.clientType==='manager' ? 'Property manager' : (c.clientType==='owner' ? 'Owner' : 'Client') }} &middot; {{ c.projectCount }} propert{{ c.projectCount===1 ? 'y' : 'ies' }}</small></div>
+            <button class="btn-edit" @click="mvEnter('client', c)">View as client</button>
+            <button class="btn-dl" @click="mvContractors(c)">{{ mv.ctFor===c.id ? 'Hide contractors' : 'Contractors…' }}</button>
+          </div>
+          <template v-if="mv.ctFor===c.id">
+            <div class="mv-row" v-if="mv.ctLoading" style="padding-left:28px"><span class="hint" style="margin:0">Loading contractors&hellip;</span></div>
+            <div class="mv-row" v-else-if="!mv.contractors.length" style="padding-left:28px"><span class="hint" style="margin:0">No contractors yet &mdash; add one from &ldquo;View as client&rdquo; &rarr; My Contractors.</span></div>
+            <div class="mv-row" v-for="k in mv.contractors" :key="k.username" style="padding-left:28px">
+              <div class="nm"><b>{{ [k.first_name, k.last_name].filter(Boolean).join(' ') || k.username }}</b><small>{{ k.company || '' }} &middot; {{ (k.contractorProjects||[]).length }} propert{{ (k.contractorProjects||[]).length===1 ? 'y' : 'ies' }}<span v-if="k.isActive===false"> &middot; turned off</span></small></div>
+              <button class="btn-edit" :disabled="k.isActive===false" @click="mvEnter('contractor', c, k)">View as contractor</button>
+            </div>
+          </template>
+        </div>
+        <div class="mv-row" v-if="!mvClients.length"><span class="hint" style="margin:0">No clients match.</span></div>
+      </div>
+      <div class="mrow" style="margin-top:14px"><button class="btn-cancel" @click="mv.open=false">Close</button></div>
+    </div>
+  </div>
 
   <!-- ============ REPAIRS JOB PAGE (Oct 23 2026) - shared by contractor, supervisor and staff ============ -->
   <div class="rp-page" v-if="user && rp.open">
@@ -2733,7 +2776,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-24.1';
+const APP_BUILD = '2026-10-24.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2802,6 +2845,9 @@ createApp({
       user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
       // client portal (read-only owner / property-manager view, Oct 23 2026)
       cv: { view: 'list', props: [], loading: false, q: '', prop: null, structure: { subProjects: [], locations: [] }, loadingStruct: false, unit: null, sections: [], loadingSecs: false, inv: {} },
+      // Master view (Oct 24 2026): an admin using the client / contractor screens
+      portalAs: null,
+      mv: { open: false, loading: false, q: '', ctFor: '', ctLoading: false, contractors: [] },
       // Repairs portal (Oct 23 2026)
       rp: { list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
       ct: { list: [], loading: false, form: null, busy: false, msg: '' },
@@ -2875,9 +2921,13 @@ createApp({
   },
   computed: {
     // A client portal login (owner / property manager) - read-only view.
-    isClient() { return !!(this.user && String(this.user.role || '').toLowerCase() === 'client'); },
+    isClient() { return !!(this.user && (String(this.user.role || '').toLowerCase() === 'client' || (this.portalAs && this.portalAs.kind === 'client'))); },
     // The client's contractor (repairs portal) - photo uploads only.
-    isContractor() { return !!(this.user && String(this.user.role || '').toLowerCase() === 'contractor'); },
+    isContractor() { return !!(this.user && (String(this.user.role || '').toLowerCase() === 'contractor' || (this.portalAs && this.portalAs.kind === 'contractor'))); },
+    mvClients() {
+      const q = String(this.mv.q || '').toLowerCase();
+      return this.clients.filter((c) => c.isActive !== false && (!q || (c.name || '').toLowerCase().includes(q)));
+    },
     rpKind() { return this.isContractor ? 'contractor' : (this.isClient ? 'client' : 'staff'); },
     rpNotAccepted() {
       const d = this.rp.data; if (!d) return 0;
@@ -3107,9 +3157,10 @@ createApp({
     async cvLoadProps() {
       this.cv.loading = !this.cv.props.length;
       try {
-        const res = await this.api('/project/allprojects');
+        // master view: the chosen client's portfolio (an admin's allprojects is everything)
+        const res = await this.api(this.portalAs ? '/clients/' + encodeURIComponent(this.portalAs.clientId) + '/projects' : '/project/allprojects');
         const data = await res.json();
-        const list = (data.projects || []).filter((p) => !p.isdeleted);
+        const list = (Array.isArray(data) ? data : (data.projects || [])).filter((p) => !p.isdeleted);
         list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { numeric: true, sensitivity: 'base' }));
         this.cv.props = list;
       } catch (e) {
@@ -3198,6 +3249,56 @@ createApp({
         if (p) { this.cvOpenProp(p, true); return; }
       }
       this.cv.view = 'list'; this.cv.unit = null;
+    },
+
+    /* ---------- MASTER VIEW (Oct 24 2026, admins) ---------- */
+    async mvOpen() {
+      this.mv.open = true; this.mv.q = ''; this.mv.ctFor = '';
+      this.mv.loading = !this.clients.length;
+      try { await this.loadClients(true); } catch (e) { /* list stays */ }
+      finally { this.mv.loading = false; }
+    },
+    async mvContractors(c) {
+      if (this.mv.ctFor === c.id) { this.mv.ctFor = ''; return; }
+      this.mv.ctFor = c.id; this.mv.contractors = []; this.mv.ctLoading = true;
+      try {
+        const res = await this.api('/repairs/contractors?clientId=' + encodeURIComponent(c.id));
+        const j = res.ok ? await res.json() : [];
+        if (this.mv.ctFor === c.id) this.mv.contractors = Array.isArray(j) ? j : [];
+      } catch (e) { /* none */ }
+      finally { this.mv.ctLoading = false; }
+    },
+    mvResetPortal() {
+      this.cv = { view: 'list', props: [], loading: false, q: '', prop: null, structure: { subProjects: [], locations: [] }, loadingStruct: false, unit: null, sections: [], loadingSecs: false, inv: {} };
+      this.rp = { list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' };
+      this.ct = { list: [], loading: false, form: null, busy: false, msg: '' };
+    },
+    mvEnter(kind, client, contractor) {
+      this.mv.open = false;
+      this.mvResetPortal();
+      if (kind === 'contractor') {
+        const who = [contractor.first_name, contractor.last_name].filter(Boolean).join(' ') || contractor.username;
+        this.portalAs = { kind: 'contractor', clientId: client.id, header: 'contractor:' + contractor.username, label: who + ' (' + client.name + ' contractor)' };
+        window.scrollTo(0, 0);
+        this.rpStart();
+      } else {
+        this.portalAs = { kind: 'client', clientId: client.id, header: 'client:' + client.id, label: client.name };
+        window.scrollTo(0, 0);
+        this.cvStart();
+      }
+    },
+    mvExit() {
+      this.portalAs = null;
+      this.mvResetPortal();
+      this.view = 'projects';
+      history.replaceState({ v: 'projects' }, '');
+      this.rpLoadQueueQuiet();
+      if (!this.projects.length) this.loadProjects();
+    },
+    // Turning a login back on: its old username may now belong to someone else.
+    async askNewUsername(oldName, message) {
+      const v = window.prompt((message || 'That username is taken.') + '\n\nNew username for this login:', (oldName || '') + '2');
+      return v ? v.trim() : '';
     },
 
     /* ---------- REPAIRS PORTAL (Oct 23 2026) ---------- */
@@ -3424,10 +3525,18 @@ createApp({
       const on = c.isActive === false;
       this.ct.busy = true;
       try {
-        const res = await this.api('/repairs/contractors/status', { method: 'POST', json: { username: c.username, active: on } });
-        if (!res.ok) throw new Error('bad');
+        let res = await this.api('/repairs/contractors/status', { method: 'POST', json: { username: c.username, active: on } });
+        let j = await res.json().catch(() => ({}));
+        if (res.status === 409 && j.needUsername) {
+          const nu = await this.askNewUsername(c.formerUsername || c.username, j.message);
+          if (!nu) return;
+          res = await this.api('/repairs/contractors/status', { method: 'POST', json: { username: c.username, active: on, newUsername: nu } });
+          j = await res.json().catch(() => ({}));
+        }
+        if (!res.ok) { this.toast(j.message || 'Could not update the login.', 'err'); return; }
         c.isActive = on;
-        this.toast(on ? 'Login turned on.' : 'Login turned off - it stops working within a minute.');
+        this.ctLoad();
+        this.toast(on ? 'Login turned on.' : 'Login turned off - it stops working within a minute, and its username and email are free to reuse.');
       } catch (e) { if (e.message !== 'auth') this.toast('Could not update the login.', 'err'); }
       finally { this.ct.busy = false; }
     },
@@ -3455,7 +3564,8 @@ createApp({
     portalNew() {
       const c = this.clientOpen || {};
       this.portal.msg = '';
-      this.portal.form = { mode: 'new', first_name: '', last_name: '', email: c.email || '', username: '', password: this.portalGenPw() };
+      // email left blank on purpose: the client's own email is often already used by a login
+      this.portal.form = { mode: 'new', first_name: '', last_name: '', email: '', username: '', password: this.portalGenPw() };
     },
     portalResetOpen(l) {
       this.portal.msg = '';
@@ -3496,10 +3606,18 @@ createApp({
       const on = l.isActive === false;
       this.portal.busy = true;
       try {
-        const res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins/status', { method: 'POST', json: { username: l.username, active: on } });
-        if (!res.ok) throw new Error('bad');
+        let res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins/status', { method: 'POST', json: { username: l.username, active: on } });
+        let j = await res.json().catch(() => ({}));
+        if (res.status === 409 && j.needUsername) {
+          const nu = await this.askNewUsername(l.formerUsername || l.username, j.message);
+          if (!nu) return;
+          res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins/status', { method: 'POST', json: { username: l.username, active: on, newUsername: nu } });
+          j = await res.json().catch(() => ({}));
+        }
+        if (!res.ok) { this.toast(j.message || 'Could not update the login.', 'err'); return; }
         l.isActive = on;
-        this.toast(on ? 'Login turned on.' : 'Login turned off - it stops working within a minute.');
+        this.portalLoad();
+        this.toast(on ? 'Login turned on.' : 'Login turned off - it stops working within a minute, and its username and email are free to reuse.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not update the login.', 'err');
       } finally { this.portal.busy = false; }
@@ -3516,11 +3634,13 @@ createApp({
     authHdr(extra) {
       const h = Object.assign({}, extra || {});
       if (this.user && this.user.token) h['Authorization'] = this.user.token;
+      if (this.portalAs) h['X-Portal-As'] = this.portalAs.header;
       return h;
     },
     async api(pathname, opts = {}) {
       const headers = Object.assign({}, opts.headers || {});
       if (this.user && this.user.token) headers['Authorization'] = this.user.token;
+      if (this.portalAs) headers['X-Portal-As'] = this.portalAs.header;
       if (opts.json !== undefined) {
         headers['Content-Type'] = 'application/json';
         opts.body = JSON.stringify(opts.json);
@@ -4014,6 +4134,7 @@ createApp({
     },
     logout() {
       this.stopPolling();
+      this.portalAs = null; this.mv.open = false;
       this.rp = { list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' };
       this.ct = { list: [], loading: false, form: null, busy: false, msg: '' };
       this.cv = { view: 'list', props: [], loading: false, q: '', prop: null, structure: { subProjects: [], locations: [] }, loadingStruct: false, unit: null, sections: [], loadingSecs: false, inv: {} };
@@ -6767,9 +6888,19 @@ createApp({
     },
     async toggleUserActive(u) {
       try {
-        const res = await this.api('/user/update', { method: 'POST', json: Object.assign({}, u, { isActive: u.isActive === false }) });
-        if (!res.ok) throw new Error('bad');
-        u.isActive = u.isActive === false;
+        const on = u.isActive === false;
+        let res = await this.api('/user/update', { method: 'POST', json: { username: u.username, isActive: on } });
+        let j = await res.json().catch(() => ({}));
+        if (res.status === 409 && j.needUsername) {
+          const nu = await this.askNewUsername(u.formerUsername || u.username, j.message);
+          if (!nu) return;
+          res = await this.api('/user/update', { method: 'POST', json: { username: u.username, isActive: on, newUsername: nu } });
+          j = await res.json().catch(() => ({}));
+        }
+        if (!res.ok) { this.toast(j.message || 'Could not update the user.', 'err'); return; }
+        u.isActive = on;
+        if (j.username) u.username = j.username;
+        this.loadUsers();
         this.toast(u.isActive ? 'User activated.' : 'User deactivated.');
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not update the user.', 'err');
