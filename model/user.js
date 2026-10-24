@@ -93,9 +93,11 @@ var getClientUsers = async function (companyIdentifier, clientId) {
   const query = `SELECT META(u).id as id, u.username, u.first_name, u.last_name, u.email, u.mobile,
       u.isActive, u.createdAt
     FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u
-    WHERE u.role = 'client' AND u.companyIdentifier = $1 AND u.clientId = $2
-    ORDER BY LOWER(u.username)`;
-  return await executeQuery(query, [companyIdentifier, clientId]);
+    WHERE u.\`role\` = 'client' AND u.companyIdentifier = $1 AND u.clientId = $2`;
+  // ROLE is a reserved word in N1QL - it must be back-quoted (the unquoted form
+  // failed live, Oct 23 2026). Sorted here rather than in the query.
+  const rows = await executeQuery(query, [companyIdentifier, clientId]);
+  return rows.sort((a, b) => String(a.username || "").toLowerCase().localeCompare(String(b.username || "").toLowerCase()));
 };
 
 var addSuperUser = async function (user) {

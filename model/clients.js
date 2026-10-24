@@ -83,7 +83,7 @@ var getClientsByCompany = async function (companyIdentifier, opts = {}) {
   const rows = await executeQuery(q, params);
   // property counts in one query (owner or manager slot)
   const cq = `SELECT p.ownerClientId AS o, p.managerClientId AS m FROM ${projectPath()} p
-    WHERE p.type = 'Project' AND p.companyIdentifier = $1 AND IFMISSINGORNULL(p.isdeleted, false) = false
+    WHERE (p.type = 'Project' OR p.docType = 'Project') AND p.companyIdentifier = $1 AND IFMISSINGORNULL(p.isdeleted, false) = false
       AND (p.ownerClientId IS NOT MISSING OR p.managerClientId IS NOT MISSING)`;
   const counts = {};
   try {
@@ -102,11 +102,13 @@ var getClientById = async function (id) {
 };
 
 // All projects where the client is owner and/or manager.
+// NOTE (Oct 23 2026): most Project docs carry docType:'Project' and NO type field
+// (561 of 564 live) - match either, or portfolios / counts / the archive check miss them.
 var getPortfolio = async function (companyIdentifier, clientId) {
   const q = `SELECT META(p).id AS id, p.name, p.address, p.projecttype, p.iscomplete, p.editedat, p.createdat,
       p.assignedto, p.url, p.ownerClientId, p.managerClientId, p.clientInfo, p.finalinspection
     FROM ${projectPath()} p
-    WHERE p.type = 'Project' AND p.companyIdentifier = $1 AND IFMISSINGORNULL(p.isdeleted, false) = false
+    WHERE (p.type = 'Project' OR p.docType = 'Project') AND p.companyIdentifier = $1 AND IFMISSINGORNULL(p.isdeleted, false) = false
       AND (p.ownerClientId = $2 OR p.managerClientId = $2)
     ORDER BY LOWER(p.name)`;
   return await executeQuery(q, [companyIdentifier, clientId]);
@@ -114,7 +116,7 @@ var getPortfolio = async function (companyIdentifier, clientId) {
 
 var portfolioCount = async function (companyIdentifier, clientId) {
   const q = `SELECT COUNT(*) AS n FROM ${projectPath()} p
-    WHERE p.type = 'Project' AND p.companyIdentifier = $1 AND IFMISSINGORNULL(p.isdeleted, false) = false
+    WHERE (p.type = 'Project' OR p.docType = 'Project') AND p.companyIdentifier = $1 AND IFMISSINGORNULL(p.isdeleted, false) = false
       AND (p.ownerClientId = $2 OR p.managerClientId = $2)`;
   const rows = await executeQuery(q, [companyIdentifier, clientId]);
   return rows.length ? rows[0].n : 0;
