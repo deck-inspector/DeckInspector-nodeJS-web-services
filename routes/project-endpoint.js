@@ -117,7 +117,7 @@ router.route('/allprojects')
             // of the nickname / initials uniqueness check
             const others = (all.users || []).filter(u =>
               u && u.companyIdentifier === companyIdentifier && u.username !== req.user.username &&
-              String(u.role || '').toLowerCase() !== 'client');
+              !['client', 'contractor'].includes(String(u.role || '').toLowerCase()));
             result.projects = result.projects.filter(p => projectAssignedToUser(p, me, others));
           }
         } catch (visErr) {

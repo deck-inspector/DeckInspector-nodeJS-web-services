@@ -103,7 +103,9 @@ router.route("/login").post(async function (req, res) {
     // view-only and web-only for now. The phone app syncs every property of the
     // tenant and is an editing tool, so a client login is refused there until
     // the per-user read-only phone sync is built.
-    const isClientLogin = String(record.role || "").toLowerCase() === "client";
+    // contractors (repairs portal, Oct 23 2026) are portal logins too
+    const portalRole = String(record.role || "").toLowerCase();
+    const isClientLogin = portalRole === "client" || portalRole === "contractor";
     if (isClientLogin && isMobile) {
       return res
         .status(403)
@@ -160,7 +162,7 @@ router.route("/login").post(async function (req, res) {
     // Client logins carry their role + client in the token (the server lock in
     // service/clientAccess.js also re-reads the user record on every request).
     if (isClientLogin) {
-      claims.role = "client";
+      claims.role = portalRole;
       claims.clientId = record.clientId || null;
     }
     const token = jwt.sign(

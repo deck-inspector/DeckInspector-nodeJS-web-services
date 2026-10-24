@@ -27,8 +27,11 @@ function isSuperToken(req) {
 async function requesterRecord(req) {
   try { return await users.getUserbyUsername(req.user && req.user.username); } catch (e) { return null; }
 }
+// Portal logins (client supervisors AND their contractors, Oct 23 2026) are not
+// staff: hidden from staff lists, never editable from here.
 function isClientRec(rec) {
-  return !!(rec && String(rec.role || "").toLowerCase() === "client");
+  const r = String((rec && rec.role) || "").toLowerCase();
+  return r === "client" || r === "contractor";
 }
 // Resolves the target user and checks the requester may touch it. Sends the
 // error response itself and returns null when not allowed.
@@ -38,7 +41,7 @@ async function targetUserOrDeny(req, res, username) {
   if (!target) { res.status(404).send("User not found."); return null; }
   if (isSuperToken(req)) return target;
   if (target.companyIdentifier !== req.user.company) { res.status(403).send("That user belongs to another company."); return null; }
-  if (isClientRec(target)) { res.status(403).send("Client logins are managed on the client's page."); return null; }
+  if (isClientRec(target)) { res.status(403).send("Client and contractor logins are managed on the client's page."); return null; }
   return target;
 }
 
