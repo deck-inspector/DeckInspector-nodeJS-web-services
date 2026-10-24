@@ -36,11 +36,33 @@ async function actorOf(req) {
   try { me = await users.getUserbyUsername(req.user && req.user.username); } catch (e) { me = null; }
   const role = String((me && me.role) || "").toLowerCase();
   if (role === "client" || role === "contractor") return { kind: "none" }; // never staff
-  return {
-    kind: "staff", company: req.user && req.user.company, username: req.user && req.user.username,
-    name: me ? ([me.first_name, me.last_name].filter(Boolean).join(" ") || me.username) : (req.user && req.user.username),
-    isAdmin: role === "admin",
-  };
+  const staffName = me ? ([me.first_name, me.last_name].filter(Boolean).join(" ") || me.username) : (req.user && req.user.username);
+  const company = req.user && req.user.company;
+  // MASTER VIEW (David, Oct 24 2026): a company ADMIN can use the client and
+  // contractor screens for any client of its own company (set-up, testing,
+  // support). The web app sends  X-Portal-As: client:<clientId>  or
+  // contractor:<username>. Everything done is recorded as "<admin> (master)".
+  const as = String((req.headers && req.headers["x-portal-as"]) || "");
+  if (as && role === "admin" && me && me.companyIdentifier === company) {
+    const m = /^(client|contractor):(.+)$/.exec(as);
+    if (m && m[1] === "client") {
+      const clients = require("../model/clients");
+      const c = await clients.getClientById(m[2]);
+      if (c && c.companyIdentifier === company) {
+        return { kind: "client", company, clientId: c.id, username: req.user.username, name: `${staffName} (master, as ${c.name})`, contractorProjects: [], master: true };
+      }
+    }
+    if (m && m[1] === "contractor") {
+      const rec = await users.getUserbyUsername(m[2]);
+      if (rec && String(rec.role || "").toLowerCase() === "contractor" && rec.companyIdentifier === company) {
+        // acts as that contractor (its own photos can be removed in this view)
+        return { kind: "contractor", company, clientId: rec.clientId, username: rec.username, name: `${staffName} (master, as ${[rec.first_name, rec.last_name].filter(Boolean).join(" ") || rec.username})`,
+          contractorProjects: Array.isArray(rec.contractorProjects) ? rec.contractorProjects.map(String) : [], master: true };
+      }
+    }
+    return { kind: "none" }; // a bad master target never falls back to full staff rights silently
+  }
+  return { kind: "staff", company, username: req.user && req.user.username, name: staffName, isAdmin: role === "admin" };
 }
 
 function fail(res, code, message) { return res.status(code).json({ success: false, message }); }
@@ -444,8 +466,8 @@ router.post("/contractors", async (req, res) => {
     const password = String(b.password || "");
     if (!/^[A-Za-z0-9._@-]{3,60}$/.test(username)) return fail(res, 400, "Username: 3-60 letters, numbers, . _ - or @.");
     if (password.length < 8) return fail(res, 400, "Password must be at least 8 characters.");
-    if (await users.getUserbyUsername(username)) return fail(res, 409, "That username is already taken.");
-    if (email && (await users.getUser(email))) return fail(res, 409, "A login with that email already exists.");
+    const free = await users.claimIdentity(username, email);
+    if (!free.ok) return res.status(409).json({ success: false, message: free.message, field: free.field });
     const mine = await portfolioIds(scope.actor.company, scope.clientId);
     const projectIds = (Array.isArray(b.projectIds) ? b.projectIds : []).map(String).filter((id) => mine.has(id));
     const r = await users.addClientUser({
@@ -489,9 +511,10 @@ router.post("/contractors/status", async (req, res) => {
     const rec = await contractorOf(scope, b.username);
     if (!rec) return fail(res, 404, "Contractor not found.");
     const users = require("../model/user");
-    const r = await users.updateUserStatus(rec.username, b.active !== false);
+    const r = await users.setActive(rec, b.active !== false, b.newUsername);
     require("../service/clientAccess").forgetUser(rec.username);
-    return res.status(r.status === 201 ? 200 : 500).json({ ok: r.status === 201 ? 1 : 0 });
+    if (r.status !== 201) return res.status(r.status).json(r);
+    return res.status(200).json({ ok: 1, message: r.message, username: r.username || "" });
   } catch (e) {
     console.error("contractor status:", e && e.message);
     return fail(res, 500, "Could not update the login.");

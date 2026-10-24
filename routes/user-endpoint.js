@@ -116,17 +116,11 @@ router.route("/register").post(async function (req, res) {
         break;
     }
 
-    // Check if the user already exists
-    const existingUserByEmail = await users.getUser(email);
-    if (existingUserByEmail) {
-      return res.status(409).send("User with this email already exists.");
-    }
-
-    const existingUserByUsername = await
-      users.getUserbyUsername(username);
-    
-    if (existingUserByUsername) {
-      return res.status(409).send("Username already exists.");
+    // Username + email must be free. Turned-off (non-admin) logins no longer hold
+    // them - they are released on the spot (Oct 24 2026).
+    const free = await users.claimIdentity(username, email);
+    if (!free.ok) {
+      return res.status(409).send(free.message);
     }
 
     // const existingUserByMobile = await new Promise((resolve, reject) => {
@@ -310,6 +304,12 @@ router.route("/update").post(async function (req, res) {
     // Guard rails (Oct 23 2026) - see the top of this file.
     const target = await targetUserOrDeny(req, res, user && user.username);
     if (!target) return;
+    // Turning a user on / off (Oct 24 2026): off frees its username + email (not
+    // for admins); on restores the old username or needs `newUsername`.
+    if ("isActive" in user && (user.isActive === false) !== (target.isActive === false)) {
+      const r = await users.setActive(target, user.isActive !== false, user.newUsername);
+      return res.status(r.status).json(r);
+    }
     if (!isSuperToken(req)) {
       delete user.companyIdentifier; // a user can never be moved to another tenant from here
       delete user.clientId;
@@ -471,8 +471,9 @@ router
       const isActive = req.body.isActive;
       const target = await targetUserOrDeny(req, res, username);
       if (!target) return;
-      const result = await users.updateUserStatus(target.username, isActive);
-      res.status(result.status).json({ message: result.message });
+      // on/off through the same rule as everywhere else (Oct 24 2026)
+      const result = await users.setActive(target, isActive !== false && isActive !== "false", req.body.newUsername);
+      res.status(result.status).json(result);
     } catch {
       res.status(500).send("Internal server error.");
     }

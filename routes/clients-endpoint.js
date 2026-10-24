@@ -133,8 +133,8 @@ router.post("/:id/logins", async (req, res) => {
     const password = String(b.password || "");
     if (!/^[A-Za-z0-9._@-]{3,60}$/.test(username)) return res.status(400).json({ message: "Username: 3-60 letters, numbers, . _ - or @." });
     if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters." });
-    if (await users.getUserbyUsername(username)) return res.status(409).json({ message: "That username is already taken." });
-    if (email && (await users.getUser(email))) return res.status(409).json({ message: "A login with that email already exists." });
+    const free = await users.claimIdentity(username, email);
+    if (!free.ok) return res.status(409).json({ message: free.message, field: free.field });
     const r = await users.addClientUser({
       username, email,
       first_name: String(b.first_name || "").trim().slice(0, 80),
@@ -158,9 +158,10 @@ router.post("/:id/logins/status", async (req, res) => {
     if (!(await requireAdmin(req, res))) return;
     const cur = await clientOf(req, res); if (!cur) return;
     const rec = await loginOf(req, res, cur, req.body && req.body.username); if (!rec) return;
-    const r = await users.updateUserStatus(rec.username, req.body.active !== false);
+    const r = await users.setActive(rec, req.body.active !== false, req.body.newUsername);
     forgetUser(rec.username); // takes effect on the client's next request
-    res.status(r.status === 201 ? 200 : 500).json({ ok: r.status === 201 ? 1 : 0, message: r.message });
+    if (r.status !== 201) return res.status(r.status).json(r);
+    res.status(200).json({ ok: 1, message: r.message, username: r.username || "" });
   } catch (e) {
     console.error("client login status:", e && e.message);
     res.status(500).json({ message: "Could not update the login." });
