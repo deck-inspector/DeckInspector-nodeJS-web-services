@@ -46,6 +46,15 @@ function forgetUser(username) {
 function isClientRecord(rec) {
   return !!(rec && String(rec.role || "").toLowerCase() === "client");
 }
+// Repairs portal (Oct 23 2026): the client's contractor / maintenance crew.
+function isContractorRecord(rec) {
+  return !!(rec && String(rec.role || "").toLowerCase() === "contractor");
+}
+// Any outside (portal) login - never treated as staff.
+function isPortalRecord(rec) {
+  return isClientRecord(rec) || isContractorRecord(rec);
+}
+const PORTAL_ROLES = ["client", "contractor"];
 
 // ---------------------------------------------------------------- id -> project
 function ks(collection) {
@@ -182,6 +191,20 @@ const RULES = [
   { method: "POST", re: /^\/image\/prebuild$/i, kind: "pass" },
   // the tenant logo for the page header - own tenant only, logo fields only
   { method: "GET", re: /^\/tenants\/identifier\/([^/]+)$/i, kind: "branding" },
+  // repairs portal - routes/repairs-endpoint.js checks every request against the
+  // login's role, client and assigned properties itself
+  { method: "GET", re: /^\/repairs(\/.*)?$/i, kind: "pass" },
+  { method: "POST", re: /^\/repairs(\/.*)?$/i, kind: "pass" },
+];
+
+// A contractor login may ONLY use the repairs routes (plus sign-in, thumbnails and
+// the logo). It never reads the inspection itself through the general routes.
+const CONTRACTOR_RULES = [
+  { method: "POST", re: /^\/login\/(login|logout)$/i, kind: "pass" },
+  { method: "GET", re: /^\/repairs(\/.*)?$/i, kind: "pass" },
+  { method: "POST", re: /^\/repairs(\/.*)?$/i, kind: "pass" },
+  { method: "POST", re: /^\/image\/prebuild$/i, kind: "pass" },
+  { method: "GET", re: /^\/tenants\/identifier\/([^/]+)$/i, kind: "branding" },
 ];
 
 function deny(res, code, message) {
@@ -194,12 +217,12 @@ async function handleClient(req, res, next, client) {
   const path = String(req.path || "").replace(/\/+$/, "");
   const method = String(req.method || "").toUpperCase();
   let rule = null, match = null;
-  for (const r of RULES) {
+  for (const r of (client.role === "contractor" ? CONTRACTOR_RULES : RULES)) {
     if (r.method !== method) continue;
     const m = r.re.exec(path);
     if (m) { rule = r; match = m; break; }
   }
-  if (!rule) return deny(res, 403, "Client accounts can view inspections only.");
+  if (!rule) return deny(res, 403, client.role === "contractor" ? "Contractor accounts can add repair photos only." : "Client accounts can view inspections only.");
 
   if (rule.kind === "pass") return next();
 
@@ -239,16 +262,21 @@ function clientGuard(req, res, next) {
     } catch (e) {
       // Can't tell who this is. A token that SAYS client is refused; staff carry on
       // as before so a database hiccup never locks inspectors out.
-      if (String(payload.role || "").toLowerCase() === "client") return deny(res, 503, "Please try again in a moment.");
+      if (PORTAL_ROLES.includes(String(payload.role || "").toLowerCase())) return deny(res, 503, "Please try again in a moment.");
       return next();
     }
-    if (!isClientRecord(rec)) {
-      if (String(payload.role || "").toLowerCase() === "client") return deny(res, 401, "Session expired - please sign in again.");
+    if (!isPortalRecord(rec)) {
+      if (PORTAL_ROLES.includes(String(payload.role || "").toLowerCase())) return deny(res, 401, "Session expired - please sign in again.");
       return next(); // staff
     }
     if (rec.isActive === false) return deny(res, 401, "This login has been turned off.");
     if (!rec.clientId || rec.companyIdentifier !== payload.company) return deny(res, 403, "This login is not linked to a client.");
-    req.clientViewer = { username: rec.username, company: rec.companyIdentifier, clientId: rec.clientId };
+    req.clientViewer = {
+      username: rec.username, company: rec.companyIdentifier, clientId: rec.clientId,
+      role: isContractorRecord(rec) ? "contractor" : "client",
+      contractorProjects: Array.isArray(rec.contractorProjects) ? rec.contractorProjects.map(String) : [],
+      name: [rec.first_name, rec.last_name].filter(Boolean).join(" ") || rec.username,
+    };
     return handleClient(req, res, next, req.clientViewer);
   })().catch((e) => {
     console.error("clientGuard:", e && e.message);
@@ -256,4 +284,4 @@ function clientGuard(req, res, next) {
   });
 }
 
-module.exports = { clientGuard, isClientRecord, forgetUser, scrub, resolveProjects, projectAllowed, RULES };
+module.exports = { clientGuard, isClientRecord, isContractorRecord, isPortalRecord, forgetUser, scrub, resolveProjects, projectAllowed, RULES, CONTRACTOR_RULES };
