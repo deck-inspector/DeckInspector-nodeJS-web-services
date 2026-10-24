@@ -79,6 +79,14 @@ var addClientUser = async function (user) {
       createdBy: user.createdBy || "",
       createdAt: new Date().toISOString(),
     };
+    // REPAIRS PORTAL (Oct 23 2026): a contractor login works for one client and
+    // sees only the repair items of the properties assigned to it.
+    if (user.role === Role.Contractor) {
+      userDoc.role = Role.Contractor;
+      userDoc.access_type = "contractor";
+      userDoc.company = String(user.company || "").slice(0, 120);
+      userDoc.contractorProjects = Array.isArray(user.contractorProjects) ? user.contractorProjects.map(String) : [];
+    }
     // N1QL insert (query service) - same reason as the other Users writes.
     const q = `INSERT INTO \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users (KEY, VALUE) VALUES ($1, $2)`;
     await executeQuery(q, [userId, userDoc]);
@@ -98,6 +106,22 @@ var getClientUsers = async function (companyIdentifier, clientId) {
   // failed live, Oct 23 2026). Sorted here rather than in the query.
   const rows = await executeQuery(query, [companyIdentifier, clientId]);
   return rows.sort((a, b) => String(a.username || "").toLowerCase().localeCompare(String(b.username || "").toLowerCase()));
+};
+
+// Contractor logins of one client (repairs portal).
+var getContractors = async function (companyIdentifier, clientId) {
+  const query = `SELECT META(u).id as id, u.username, u.first_name, u.last_name, u.email, u.mobile,
+      u.company, u.contractorProjects, u.isActive, u.createdAt
+    FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u
+    WHERE u.\`role\` = 'contractor' AND u.companyIdentifier = $1 AND u.clientId = $2`;
+  const rows = await executeQuery(query, [companyIdentifier, clientId]);
+  return rows.sort((a, b) => String(a.username || "").toLowerCase().localeCompare(String(b.username || "").toLowerCase()));
+};
+
+var setContractorProjects = async function (userId, projectIds) {
+  const query = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.contractorProjects = $2`;
+  await executeQuery(query, [userId, (projectIds || []).map(String)]);
+  return { ok: 1 };
 };
 
 var addSuperUser = async function (user) {
@@ -544,6 +568,8 @@ module.exports = {
   addUser: addUser,
   addClientUser,
   getClientUsers,
+  getContractors,
+  setContractorProjects,
   getUser: getUser,
   addAdmin: addAdmin,
   getAllUser: getAllUser,
