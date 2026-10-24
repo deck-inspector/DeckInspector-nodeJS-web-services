@@ -156,13 +156,15 @@ var releaseIdentity = async function (rec) {
 };
 
 // All logins (active or not) holding a username / email - case-insensitive.
+// ROLE is a reserved word in N1QL - the column AND its alias must be back-quoted
+// (unquoted alias crashed every login creation live, Oct 24 2026).
 async function holdersOfUsername(username) {
-  return await executeQuery(`SELECT META(u).id as id, u.username, u.\`role\` AS role, u.isActive, u.email
+  return await executeQuery(`SELECT META(u).id as id, u.username, u.\`role\` AS \`role\`, u.isActive, u.email
     FROM ${USERS_KS()} u WHERE LOWER(u.username) = LOWER($1)`, [String(username || "")]);
 }
 async function holdersOfEmail(email) {
   if (!email) return [];
-  return await executeQuery(`SELECT META(u).id as id, u.username, u.\`role\` AS role, u.isActive, u.email
+  return await executeQuery(`SELECT META(u).id as id, u.username, u.\`role\` AS \`role\`, u.isActive, u.email
     FROM ${USERS_KS()} u WHERE LOWER(u.email) = LOWER($1)`, [String(email)]);
 }
 
