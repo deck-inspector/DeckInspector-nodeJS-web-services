@@ -98,7 +98,7 @@ var addClientUser = async function (user) {
 };
 
 var getClientUsers = async function (companyIdentifier, clientId) {
-  const query = `SELECT META(u).id as id, u.username, u.first_name, u.last_name, u.email, u.mobile,
+  const query = `SELECT META(u).id as id, u.username, u.formerUsername, u.first_name, u.last_name, u.email, u.mobile,
       u.isActive, u.createdAt
     FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u
     WHERE u.\`role\` = 'client' AND u.companyIdentifier = $1 AND u.clientId = $2`;
@@ -110,7 +110,7 @@ var getClientUsers = async function (companyIdentifier, clientId) {
 
 // Contractor logins of one client (repairs portal).
 var getContractors = async function (companyIdentifier, clientId) {
-  const query = `SELECT META(u).id as id, u.username, u.first_name, u.last_name, u.email, u.mobile,
+  const query = `SELECT META(u).id as id, u.username, u.formerUsername, u.first_name, u.last_name, u.email, u.mobile,
       u.company, u.contractorProjects, u.isActive, u.createdAt
     FROM \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users u
     WHERE u.\`role\` = 'contractor' AND u.companyIdentifier = $1 AND u.clientId = $2`;
@@ -122,6 +122,91 @@ var setContractorProjects = async function (userId, projectIds) {
   const query = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.contractorProjects = $2`;
   await executeQuery(query, [userId, (projectIds || []).map(String)]);
   return { ok: 1 };
+};
+
+// ---------------------------------------------------------------------------
+// INACTIVE LOGINS FREE THEIR USERNAME + EMAIL (David, Oct 24 2026)
+// Usernames and emails are unique across all of E3. When a login is turned off
+// (anyone EXCEPT a company admin) its email is cleared and its username is
+// renamed to a placeholder, so both can be used again by a new login. The record
+// itself stays (history: who inspected / uploaded what) with `formerUsername`.
+// Turning it back on restores the old username when it is still free; otherwise a
+// new username must be given.
+// ---------------------------------------------------------------------------
+const USERS_KS = () => `\`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users`;
+function isAdminRec(rec) { return !!(rec && String(rec.role || "").toLowerCase() === "admin"); }
+// A turned-off, non-admin login whose username / email can be given away.
+function isReleasable(rec) { return !!(rec && rec.isActive === false && !isAdminRec(rec)); }
+function placeholderFor(username) {
+  const base = String(username || "user").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "user";
+  return `off-${base}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Free the username + email of a login that is (being) turned off. No-op for admins.
+var releaseIdentity = async function (rec) {
+  if (!rec || isAdminRec(rec)) return { ok: 1, released: false };
+  const id = rec.id || rec._id;
+  if (String(rec.username || "").startsWith("off-") && !rec.email) return { ok: 1, released: false }; // already released
+  const placeholder = placeholderFor(rec.username);
+  const q = `UPDATE ${USERS_KS()} AS u USE KEYS $1
+    SET u.formerUsername = IFMISSINGORNULL(u.formerUsername, u.username), u.username = $2,
+        u.email = "", u.deviceId = "", u.isActive = false, u.releasedAt = $3`;
+  await executeQuery(q, [id, placeholder, new Date().toISOString()]);
+  return { ok: 1, released: true, username: placeholder };
+};
+
+// All logins (active or not) holding a username / email - case-insensitive.
+async function holdersOfUsername(username) {
+  return await executeQuery(`SELECT META(u).id as id, u.username, u.\`role\` AS role, u.isActive, u.email
+    FROM ${USERS_KS()} u WHERE LOWER(u.username) = LOWER($1)`, [String(username || "")]);
+}
+async function holdersOfEmail(email) {
+  if (!email) return [];
+  return await executeQuery(`SELECT META(u).id as id, u.username, u.\`role\` AS role, u.isActive, u.email
+    FROM ${USERS_KS()} u WHERE LOWER(u.email) = LOWER($1)`, [String(email)]);
+}
+
+// Is this username / email free for a NEW login? Turned-off non-admin logins that
+// still hold it (older records) are released on the spot. Returns
+// { ok: true } or { ok: false, field: 'username'|'email', message }.
+var claimIdentity = async function (username, email, exceptId) {
+  for (const r of await holdersOfUsername(username)) {
+    if (exceptId && r.id === exceptId) continue;
+    if (isReleasable(r)) { await releaseIdentity(r); continue; }
+    return { ok: false, field: "username", message: `The username "${username}" is already used by an active login. Choose another username.` };
+  }
+  if (email) {
+    for (const r of await holdersOfEmail(email)) {
+      if (exceptId && r.id === exceptId) continue;
+      if (isReleasable(r)) { await releaseIdentity(r); continue; }
+      return { ok: false, field: "email", message: `The email "${email}" is already used by an active login. Use a different email, or leave the email blank.` };
+    }
+  }
+  return { ok: true };
+};
+
+// Turn a login on or off. Off (non-admin) frees its username + email. On restores
+// its former username when free, else needs `newUsername`.
+// Returns { status, message, username? }.
+var setActive = async function (rec, active, newUsername) {
+  const id = rec.id || rec._id;
+  if (!active) {
+    await executeQuery(`UPDATE ${USERS_KS()} AS u USE KEYS $1 SET u.isActive = false`, [id]);
+    if (!isAdminRec(rec)) await releaseIdentity(Object.assign({}, rec, { isActive: false }));
+    return { status: 201, message: "User turned off." };
+  }
+  if (rec.isActive !== false) return { status: 201, message: "User is already active.", username: rec.username };
+  let want = String(newUsername || "").trim();
+  const wasPlaceholder = String(rec.username || "").startsWith("off-");
+  if (!want) want = wasPlaceholder ? String(rec.formerUsername || "") : String(rec.username || "");
+  if (!want) return { status: 409, needUsername: true, message: "Give this login a new username to turn it back on." };
+  if (!/^[A-Za-z0-9._@-]{3,60}$/.test(want)) return { status: 400, needUsername: true, message: "Username: 3-60 letters, numbers, . _ - or @." };
+  const free = await claimIdentity(want, "", id);
+  if (!free.ok) {
+    return { status: 409, needUsername: true, message: `The username "${want}" is now used by another login. Give this login a new username to turn it back on.` };
+  }
+  await executeQuery(`UPDATE ${USERS_KS()} AS u USE KEYS $1 SET u.isActive = true, u.username = $2, u.reactivatedAt = $3`, [id, want, new Date().toISOString()]);
+  return { status: 201, message: "User turned on.", username: want };
 };
 
 var addSuperUser = async function (user) {
@@ -570,6 +655,10 @@ module.exports = {
   getClientUsers,
   getContractors,
   setContractorProjects,
+  releaseIdentity,
+  claimIdentity,
+  setActive,
+  isReleasable,
   getUser: getUser,
   addAdmin: addAdmin,
   getAllUser: getAllUser,
