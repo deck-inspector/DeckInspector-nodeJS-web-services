@@ -449,6 +449,53 @@ input,select{font-family:inherit;font-size:16px}
 .chip.notsched{background:#E8461B;color:#fff;font-weight:800;letter-spacing:.3px;border:0;box-shadow:0 0 0 3px #FFD9CC;animation:notschedPulse 1.6s ease-in-out infinite}
 @keyframes notschedPulse{0%,100%{box-shadow:0 0 0 3px #FFD9CC}50%{box-shadow:0 0 0 6px #FFB69C}}
 
+/* ---- REPAIRS PORTAL (Oct 23 2026): contractor photos, supervisor sign-off, inspector review ---- */
+.rp-page{position:fixed;inset:0;background:var(--bg);z-index:60;overflow:auto;-webkit-overflow-scrolling:touch}
+.rp-head{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:10px clamp(16px,4vw,40px);display:flex;align-items:center;gap:12px;z-index:2}
+.rp-body{max-width:980px;margin:0 auto;padding:16px clamp(16px,4vw,40px) 120px}
+.rp-banner{border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:14px;background:var(--brand-soft);color:var(--brand)}
+.rp-banner.ok{background:#e3f4ee;color:#0B7A5C}.rp-banner.warn{background:#FFF4E0;color:#8a5300}.rp-banner.bad{background:#fde8e8;color:#9b1c1c}
+.rp-item{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:14px}
+.rp-item h4{margin:0 0 4px;font-size:16px}
+.rp-item .where{font-size:12px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.rp-st{display:inline-block;font-size:12px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--bg);color:var(--ink-soft)}
+.rp-st.done,.rp-st.accepted{background:#e3f4ee;color:#0B7A5C}.rp-st.approved{background:#0B7A5C;color:#fff}
+.rp-st.returned,.rp-st.rephoto{background:#FFF4E0;color:#8a5300}.rp-st.onsite{background:#fde8e8;color:#9b1c1c}
+.rp-st.submitted{background:var(--brand-soft);color:var(--brand)}
+.rp-note{font-size:13px;border-left:3px solid #E8B04B;background:#FFF9EE;padding:6px 10px;border-radius:6px;margin:6px 0}
+.rp-note.insp{border-color:#C00000;background:#fff6f6}
+.rp-label{font-size:12px;font-weight:700;color:var(--ink-soft);margin:10px 0 4px}
+.rp-thumbs{display:flex;flex-wrap:wrap;gap:8px}
+.rp-thumbs .ph{position:relative}
+.rp-thumbs img{width:110px;height:110px;object-fit:cover;border-radius:10px;cursor:zoom-in;border:1px solid var(--line);display:block}
+.rp-thumbs.small img{width:72px;height:72px}
+.rp-thumbs .x{position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;border:0;background:#C62828;color:#fff;font-weight:800;cursor:pointer;line-height:24px;padding:0}
+.rp-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.rp-cam{display:inline-flex;align-items:center;gap:6px;background:var(--brand);color:#fff;border-radius:10px;padding:11px 16px;font-weight:700;cursor:pointer;font-size:15px}
+.rp-cam input{display:none}
+.rp-actions textarea,.rp-actions input[type=text]{flex:1;min-width:200px;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px}
+.rp-dec{display:flex;gap:6px;flex-wrap:wrap}
+.rp-dec button{border:1.5px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;font-size:13px}
+.rp-dec button.on.approve{background:#0B7A5C;border-color:#0B7A5C;color:#fff}
+.rp-dec button.on.rephoto{background:#B26A00;border-color:#B26A00;color:#fff}
+.rp-dec button.on.onsite{background:#C62828;border-color:#C62828;color:#fff}
+.rp-foot{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px clamp(16px,4vw,40px);display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:flex-end;z-index:3}
+.rp-big{background:#0B7A5C;color:#fff;border:0;border-radius:12px;padding:14px 20px;font-weight:800;font-size:16px;cursor:pointer}
+.rp-big:disabled{background:#9db8ae;cursor:not-allowed}
+.rp-big.red{background:#C62828}
+.rp-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.rp-card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;cursor:pointer}
+.rp-card b{display:block;font-size:16px}
+.rp-card small{color:var(--ink-soft);display:block;margin-bottom:8px}
+.ct-props{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.ct-props span{font-size:12px;background:var(--bg);border-radius:6px;padding:2px 8px}
+.ct-pick{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-top:6px}
+.ct-pick label{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:14px;font-weight:400}
+.ap-results{background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);max-height:320px;overflow:auto;margin-top:6px}
+.ap-results div{padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--line);font-size:14px}
+.ap-results div:hover,.ap-results div.on{background:var(--brand-soft)}
+.ap-results small{display:block;color:var(--ink-soft)}
+
 /* ---- CLIENT PORTAL view (Oct 23 2026): read-only, owners / property managers ---- */
 .cv-banner{background:var(--brand-soft);color:var(--brand);border-radius:10px;padding:10px 14px;font-size:13px;margin:0 0 14px}
 .cv-props{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
@@ -513,11 +560,40 @@ input,select{font-family:inherit;font-size:16px}
        Owners / property managers. READ-ONLY and separate from the staff app:
        no edit, upload, report, proposal, inspector or user controls exist here.
        The server enforces the same (service/clientAccess.js). -->
+  <!-- ============ CONTRACTOR PORTAL (Oct 23 2026) ============
+       The client's contractor / maintenance crew: repair items of the properties
+       assigned to it, after-photos, Done. Nothing else (server: clientAccess.js). -->
+  <template v-else-if="isContractor">
+    <div class="topbar">
+      <div class="logo" style="cursor:pointer" title="My repair jobs" @click="rpLoadList()"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
+      <nav style="display:flex;gap:4px;margin-left:10px"><button class="btn-ghost navon" @click="rpLoadList()">My Repair Jobs</button></nav>
+      <div class="spacer"></div>
+      <img v-if="logo" :src="logo" alt="Company logo" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
+      <div class="userchip"><div class="avatar">{{ initials }}</div><span>{{ user.first_name || user.username }}</span></div>
+      <button class="btn-ghost" @click="logout">Sign out</button>
+    </div>
+    <div class="main">
+      <div class="page-head"><h2>My Repair Jobs <span class="count" v-if="!rp.loading">({{ rp.list.length }})</span></h2></div>
+      <div class="cv-banner">Open a property, add photos of each completed repair, then tap <b>Done</b>. Your supervisor reviews them before they go to the inspector.</div>
+      <div class="empty" v-if="rp.loading">Loading&hellip;</div>
+      <div class="panel" v-else-if="!rp.list.length">No properties are assigned to you yet. Please contact your supervisor.</div>
+      <div class="rp-list" v-else>
+        <div class="rp-card" v-for="j in rp.list" :key="j.projectId" @click="rpOpen(j.projectId)">
+          <b>{{ j.name }}</b><small>{{ j.address }}</small>
+          <span class="rp-st" :class="j.job.status">{{ rpJobLabel(j.job.status) }}</span>
+          <div class="hint" style="margin:6px 0 0;font-size:12px">{{ rpCountLine(j) }}</div>
+        </div>
+      </div>
+    </div>
+  </template>
+
   <template v-else-if="isClient">
     <div class="topbar">
       <div class="logo" style="cursor:pointer" title="My properties" @click="cvHome()"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
       <nav style="display:flex;gap:4px;margin-left:10px">
-        <button class="btn-ghost navon" @click="cvHome()">My Properties</button>
+        <button class="btn-ghost" :class="{navon: cv.view==='list' || cv.view==='prop' || cv.view==='unit'}" @click="cvHome()">My Properties</button>
+        <button class="btn-ghost" :class="{navon: cv.view==='repairs'}" @click="cvRepairs()">&#128295; Repairs</button>
+        <button class="btn-ghost" :class="{navon: cv.view==='contractors'}" @click="cvContractors()">&#128119; My Contractors</button>
       </nav>
       <div class="spacer"></div>
       <img v-if="logo" :src="logo" alt="Company logo" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
@@ -529,8 +605,79 @@ input,select{font-family:inherit;font-size:16px}
     </div>
 
     <div class="main">
+      <!-- Repairs: every property's repair status -->
+      <template v-if="cv.view==='repairs'">
+        <div class="page-head"><h2>Repairs <span class="count" v-if="!rp.loading">({{ rp.list.length }})</span></h2></div>
+        <div class="cv-banner">Your contractor adds photos of each completed repair. Open a property to accept each item (or send it back), then press <b>Repairs complete</b> to send it to the inspector.</div>
+        <div class="empty" v-if="rp.loading">Loading&hellip;</div>
+        <div class="panel" v-else-if="!rp.list.length">No properties yet.</div>
+        <div class="rp-list" v-else>
+          <div class="rp-card" v-for="j in rp.list" :key="j.projectId" @click="rpOpen(j.projectId)">
+            <b>{{ j.name }}</b><small>{{ j.address }}</small>
+            <span class="rp-st" :class="j.job.status">{{ rpJobLabel(j.job.status) }}</span>
+            <span class="rp-st done" v-if="rpReadyCount(j)" style="margin-left:6px">{{ rpReadyCount(j) }} ready for your review</span>
+            <div class="hint" style="margin:6px 0 0;font-size:12px">{{ rpCountLine(j) }}</div>
+          </div>
+        </div>
+      </template>
+
+      <!-- My Contractors -->
+      <template v-else-if="cv.view==='contractors'">
+        <div class="page-head">
+          <h2>My Contractors <span class="count" v-if="!ct.loading">({{ ct.list.length }})</span></h2>
+          <div class="spacer" style="flex:1"></div>
+          <button class="btn-dl" :disabled="ct.busy" @click="ctNew()">&#65291; Add contractor</button>
+        </div>
+        <div class="cv-banner">Each contractor gets their own login and sees only the repair items of the properties you assign to them. They cannot see anything else.</div>
+        <div class="empty" v-if="ct.loading">Loading&hellip;</div>
+        <div class="panel" v-else-if="!ct.list.length">No contractors yet &mdash; use <b>Add contractor</b>.</div>
+        <div v-else style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:6px 18px">
+          <div class="pa-row" v-for="c in ct.list" :key="c.username">
+            <div class="nm"><b>{{ [c.first_name, c.last_name].filter(Boolean).join(' ') || c.username }}<span v-if="c.company" style="font-weight:400"> &middot; {{ c.company }}</span></b>
+              <small>{{ c.username }}<span v-if="c.email"> &middot; {{ c.email }}</span><span v-if="c.mobile"> &middot; {{ c.mobile }}</span></small>
+              <div class="ct-props"><span v-for="pid in (c.contractorProjects||[])" :key="pid">{{ cvPropName(pid) }}</span><span v-if="!(c.contractorProjects||[]).length">No properties assigned</span></div>
+            </div>
+            <span class="tag bad" v-if="c.isActive===false">Turned off</span><span class="tag good" v-else>Active</span>
+            <button class="btn-dl" :disabled="ct.busy" @click="ctAssignOpen(c)">Properties</button>
+            <button class="btn-dl" :disabled="ct.busy" @click="ctToggle(c)">{{ c.isActive===false ? 'Turn on' : 'Turn off' }}</button>
+            <button class="btn-dl" :disabled="ct.busy" @click="ctResetOpen(c)">Reset password</button>
+          </div>
+        </div>
+        <div class="pa-msg" v-if="ct.msg">{{ ct.msg }}</div>
+        <div style="margin-top:6px" v-if="ct.msg"><button class="btn-dl" @click="copyText(ct.msg)">Copy sign-in instructions</button> <button class="btn-cancel" @click="ct.msg=''">Done</button></div>
+        <div class="overlay" v-if="ct.form" @click.self="ct.form=null">
+          <div class="modal" style="max-width:560px">
+            <h3>{{ ct.form.mode==='reset' ? 'Reset password for ' + ct.form.username : (ct.form.mode==='assign' ? 'Properties for ' + ct.form.username : 'New contractor login') }}</h3>
+            <div class="cl-form">
+              <template v-if="ct.form.mode==='new'">
+                <div class="two"><div><label>First name</label><input v-model.trim="ct.form.first_name"></div><div><label>Last name</label><input v-model.trim="ct.form.last_name"></div></div>
+                <label>Company</label><input v-model.trim="ct.form.company" placeholder="Contractor or crew name">
+                <div class="two"><div><label>Email</label><input v-model.trim="ct.form.email" type="email"></div><div><label>Phone</label><input v-model.trim="ct.form.mobile"></div></div>
+                <label>Username *</label><input v-model.trim="ct.form.username" autocomplete="off" placeholder="letters, numbers, . _ - @">
+              </template>
+              <template v-if="ct.form.mode!=='assign'">
+                <label>{{ ct.form.mode==='reset' ? 'New password *' : 'Temporary password *' }}</label>
+                <div style="display:flex;gap:8px"><input v-model="ct.form.password" type="text" autocomplete="off" style="flex:1"><button type="button" class="btn-dl" @click="ct.form.password=portalGenPw()">Generate</button></div>
+              </template>
+              <template v-if="ct.form.mode!=='reset'">
+                <label>Properties this contractor works on</label>
+                <input v-model.trim="ct.form.q" placeholder="Search your properties" v-if="cv.props.length > 8">
+                <div class="ct-pick">
+                  <label v-for="p in ctPickList" :key="p.id"><input type="checkbox" :value="p.id" v-model="ct.form.projectIds"> {{ p.name }}</label>
+                  <div class="hint" v-if="!ctPickList.length" style="margin:4px 0">No properties match.</div>
+                </div>
+              </template>
+            </div>
+            <div class="mrow" style="margin-top:18px">
+              <button class="btn-cancel" @click="ct.form=null">Cancel</button>
+              <button class="btn-edit" :disabled="ct.busy || (ct.form.mode!=='assign' && (!ct.form.password || ct.form.password.length < 8)) || (ct.form.mode==='new' && !ct.form.username)" @click="ctSave()">{{ ct.busy ? 'Saving…' : (ct.form.mode==='reset' ? 'Reset password' : (ct.form.mode==='assign' ? 'Save properties' : 'Create login')) }}</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <!-- My Properties -->
-      <template v-if="cv.view==='list'">
+      <template v-else-if="cv.view==='list'">
         <div class="page-head">
           <h2>My Properties <span class="count" v-if="!cv.loading">({{ cvFiltered.length }})</span></h2>
           <div class="spacer" style="flex:1"></div>
@@ -657,9 +804,10 @@ input,select{font-family:inherit;font-size:16px}
       <nav style="display:flex;gap:4px;margin-left:10px">
         <button class="btn-ghost" title="Back one page" @click="navBack()" style="padding:8px 12px">&#8592;</button>
         <button class="btn-ghost" title="Forward one page" @click="navFwd()" style="padding:8px 12px">&#8594;</button>
-        <button class="btn-ghost" :class="{navon: view!=='users' && view!=='clients'}" @click="goHome()">Projects</button>
+        <button class="btn-ghost" :class="{navon: view!=='users' && view!=='clients' && view!=='repairs'}" @click="goHome()">Projects</button>
         <button class="btn-ghost" :class="{navon: view==='users'}" @click="openUsers">&#128100; Users</button>
         <button class="btn-ghost" :class="{navon: view==='clients'}" title="Clients — owners and property managers and their property portfolios" @click="openClients()">&#127970; Clients</button>
+        <button class="btn-ghost" :class="{navon: view==='repairs'}" title="Repairs submitted by clients for a Final Inspection" @click="openRepairs()">&#128295; Repairs<span v-if="rpQueueCount" class="rp-st submitted" style="margin-left:6px">{{ rpQueueCount }}</span></button>
       </nav>
       <div class="spacer"></div>
       <img v-if="logo" :src="logo" :alt="(user && user.companyIdentifier) || 'Company logo'" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
@@ -831,7 +979,14 @@ input,select{font-family:inherit;font-size:16px}
           <div class="page-head" style="margin-top:8px">
             <h2 style="font-size:19px">Portfolio <span class="count">({{ clientPortfolio.length }})</span></h2>
             <div class="spacer" style="flex:1"></div>
-            <select v-model="addPropPick" class="cl-filter" style="max-width:320px">
+            <div style="position:relative;flex:1;max-width:380px;min-width:220px">
+              <input v-model="addPropQ" class="cl-filter" style="width:100%" placeholder="&#128269; Search properties to add (name or address)" @input="addPropPick=''" @keydown.enter.prevent="addPropFirst()">
+              <div class="ap-results" v-if="addPropQ && !addPropPick" style="position:absolute;left:0;right:0;z-index:5">
+                <div v-for="p in addPropMatches" :key="p.id" @click="addPropChoose(p)">{{ p.name }}<small>{{ p.address || '' }}<template v-if="p.ownerClientId || p.managerClientId"> &middot; {{ clientChips(p).map(c => (c.role==='manager'?'Mgr: ':'Owner: ') + c.name).join(', ') }}</template></small></div>
+                <div v-if="!addPropMatches.length" style="cursor:default"><small>No property matches &ldquo;{{ addPropQ }}&rdquo;.</small></div>
+              </div>
+            </div>
+            <select v-model="addPropPick" class="cl-filter" style="display:none">
               <option value="">Add an existing property&hellip;</option>
               <option v-for="p in addableProjects" :key="p.id" :value="p.id">{{ p.name }}<template v-if="p.ownerClientId || p.managerClientId"> &mdash; {{ clientChips(p).map(c => (c.role==='manager'?'Mgr: ':'Owner: ') + c.name).join(', ') }}</template></option>
             </select>
@@ -1803,6 +1958,26 @@ input,select{font-family:inherit;font-size:16px}
       </template>
 
       <!-- ============ USERS ============ -->
+      <!-- ============ REPAIRS QUEUE (Oct 23 2026) ============ -->
+      <template v-else-if="view==='repairs'">
+        <div class="page-head">
+          <h2>Repairs submitted for a Final <span class="count" v-if="!rp.loading">({{ rp.list.length }})</span></h2>
+          <div class="spacer" style="flex:1"></div>
+          <div class="kindrow" style="margin:0">
+            <button class="kind" v-for="f in [['submitted','Waiting for review'],['onsite','On-site needed'],['approved','Approved'],['all','All']]" :key="f[0]" :class="{on: rp.filter===f[0]}" @click="rp.filter=f[0]">{{ f[1] }}</button>
+          </div>
+        </div>
+        <div class="empty" v-if="rp.loading">Loading&hellip;</div>
+        <div class="panel" v-else-if="!rpQueue.length">Nothing here. Clients press <b>Repairs complete</b> in their portal to send repairs to you.</div>
+        <div class="rp-list" v-else>
+          <div class="rp-card" v-for="j in rpQueue" :key="j.projectId" @click="rpOpen(j.projectId)">
+            <b>{{ j.name }}</b><small>{{ j.clientName || 'No client' }}<span v-if="j.address"> &middot; {{ j.address }}</span></small>
+            <span class="rp-st" :class="j.job.status">{{ rpJobLabel(j.job.status) }}</span>
+            <div class="hint" style="margin:6px 0 0;font-size:12px" v-if="j.job.submittedAt">Submitted {{ niceDate(j.job.submittedAt) }} by {{ j.job.submittedBy }}<span v-if="j.job.itemsTotal"> &middot; {{ j.job.itemsTotal }} items</span></div>
+          </div>
+        </div>
+      </template>
+
       <template v-else-if="view==='users'">
         <div class="page-head">
           <h2>Users <span class="count" v-if="!loadingUsers">({{ users.length }})</span></h2>
@@ -1830,6 +2005,119 @@ input,select{font-family:inherit;font-size:16px}
 
     </div>
   </template>
+
+  <!-- ============ REPAIRS JOB PAGE (Oct 23 2026) - shared by contractor, supervisor and staff ============ -->
+  <div class="rp-page" v-if="user && rp.open">
+    <div class="rp-head">
+      <button class="btn-ghost" @click="rpClose()">&#8592; Back</button>
+      <div style="flex:1;min-width:0"><b style="font-size:17px">{{ rp.data ? rp.data.project.name : 'Loading…' }}</b><div class="hint" style="margin:0;font-size:12px" v-if="rp.data && rp.data.project.address">{{ rp.data.project.address }}</div></div>
+      <span class="rp-st" v-if="rp.data" :class="rp.data.job.status">{{ rpJobLabel(rp.data.job.status) }}</span>
+    </div>
+    <div class="rp-body">
+      <div class="empty" v-if="!rp.data">Loading the repair items&hellip;</div>
+      <template v-else>
+        <!-- what to do now -->
+        <div class="rp-banner" v-if="rp.data.job.status==='open' && rpKind==='contractor'">Add photos of each completed repair, then tap <b>Done</b> on that item. Items your supervisor or the inspector sent back show the reason in orange.</div>
+        <div class="rp-banner" v-else-if="rp.data.job.status==='open' && rpKind==='client'">Review each item: <b>Accept</b> it or <b>Send back</b> to your contractor with a note. When every item is accepted, press <b>Repairs complete</b> at the bottom.</div>
+        <div class="rp-banner" v-else-if="rp.data.job.status==='open' && rpKind==='staff'">The client has not submitted these repairs yet.</div>
+        <div class="rp-banner" v-else-if="rp.data.job.status==='submitted'">Submitted to the inspector {{ niceDate(rp.data.job.submittedAt) }} by {{ rp.data.job.submittedBy }}.<span v-if="rpKind==='staff'"> Choose for each item: <b>Approve</b> from the photos, ask for <b>New photos</b>, or check it <b>On site</b>.</span><span v-else> No changes can be made while the inspector reviews them.</span></div>
+        <div class="rp-banner ok" v-else-if="rp.data.job.status==='approved'">Approved by the inspector {{ niceDate(rp.data.job.reviewedAt) }}. <span v-if="rpKind==='staff'">Create the Final Report Upon Completion with these photos (button at the bottom).</span><span v-else>The Final Inspection report will follow.</span></div>
+        <div class="rp-banner bad" v-else-if="rp.data.job.status==='onsite'">The inspector will do an on-site Final Inspection.</div>
+        <div class="rp-note insp" v-if="rp.data.job.reviewNote" style="margin-bottom:14px"><b>Inspector:</b> {{ rp.data.job.reviewNote }}</div>
+        <div class="hint" style="margin:0 0 12px">{{ rp.data.summary.total }} repair item{{ rp.data.summary.total===1 ? '' : 's' }} &middot; {{ rp.data.summary.withPhotos }} with photos<span v-if="rp.data.summary.accepted"> &middot; {{ rp.data.summary.accepted }} accepted</span><span v-if="rp.data.summary.approved"> &middot; {{ rp.data.summary.approved }} approved</span></div>
+        <div class="panel" v-if="!rp.data.items.length">No repair items on this property &mdash; nothing was rated Bad or Failed.</div>
+
+        <div class="rp-item" v-for="it in rp.data.items" :key="it.sectionId">
+          <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <div class="where">{{ [it.building, it.locationName].filter(Boolean).join(' · ') }}</div>
+              <h4>{{ it.name }}</h4>
+            </div>
+            <span class="rp-st" :class="it.status">{{ rpItemLabel(it.status) }}</span>
+          </div>
+          <div class="tagrow" style="margin:6px 0">
+            <span class="tag bad" v-if="/^bad/i.test(it.finding.visualreview)">Visual: Bad</span>
+            <span class="tag bad" v-if="/^fail/i.test(it.finding.condition)">Condition: Fail</span>
+            <span class="tag fair" v-if="it.finding.invasive">Invasive review</span>
+            <span class="tag bad" v-if="it.finding.unsafe">Unsafe</span>
+          </div>
+          <div style="white-space:pre-wrap;font-size:14px" v-if="it.finding.comment">{{ it.finding.comment }}</div>
+          <template v-if="it.inspectionPhotos.length">
+            <div class="rp-label">At inspection</div>
+            <div class="rp-thumbs small"><img v-for="u in it.inspectionPhotos" :key="u" :src="thumb(u)" @error="thumbErr($event, u)" @click="lightbox=u" alt="inspection photo"></div>
+          </template>
+          <div class="rp-note" v-if="it.status==='returned' && it.supervisorNote"><b>Sent back:</b> {{ it.supervisorNote }}</div>
+          <div class="rp-note insp" v-if="it.reviewNote && (it.status==='rephoto' || it.status==='onsite' || rpKind==='staff')"><b>Inspector:</b> {{ it.reviewNote }}</div>
+          <div class="rp-note" v-if="it.contractorNote" style="border-color:var(--brand);background:#f5f7ff"><b>Contractor:</b> {{ it.contractorNote }}</div>
+          <div class="rp-label">Repair photos ({{ it.photos.length }})<span v-if="it.doneBy" style="font-weight:400"> &middot; done by {{ it.doneBy }}</span><span v-if="it.acceptedBy" style="font-weight:400"> &middot; accepted by {{ it.acceptedBy }}</span></div>
+          <div class="rp-thumbs" v-if="it.photos.length">
+            <div class="ph" v-for="ph in it.photos" :key="ph.url">
+              <img :src="ph.url" @click="lightbox=ph.url" alt="repair photo">
+              <button class="x" v-if="rpCanWork(it) && (rpKind==='client' || ph.by===user.username)" title="Remove this photo" @click="rpRemove(it, ph.url)">&times;</button>
+            </div>
+          </div>
+          <div class="hint" v-else style="margin:0">No photos yet.</div>
+
+          <!-- contractor (and supervisor) work -->
+          <div class="rp-actions" v-if="rpCanWork(it) && (rpKind==='contractor' || rpKind==='client')">
+            <label class="rp-cam">
+              <span v-if="rp.busy===it.sectionId" class="spinner" style="width:16px;height:16px"></span><span v-else>&#128247;</span>
+              {{ rp.busy===it.sectionId ? 'Uploading…' : 'Add photos' }}
+              <input type="file" accept="image/*" multiple :disabled="!!rp.busy" @change="rpUpload(it, $event)">
+            </label>
+            <template v-if="rpKind==='contractor'">
+              <input type="text" v-model="rp.notes[it.sectionId]" placeholder="Note for your supervisor (optional)">
+              <button class="btn-edit" :disabled="!it.photos.length || !!rp.busy" @click="rpDone(it)">&#10003; Done</button>
+            </template>
+          </div>
+          <!-- supervisor review -->
+          <div class="rp-actions" v-if="rpKind==='client' && rp.data.job.status==='open' && it.status!=='approved'">
+            <input type="text" v-model="rp.notes[it.sectionId]" placeholder="Note to the contractor (needed to send back)">
+            <button class="btn-dl" :disabled="!!rp.busy || !(rp.notes[it.sectionId]||'').trim()" @click="rpReview(it, 'return')">Send back</button>
+            <button class="btn-edit" :disabled="!!rp.busy || !it.photos.length || it.status==='accepted'" @click="rpReview(it, 'accept')">{{ it.status==='accepted' ? '✓ Accepted' : 'Accept' }}</button>
+          </div>
+          <!-- inspector decision -->
+          <div class="rp-actions" v-if="rpKind==='staff' && rp.data.job.status==='submitted'">
+            <div class="rp-dec">
+              <button class="approve" :class="{on: rpDecOf(it)==='approve'}" @click="rpSetDec(it, 'approve')">Approve</button>
+              <button class="rephoto" :class="{on: rpDecOf(it)==='rephoto'}" @click="rpSetDec(it, 'rephoto')">New photos</button>
+              <button class="onsite" :class="{on: rpDecOf(it)==='onsite'}" @click="rpSetDec(it, 'onsite')">On site</button>
+            </div>
+            <input type="text" v-model="rp.notes[it.sectionId]" placeholder="Note to the client (optional)">
+          </div>
+        </div>
+
+        <details v-if="(rp.data.job.history||[]).length" style="margin-top:10px"><summary class="hint" style="cursor:pointer">History</summary>
+          <div class="hint" v-for="(h,i) in rp.data.job.history" :key="i" style="margin:4px 0">{{ niceDate(h.at) }} &middot; {{ h.by }} &middot; {{ h.what }}<span v-if="h.note"> &mdash; {{ h.note }}</span></div>
+        </details>
+      </template>
+    </div>
+    <!-- bottom bar -->
+    <div class="rp-foot" v-if="rp.data">
+      <template v-if="rpKind==='client' && rp.data.job.status==='open' && rp.data.items.length">
+        <span class="hint" style="margin:0;flex:1" v-if="rpNotAccepted">{{ rpNotAccepted }} item{{ rpNotAccepted===1 ? '' : 's' }} still to accept.</span>
+        <button class="rp-big" :disabled="!!rpNotAccepted || !!rp.busy" @click="rp.confirm=true">Repairs complete &mdash; request Final Inspection</button>
+      </template>
+      <template v-if="rpKind==='staff' && rp.data.job.status==='submitted'">
+        <button class="btn-dl" @click="rpDecAll('approve')">Approve all</button>
+        <button class="btn-dl" style="color:#C62828" @click="rpDecAll('onsite')">On-site Final for everything</button>
+        <button class="rp-big" :disabled="!!rp.busy || !rpAllDecided" @click="rpSaveDecision()">{{ rp.busy==='decide' ? 'Saving…' : 'Save decision' }}</button>
+      </template>
+      <template v-if="rpKind==='staff' && rp.data.job.status!=='submitted' && rp.data.job.status!=='open'">
+        <a class="btn-dl" v-if="rp.mailto" :href="rp.mailto" style="text-decoration:none">&#9993; Email the client</a>
+        <button class="btn-dl" v-if="rp.data.job.status==='onsite'" @click="rpScheduleOnsite()">Schedule Final Inspection</button>
+        <button class="rp-big" v-if="rp.data.job.status==='approved'" @click="rpOpenReport()">Open Final Report (Owner Supplied Photos)</button>
+      </template>
+    </div>
+    <div class="overlay" v-if="rp.confirm" @click.self="rp.confirm=false">
+      <div class="modal" style="max-width:520px">
+        <h3>Repairs complete?</h3>
+        <p>You are confirming that the repairs at <b>{{ rp.data && rp.data.project.name }}</b> are complete and that you accept the contractor&rsquo;s work shown in the photos. They go to the inspector for the Final Inspection. Your name and the time are recorded.</p>
+        <div class="field"><label>Note to the inspector (optional)</label><textarea v-model="rp.submitNote" rows="2" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit"></textarea></div>
+        <div class="mrow"><button class="btn-cancel" @click="rp.confirm=false">Cancel</button><button class="rp-big" :disabled="!!rp.busy" @click="rpSubmit()">{{ rp.busy==='submit' ? 'Sending…' : 'Yes, send to the inspector' }}</button></div>
+      </div>
+    </div>
+  </div>
 
   <!-- ============ LIGHTBOX ============ -->
   <!-- Lightbox with ZOOM (David, Aug 23): click a photo to open; click the
@@ -2114,6 +2402,7 @@ input,select{font-family:inherit;font-size:16px}
             </template>
             <template v-if="formEd.key==='finalcompletion'">
               <h5>Owner Supplied Photos</h5>
+              <button type="button" class="btn-dl" style="margin:0 0 6px;font-size:12px;padding:5px 10px" :disabled="!!formEd.opBusy" @click="opAddRepairPhotos()" title="Adds every photo the inspector approved in Repairs, captioned with its location">&#128295; Add approved repair photos</button>
               <div class="hint" style="margin:0 0 4px;font-size:11.5px">Photos the owner sent of the completed repairs. They are added to the report as a captioned photo page{{ formEd.annex ? ' after the on-site findings, before the Post-Repair Confirmation' : ' before the signature' }}.</div>
               <div v-if="formEd.ownerPhotos.length" class="fc-op">
                 <div v-for="(ph, i) in formEd.ownerPhotos" :key="ph.url" class="fc-opc">
@@ -2444,7 +2733,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-23.2';
+const APP_BUILD = '2026-10-24.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2513,6 +2802,10 @@ createApp({
       user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
       // client portal (read-only owner / property-manager view, Oct 23 2026)
       cv: { view: 'list', props: [], loading: false, q: '', prop: null, structure: { subProjects: [], locations: [] }, loadingStruct: false, unit: null, sections: [], loadingSecs: false, inv: {} },
+      // Repairs portal (Oct 23 2026)
+      rp: { list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
+      ct: { list: [], loading: false, form: null, busy: false, msg: '' },
+      addPropQ: '',
       // Portal access on the staff client page
       portal: { list: [], loading: false, form: null, busy: false, msg: '', clientId: '' },
       view: 'projects', projects: [], loadingProjects: false, query: '',
@@ -2583,6 +2876,33 @@ createApp({
   computed: {
     // A client portal login (owner / property manager) - read-only view.
     isClient() { return !!(this.user && String(this.user.role || '').toLowerCase() === 'client'); },
+    // The client's contractor (repairs portal) - photo uploads only.
+    isContractor() { return !!(this.user && String(this.user.role || '').toLowerCase() === 'contractor'); },
+    rpKind() { return this.isContractor ? 'contractor' : (this.isClient ? 'client' : 'staff'); },
+    rpNotAccepted() {
+      const d = this.rp.data; if (!d) return 0;
+      return d.items.filter((i) => i.status !== 'accepted' && i.status !== 'approved').length;
+    },
+    rpAllDecided() {
+      const d = this.rp.data; if (!d || !d.items.length) return false;
+      return d.items.every((i) => !!this.rpDecOf(i));
+    },
+    rpQueue() {
+      const f = this.rp.filter;
+      return this.rp.list.filter((j) => f === 'all' || j.job.status === f);
+    },
+    rpQueueCount() { return this.isClient || this.isContractor ? 0 : this.rp.list.filter((j) => j.job.status === 'submitted').length; },
+    ctPickList() {
+      const f = this.ct.form; if (!f) return [];
+      const q = String(f.q || '').toLowerCase();
+      return this.cv.props.filter((p) => !q || ((p.name || '') + ' ' + (p.address || '')).toLowerCase().includes(q));
+    },
+    addPropMatches() {
+      const q = String(this.addPropQ || '').toLowerCase().trim();
+      if (!q) return [];
+      const words = q.split(/\s+/).filter(Boolean);
+      return this.addableProjects.filter((p) => { const t = ((p.name || '') + ' ' + (p.address || '')).toLowerCase(); return words.every((w) => t.includes(w)); }).slice(0, 15);
+    },
     cvFiltered() {
       const q = (this.cv.q || '').toLowerCase();
       if (!q) return this.cv.props;
@@ -2757,7 +3077,7 @@ createApp({
   created() {
     try {
       const saved = localStorage.getItem('e3v2_user');
-      if (saved) { this.user = JSON.parse(saved); if (this.isClient) this.cvStart(); else { this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); } }
+      if (saved) { this.user = JSON.parse(saved); if (this.isContractor) this.rpStart(); else if (this.isClient) this.cvStart(); else { this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); this.rpLoadQueueQuiet(); } }
     } catch (e) { /* ignore */ }
     history.replaceState({ v: 'projects' }, '');
     window.addEventListener('popstate', (e) => this.onPop(e));
@@ -2866,6 +3186,8 @@ createApp({
       } finally { this.cv.loadingSecs = false; }
     },
     cvOnPop(st) {
+      if (st.v === 'cv-repairs') { this.cv.view = 'repairs'; this.rpLoadList(); return; }
+      if (st.v === 'cv-contractors') { this.cv.view = 'contractors'; this.ctLoad(); return; }
       if (st.v === 'cv-unit' && st.loc) {
         const p = this.cv.props.find((x) => x.id === st.pid);
         if (p && (!this.cv.prop || this.cv.prop.id !== p.id)) { this.cv.prop = p; this.cv.structure = { subProjects: [], locations: [] }; this.cvLoadStruct(); }
@@ -2876,6 +3198,238 @@ createApp({
         if (p) { this.cvOpenProp(p, true); return; }
       }
       this.cv.view = 'list'; this.cv.unit = null;
+    },
+
+    /* ---------- REPAIRS PORTAL (Oct 23 2026) ---------- */
+    rpStart() { this.loadBranding(); this.rpLoadList(); },
+    async rpLoadList() {
+      this.rp.open = false;
+      this.rp.loading = !this.rp.list.length;
+      try {
+        const res = await this.api('/repairs/jobs');
+        const j = res.ok ? await res.json() : [];
+        this.rp.list = Array.isArray(j) ? j : [];
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not load the repairs.', 'err'); }
+      finally { this.rp.loading = false; }
+    },
+    async rpLoadQueueQuiet() { try { const r = await this.api('/repairs/jobs'); if (r.ok) { const j = await r.json(); if (Array.isArray(j)) this.rp.list = j; } } catch (e) { /* badge only */ } },
+    openRepairs() { history.pushState({ v: 'repairs' }, ''); this.view = 'repairs'; this.rp.filter = 'submitted'; this.rpLoadList(); },
+    cvRepairs() { history.pushState({ v: 'cv-repairs' }, ''); this.cv.view = 'repairs'; this.rpLoadList(); },
+    cvContractors() { history.pushState({ v: 'cv-contractors' }, ''); this.cv.view = 'contractors'; if (!this.cv.props.length) this.cvLoadProps(); this.ctLoad(); },
+    cvPropName(pid) { const p = this.cv.props.find((x) => x.id === pid); return p ? p.name : 'Property'; },
+    rpJobLabel(s) { return ({ open: 'In progress', submitted: 'Waiting for the inspector', approved: 'Approved', onsite: 'On-site Final required' })[s] || 'In progress'; },
+    rpItemLabel(s) { return ({ open: 'Needs photos', done: 'Done - waiting for supervisor', returned: 'Sent back', accepted: 'Accepted', approved: 'Approved by inspector', rephoto: 'Inspector asked for new photos', onsite: 'On-site check' })[s] || s; },
+    rpCountLine(j) {
+      const c = (j && j.counts) || {}; const by = c.byStatus || {};
+      const total = j && j.job && j.job.itemsTotal;
+      const parts = [];
+      if (total) parts.push(total + ' repair item' + (total === 1 ? '' : 's'));
+      parts.push((c.withPhotos || 0) + ' with photos');
+      if (by.accepted) parts.push(by.accepted + ' accepted');
+      if (by.returned || by.rephoto) parts.push(((by.returned || 0) + (by.rephoto || 0)) + ' sent back');
+      return parts.join(' · ');
+    },
+    rpReadyCount(j) { const by = (j && j.counts && j.counts.byStatus) || {}; return j && j.job && j.job.status === 'open' ? (by.done || 0) : 0; },
+    async rpOpen(pid) {
+      this.rp.open = true; this.rp.pid = pid; this.rp.data = null; this.rp.notes = {}; this.rp.decisions = {}; this.rp.confirm = false; this.rp.mailto = '';
+      await this.rpReload();
+    },
+    async rpReload() {
+      const pid = this.rp.pid;
+      try {
+        const res = await this.api('/repairs/job/' + encodeURIComponent(pid));
+        const j = await res.json().catch(() => null);
+        if (!res.ok || !j) { this.toast((j && j.message) || 'Could not open the repairs.', 'err'); this.rp.open = false; return; }
+        if (this.rp.pid !== pid) return;
+        this.rp.data = j;
+        const pb = []; for (const it of j.items) for (const u of it.inspectionPhotos) pb.push(u);
+        this.prebuild(pb);
+        if (this.rpKind === 'staff' && j.job.status !== 'submitted' && j.job.status !== 'open') this.rp.mailto = this.rpMailto();
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not open the repairs.', 'err'); }
+    },
+    rpClose() { this.rp.open = false; this.rp.data = null; this.rpLoadList(); },
+    rpCanWork(it) { return !!(this.rp.data && this.rp.data.job.status === 'open' && ['open', 'done', 'returned', 'rephoto'].includes(it.status)); },
+    // Phones send big (or HEIC) photos: redraw each as a JPEG of at most 2000 px.
+    async rpJpeg(file) {
+      try {
+        const bmp = await createImageBitmap(file);
+        const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+        const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.85));
+        if (blob) return blob;
+      } catch (e) { /* fall back to the original file */ }
+      return /^image\/(jpeg|png)$/i.test(file.type) ? file : null;
+    },
+    async rpUpload(it, evt) {
+      const files = Array.from((evt.target && evt.target.files) || []);
+      if (evt.target) evt.target.value = '';
+      if (!files.length) return;
+      this.rp.busy = it.sectionId;
+      let added = 0;
+      try {
+        for (const f of files) {
+          const blob = await this.rpJpeg(f);
+          if (!blob) { this.toast('Skipped a file that is not a photo.', 'err'); continue; }
+          const fd = new FormData();
+          fd.append('projectId', this.rp.pid); fd.append('sectionId', it.sectionId);
+          fd.append('photo', blob, 'repair.jpg');
+          const res = await this.api('/repairs/photo', { method: 'POST', body: fd });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok) { this.toast(j.message || 'Could not add the photo.', 'err'); break; }
+          it.photos = j.photos || it.photos; added++;
+        }
+        if (added) this.toast(added + ' photo' + (added === 1 ? '' : 's') + ' added.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not add the photo.', 'err'); }
+      finally { this.rp.busy = ''; }
+    },
+    async rpPost(path, body, busy) {
+      this.rp.busy = busy || 'x';
+      try {
+        const res = await this.api('/repairs/' + path, { method: 'POST', json: Object.assign({ projectId: this.rp.pid }, body) });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast(j.message || 'Could not save.', 'err'); return null; }
+        return j;
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not save.', 'err'); return null; }
+      finally { this.rp.busy = ''; }
+    },
+    async rpRemove(it, url) {
+      const j = await this.rpPost('photo/remove', { sectionId: it.sectionId, url }, it.sectionId);
+      if (j) { it.photos = j.photos; it.status = j.status || it.status; }
+    },
+    async rpDone(it) {
+      const j = await this.rpPost('item/done', { sectionId: it.sectionId, note: this.rp.notes[it.sectionId] || it.contractorNote || '' }, it.sectionId);
+      if (j) { await this.rpReload(); this.toast(j.itemsLeft ? 'Marked done - ' + j.itemsLeft + ' item' + (j.itemsLeft === 1 ? '' : 's') + ' to go.' : 'All items done - your supervisor can review them now.'); }
+    },
+    async rpReview(it, decision) {
+      const j = await this.rpPost('item/review', { sectionId: it.sectionId, decision, note: this.rp.notes[it.sectionId] || '' }, it.sectionId);
+      if (j) { this.rp.notes[it.sectionId] = ''; await this.rpReload(); this.toast(decision === 'accept' ? 'Accepted.' : 'Sent back to the contractor.'); }
+    },
+    async rpSubmit() {
+      const j = await this.rpPost('job/submit', { note: this.rp.submitNote || '' }, 'submit');
+      this.rp.confirm = false;
+      if (j) { this.rp.submitNote = ''; await this.rpReload(); this.toast('Sent to the inspector for the Final Inspection.'); }
+    },
+    rpDecOf(it) { const d = this.rp.decisions[it.sectionId]; return d || (it.status === 'approved' ? 'approve' : ''); },
+    rpSetDec(it, d) { this.rp.decisions = Object.assign({}, this.rp.decisions, { [it.sectionId]: d }); },
+    rpDecAll(d) { const o = {}; for (const it of (this.rp.data ? this.rp.data.items : [])) o[it.sectionId] = d; this.rp.decisions = o; },
+    async rpSaveDecision() {
+      const decisions = {};
+      for (const it of this.rp.data.items) decisions[it.sectionId] = { decision: this.rpDecOf(it), note: this.rp.notes[it.sectionId] || '' };
+      const allOnsite = this.rp.data.items.every((i) => decisions[i.sectionId].decision === 'onsite');
+      const j = await this.rpPost('job/decide', allOnsite ? { all: 'onsite', decisions } : { decisions }, 'decide');
+      if (!j) return;
+      await this.rpReload();
+      const s = j.job.status;
+      this.toast(s === 'approved' ? 'Approved - create the Final Report next.' : (s === 'onsite' ? 'On-site Final required - schedule it from here.' : 'Sent back for new photos.'));
+      this.rp.mailto = this.rpMailto();
+      const q = this.rp.list.find((x) => x.projectId === this.rp.pid); if (q) q.job.status = s;
+    },
+    rpMailto() {
+      const d = this.rp.data; if (!d) return '';
+      const q = this.rp.list.find((x) => x.projectId === this.rp.pid) || {};
+      const to = q.clientEmail || '';
+      const co = (this.brandInfo && this.brandInfo.name) || '';
+      const s = d.job.status;
+      const subj = d.project.name + ' - ' + (s === 'approved' ? 'repairs approved' : (s === 'onsite' ? 'on-site Final Inspection needed' : 'new photos needed'));
+      const lines = [];
+      lines.push((q.clientContact ? 'Hello ' + q.clientContact + ',' : 'Hello,'), '');
+      if (s === 'approved') lines.push('We reviewed the repair photos for ' + d.project.name + ' and approved all items. The Final Inspection report will follow.');
+      else if (s === 'onsite') lines.push('We reviewed the repair photos for ' + d.project.name + '. An on-site Final Inspection is needed for the items below. We will contact you to schedule it.');
+      else lines.push('We reviewed the repair photos for ' + d.project.name + '. Please have your contractor send new photos for the items below (sign in at https://www.e3-web.com).');
+      const flagged = d.items.filter((i) => i.status !== 'approved');
+      if (s !== 'approved' && flagged.length) { lines.push(''); for (const i of flagged) lines.push('- ' + [i.building, i.locationName, i.name].filter(Boolean).join(' / ') + (i.reviewNote ? ': ' + i.reviewNote : '')); }
+      if (d.job.reviewNote) lines.push('', d.job.reviewNote);
+      lines.push('', 'Thank you,', co);
+      return 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(lines.join('\n'));
+    },
+    async rpScheduleOnsite() {
+      const p = this.projects.find((x) => this.projectId(x) === this.rp.pid);
+      if (!p) { this.toast('Open the Projects page once to load this property, then try again.', 'err'); return; }
+      if (p.finalinspection && !p.iscomplete) { this.toast('A Final Inspection is already on the schedule for this property.'); return; }
+      await this.scheduleFinalInsp(p);
+    },
+    rpOpenReport() { const pid = this.rp.pid; this.rp.open = false; this.rp.data = null; this.openReportsById(pid); },
+    async opAddRepairPhotos() {
+      const pid = this.current ? this.projectId(this.current) : '';
+      if (!pid) return;
+      this.formEd.opBusy = 'Loading repair photos…';
+      try {
+        const res = await this.api('/repairs/job/' + encodeURIComponent(pid));
+        const j = await res.json().catch(() => null);
+        if (!res.ok || !j) { this.toast('Could not load the repair photos.', 'err'); return; }
+        const have = new Set(this.formEd.ownerPhotos.map((x) => x.url));
+        let n = 0;
+        for (const it of j.items) {
+          if (it.status !== 'approved') continue;
+          const cap = [it.building, it.locationName, it.name].filter(Boolean).join(' - ');
+          for (const ph of it.photos) {
+            if (have.has(ph.url) || this.formEd.ownerPhotos.length >= 60) continue;
+            this.formEd.ownerPhotos.push({ url: ph.url, caption: cap }); have.add(ph.url); n++;
+          }
+        }
+        this.toast(n ? n + ' approved repair photo' + (n === 1 ? '' : 's') + ' added.' : 'No approved repair photos to add.');
+        if (n && typeof this.fcQueue === 'function') this.fcQueue();
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not load the repair photos.', 'err'); }
+      finally { this.formEd.opBusy = ''; }
+    },
+    addPropChoose(p) { this.addPropPick = p.id; this.addPropQ = p.name; },
+    addPropFirst() { if (this.addPropMatches.length) this.addPropChoose(this.addPropMatches[0]); },
+    async copyText(t) {
+      try { await navigator.clipboard.writeText(t); this.toast('Copied - paste it into an email or text.'); }
+      catch (e) { this.toast('Select the text and copy it.', 'err'); }
+    },
+
+    /* ---------- contractor logins (client supervisor) ---------- */
+    async ctLoad() {
+      this.ct.loading = !this.ct.list.length;
+      try {
+        const res = await this.api('/repairs/contractors');
+        const j = res.ok ? await res.json() : [];
+        this.ct.list = Array.isArray(j) ? j : [];
+      } catch (e) { /* keep */ }
+      finally { this.ct.loading = false; }
+    },
+    ctNew() { this.ct.msg = ''; this.ct.form = { mode: 'new', first_name: '', last_name: '', company: '', email: '', mobile: '', username: '', password: this.portalGenPw(), projectIds: [], q: '' }; },
+    ctAssignOpen(c) { this.ct.msg = ''; this.ct.form = { mode: 'assign', username: c.username, projectIds: (c.contractorProjects || []).slice(), q: '' }; },
+    ctResetOpen(c) { this.ct.msg = ''; this.ct.form = { mode: 'reset', username: c.username, password: this.portalGenPw() }; },
+    ctInstructions(username, password) {
+      const who = (this.user && (this.user.first_name || this.user.username)) || '';
+      return 'You have been given access to add repair photos.\n\n'
+        + 'Website: https://www.e3-web.com\n'
+        + 'Username: ' + username + '\n'
+        + 'Password: ' + password + '\n\n'
+        + 'Open the website on your phone and sign in. Open each property, tap "Add photos" on every repair item to take photos of the completed work, then tap "Done".\n\n'
+        + '- ' + who;
+    },
+    async ctSave() {
+      const f = this.ct.form; if (!f) return;
+      this.ct.busy = true;
+      try {
+        let path = 'contractors', body;
+        if (f.mode === 'new') body = { username: f.username, password: f.password, first_name: f.first_name, last_name: f.last_name, company: f.company, email: f.email, mobile: f.mobile, projectIds: f.projectIds };
+        else if (f.mode === 'assign') { path = 'contractors/assign'; body = { username: f.username, projectIds: f.projectIds }; }
+        else { path = 'contractors/password'; body = { username: f.username, password: f.password }; }
+        const res = await this.api('/repairs/' + path, { method: 'POST', json: body });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast(j.message || 'Could not save.', 'err'); return; }
+        if (f.mode !== 'assign') this.ct.msg = this.ctInstructions(f.username, f.password);
+        this.ct.form = null;
+        this.toast(f.mode === 'new' ? 'Contractor login created.' : (f.mode === 'assign' ? 'Properties saved.' : 'Password reset.'));
+        await this.ctLoad();
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not save.', 'err'); }
+      finally { this.ct.busy = false; }
+    },
+    async ctToggle(c) {
+      const on = c.isActive === false;
+      this.ct.busy = true;
+      try {
+        const res = await this.api('/repairs/contractors/status', { method: 'POST', json: { username: c.username, active: on } });
+        if (!res.ok) throw new Error('bad');
+        c.isActive = on;
+        this.toast(on ? 'Login turned on.' : 'Login turned off - it stops working within a minute.');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not update the login.', 'err'); }
+      finally { this.ct.busy = false; }
     },
 
     /* ---------- Portal access on the staff client page (admins) ---------- */
@@ -2994,7 +3548,7 @@ createApp({
     // reaching phones. Polled with the version check (focus + every 10 min)
     // and right after sign-in.
     async checkSyncHealth() {
-      if (!this.user || this.isClient) return;
+      if (!this.user || this.isClient || this.isContractor) return;
       try {
         const res = await fetch(API + '/project/synchealth', { headers: { Authorization: this.user.token }, cache: 'no-store' });
         if (!res.ok) return;                      // 401 etc: leave the last known state
@@ -3448,7 +4002,9 @@ createApp({
         this.user = await res.json();
         localStorage.setItem('e3v2_user', JSON.stringify(this.user));
         this.loginForm.password = '';
+        if (this.isContractor) { this.rpStart(); return; }
         if (this.isClient) { this.cvStart(); return; }
+        this.rpLoadQueueQuiet();
         this.loadProjects();
         this.loadBranding();
         this.checkSyncHealth();
@@ -3458,6 +4014,8 @@ createApp({
     },
     logout() {
       this.stopPolling();
+      this.rp = { list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' };
+      this.ct = { list: [], loading: false, form: null, busy: false, msg: '' };
       this.cv = { view: 'list', props: [], loading: false, q: '', prop: null, structure: { subProjects: [], locations: [] }, loadingStruct: false, unit: null, sections: [], loadingSecs: false, inv: {} };
       this.user = null; this.view = 'projects'; this.projects = []; this.current = null;
       localStorage.removeItem('e3v2_user');
@@ -7212,7 +7770,7 @@ createApp({
     async addExistingProperty() {
       if (!this.addPropPick || !this.clientOpen) return;
       const ok = await this.setClient(this.addPropPick, this.addPropRole, this.clientOpen.id);
-      if (ok) this.addPropPick = '';
+      if (ok) { this.addPropPick = ''; this.addPropQ = ''; }
     },
     openReportsById(id) { const p = this.projects.find(x => this.projectId(x) === id); if (p) this.openReports(p); else this.toast('Open the Projects page to load this property first.', 'err'); },
     // Proposal picker: prefill the free-text lines from the chosen client.
@@ -7548,7 +8106,10 @@ createApp({
     onPop(e) {
       const st = (e && e.state) || { v: 'projects' };
       if (!this.user) return;
+      if (this.isContractor) { this.rp.open = false; return; }
+      if (this.rp.open) { this.rp.open = false; this.rp.data = null; }
       if (this.isClient) { this.cvOnPop(st); return; }
+      if (st.v === 'repairs') { this.view = 'repairs'; this.rpLoadList(); return; }
       if (st.v === 'users') { this.view = 'users'; if (!this.users.length) this.loadUsers(); return; }
       if (st.v === 'proposals') { this.view = 'proposals'; this.prop = null; this.loadProposals(); return; }
       if (st.v === 'clients') { if (st.cid) { this.openClient(st.cid, true); } else { this.view = 'clients'; this.clientOpen = null; this.loadClients(true); } return; }
