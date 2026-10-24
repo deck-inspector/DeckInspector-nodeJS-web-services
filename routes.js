@@ -21,6 +21,8 @@ var clientsRouter = require("./routes/clients-endpoint");
 var reviewRouter = require("./routes/review-endpoint");
 // Visual Report - Claude drafts every section + the Final Report summary (routes/visualai-endpoint.js)
 var visualAiRouter = require("./routes/visualai-endpoint");
+// Repairs portal - contractor photos, supervisor sign-off, inspector review (routes/repairs-endpoint.js)
+var repairsRouter = require("./routes/repairs-endpoint");
 // Client portal (Oct 23 2026): read-only owner / property-manager logins.
 const { clientGuard } = require("./service/clientAccess");
 const { authenticate } = require("passport");
@@ -55,6 +57,7 @@ module.exports = function (app) {
   app.use("/api/clients", authenticateToken, clientsRouter);
   app.use("/api/review", authenticateToken, reviewRouter);
   app.use("/api/visualai", authenticateToken, visualAiRouter);
+  app.use("/api/repairs", authenticateToken, repairsRouter);
   app.use("/api/login", loginRouter);
   app.use("/api/locationforms", authenticateToken, locationFormRouter);
   app.use("/api/migrate", migrateRouter);
