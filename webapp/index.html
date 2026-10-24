@@ -448,6 +448,24 @@ input,select{font-family:inherit;font-size:16px}
 /* "Not scheduled" reminder pill (David, Sep 23): loud on purpose */
 .chip.notsched{background:#E8461B;color:#fff;font-weight:800;letter-spacing:.3px;border:0;box-shadow:0 0 0 3px #FFD9CC;animation:notschedPulse 1.6s ease-in-out infinite}
 @keyframes notschedPulse{0%,100%{box-shadow:0 0 0 3px #FFD9CC}50%{box-shadow:0 0 0 6px #FFB69C}}
+
+/* ---- CLIENT PORTAL view (Oct 23 2026): read-only, owners / property managers ---- */
+.cv-banner{background:var(--brand-soft);color:var(--brand);border-radius:10px;padding:10px 14px;font-size:13px;margin:0 0 14px}
+.cv-props{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.cv-prop{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;cursor:pointer;display:flex;flex-direction:column}
+.cv-prop img,.cv-prop .ph{width:100%;height:150px;object-fit:cover;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:40px}
+.cv-prop .bd{padding:12px 14px}
+.cv-prop .bd b{display:block;font-size:16px}
+.cv-prop .bd small{color:var(--ink-soft)}
+.cv-field{font-size:14px;margin:4px 0}
+.cv-field b{color:var(--ink-soft);font-weight:600;margin-right:6px}
+.cv-inv{border:2px solid #C00000;border-radius:10px;padding:10px 12px;margin-top:10px;background:#fff8f8}
+.cv-unavail{background:#FFF4E0;border:1px solid #E8B04B;border-radius:8px;padding:8px 10px;font-size:14px;margin-top:6px}
+.pa-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line)}
+.pa-row:last-child{border-bottom:none}
+.pa-row .nm{flex:1;min-width:180px}
+.pa-row .nm small{display:block;color:var(--ink-soft)}
+.pa-msg{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;margin-top:8px}
 </style>
 </head>
 <body>
@@ -490,6 +508,147 @@ input,select{font-family:inherit;font-size:16px}
       </div>
     </div>
   </div>
+
+  <!-- ============ CLIENT PORTAL (Oct 23 2026) ============
+       Owners / property managers. READ-ONLY and separate from the staff app:
+       no edit, upload, report, proposal, inspector or user controls exist here.
+       The server enforces the same (service/clientAccess.js). -->
+  <template v-else-if="isClient">
+    <div class="topbar">
+      <div class="logo" style="cursor:pointer" title="My properties" @click="cvHome()"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
+      <nav style="display:flex;gap:4px;margin-left:10px">
+        <button class="btn-ghost navon" @click="cvHome()">My Properties</button>
+      </nav>
+      <div class="spacer"></div>
+      <img v-if="logo" :src="logo" alt="Company logo" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
+      <div class="userchip">
+        <div class="avatar">{{ initials }}</div>
+        <span>{{ user.first_name || user.username }}</span>
+      </div>
+      <button class="btn-ghost" @click="logout">Sign out</button>
+    </div>
+
+    <div class="main">
+      <!-- My Properties -->
+      <template v-if="cv.view==='list'">
+        <div class="page-head">
+          <h2>My Properties <span class="count" v-if="!cv.loading">({{ cvFiltered.length }})</span></h2>
+          <div class="spacer" style="flex:1"></div>
+          <div class="search" v-if="cv.props.length > 6"><input v-model.trim="cv.q" placeholder="Search by name or address"></div>
+        </div>
+        <div class="cv-banner">View only &mdash; inspection findings appear here as the inspectors enter them.</div>
+        <div class="empty" v-if="cv.loading">Loading your properties&hellip;</div>
+        <div class="panel" v-else-if="!cv.props.length">No properties are linked to your account yet. Please contact your inspection company.</div>
+        <div class="cv-props" v-else>
+          <div class="cv-prop" v-for="p in cvFiltered" :key="p.id" @click="cvOpenProp(p)">
+            <img v-if="hasImage(p)" :src="thumb(p.url)" loading="lazy" alt="" @error="thumbErr($event, p.url)">
+            <div class="ph" v-else>&#127970;</div>
+            <div class="bd"><b>{{ p.name }}</b><small>{{ p.address || '' }}</small></div>
+          </div>
+        </div>
+      </template>
+
+      <!-- One property: buildings, units, common locations -->
+      <template v-else-if="cv.view==='prop' && cv.prop">
+        <button class="back" @click="cvHome()">&#8592; My Properties</button>
+        <div class="page-head"><h2>{{ cv.prop.name }}</h2></div>
+        <div class="hint" v-if="cv.prop.address" style="margin:-6px 0 12px">{{ cv.prop.address }}</div>
+        <div class="empty" v-if="cv.loadingStruct">Loading the inspection&hellip;</div>
+        <template v-else>
+          <div class="panel" v-if="!cv.structure.subProjects.length && !cv.structure.locations.length">No inspection findings have been entered for this property yet.</div>
+          <template v-for="sp in cv.structure.subProjects" :key="sp.id">
+            <div class="grouphead" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">&#127970; {{ sp.name }}
+              <template v-if="bldgCounts(sp).total">
+                <span class="rc done" v-if="!bldgCounts(sp).unrated">Inspected</span>
+                <span class="rc prog" v-else>{{ bldgCounts(sp).total - bldgCounts(sp).unrated }} of {{ bldgCounts(sp).total }} rated</span>
+                <span class="rc good" v-if="bldgCounts(sp).good">Good {{ bldgCounts(sp).good }}</span>
+                <span class="rc fair" v-if="bldgCounts(sp).fair">Fair {{ bldgCounts(sp).fair }}</span>
+                <span class="rc bad" v-if="bldgCounts(sp).bad">Bad {{ bldgCounts(sp).bad }}</span>
+                <span class="rc failedc" v-if="bldgCounts(sp).failed">Failed {{ bldgCounts(sp).failed }}</span>
+              </template>
+            </div>
+            <div class="unitgrid">
+              <div class="ucard" v-for="loc in sp.subProjectLocations" :key="loc.locationId" @click="cvOpenUnit(loc)" style="cursor:pointer">
+                <img class="uimg" v-if="loc.url" :src="thumb(loc.url)" loading="lazy" alt="" @error="thumbErr($event, loc.url)"><div class="uicon" v-else>&#128682;</div>
+                <div style="flex:1"><b :style="loc.rating==='Bad' ? 'color:#C62828' : ''">{{ loc.locationName }}</b><span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span>
+                  <div class="hint" v-if="loc.description" style="margin:2px 0 0;font-size:12px">{{ loc.description }}</div>
+                  <div class="rcrow" v-if="loc.ratingCounts && loc.ratingCounts.total">
+                    <span class="rc done" v-if="!loc.ratingCounts.unrated">Inspected</span>
+                    <span class="rc prog" v-else>{{ loc.ratingCounts.total - loc.ratingCounts.unrated }} of {{ loc.ratingCounts.total }} rated</span>
+                    <span class="rc good" v-if="loc.ratingCounts.good">Good {{ loc.ratingCounts.good }}</span>
+                    <span class="rc fair" v-if="loc.ratingCounts.fair">Fair {{ loc.ratingCounts.fair }}</span>
+                    <span class="rc bad" v-if="loc.ratingCounts.bad">Bad {{ loc.ratingCounts.bad }}</span>
+                    <span class="rc failedc" v-if="loc.ratingCounts.failed">Failed {{ loc.ratingCounts.failed }}</span>
+                  </div></div>
+              </div>
+            </div>
+          </template>
+          <template v-if="cv.structure.locations.length">
+            <div class="grouphead">&#128205; Common Locations</div>
+            <div class="unitgrid">
+              <div class="ucard" v-for="loc in cv.structure.locations" :key="loc.locationId" @click="cvOpenUnit(loc)" style="cursor:pointer">
+                <img class="uimg" v-if="loc.url" :src="thumb(loc.url)" loading="lazy" alt="" @error="thumbErr($event, loc.url)"><div class="uicon" v-else>&#128682;</div>
+                <div style="flex:1"><b :style="loc.rating==='Bad' ? 'color:#C62828' : ''">{{ loc.locationName }}</b><span class="trate" :class="ratingClass(loc.rating)" v-if="loc.rating">{{ loc.rating.toUpperCase() }}</span>
+                  <div class="hint" v-if="loc.description" style="margin:2px 0 0;font-size:12px">{{ loc.description }}</div>
+                  <div class="rcrow" v-if="loc.ratingCounts && loc.ratingCounts.total">
+                    <span class="rc done" v-if="!loc.ratingCounts.unrated">Inspected</span>
+                    <span class="rc prog" v-else>{{ loc.ratingCounts.total - loc.ratingCounts.unrated }} of {{ loc.ratingCounts.total }} rated</span>
+                    <span class="rc good" v-if="loc.ratingCounts.good">Good {{ loc.ratingCounts.good }}</span>
+                    <span class="rc fair" v-if="loc.ratingCounts.fair">Fair {{ loc.ratingCounts.fair }}</span>
+                    <span class="rc bad" v-if="loc.ratingCounts.bad">Bad {{ loc.ratingCounts.bad }}</span>
+                    <span class="rc failedc" v-if="loc.ratingCounts.failed">Failed {{ loc.ratingCounts.failed }}</span>
+                  </div></div>
+              </div>
+            </div>
+          </template>
+        </template>
+      </template>
+
+      <!-- One unit / location: every inspection point, read-only -->
+      <template v-else-if="cv.view==='unit' && cv.unit">
+        <button class="back" @click="cvBackToProp()">&#8592; {{ cv.prop ? cv.prop.name : 'Back' }}</button>
+        <div class="page-head" style="align-items:center;gap:14px">
+          <img v-if="cv.unit.url" :src="thumb(cv.unit.url)" @error="thumbErr($event, cv.unit.url)" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:12px;border:1.5px solid var(--line);cursor:zoom-in" @click="lightbox=cv.unit.url">
+          <h2>{{ cv.unit.locationName }} <span class="trate" :class="ratingClass(cv.unit.rating)" v-if="cv.unit.rating">{{ cv.unit.rating.toUpperCase() }}</span></h2>
+        </div>
+        <div class="hint" v-if="cv.unit.description" style="margin:-6px 0 12px">{{ cv.unit.description }}</div>
+        <div class="empty" v-if="cv.loadingSecs">Loading the inspection points&hellip;</div>
+        <div class="panel" v-else-if="!cv.sections.length">No inspection points have been entered here yet.</div>
+        <div class="seclist" v-else>
+          <div class="scard" v-for="s in cv.sections" :key="s._id || s.id">
+            <h4>{{ s.name }}</h4>
+            <div class="cv-unavail" v-if="ynText(s.unitUnavailable)==='Yes'">Unavailable at the time of inspection.</div>
+            <template v-else>
+              <div class="tagrow">
+                <span class="tag" :class="ratingClass(s.visualreview)" v-if="s.visualreview">Visual review: {{ s.visualreview }}</span>
+                <span class="tag" :class="ynText(s.visualsignsofleak)==='Yes' ? 'bad' : 'good'" v-if="s.visualsignsofleak!==undefined && s.visualsignsofleak!==''">Signs of leaks: {{ ynText(s.visualsignsofleak) }}</span>
+                <span class="tag" :class="ynText(s.furtherinvasivereviewrequired)==='Yes' ? 'fair' : 'good'" v-if="s.furtherinvasivereviewrequired!==undefined && s.furtherinvasivereviewrequired!==''">Further invasive review: {{ ynText(s.furtherinvasivereviewrequired) }}</span>
+                <span class="tag bad" v-if="ynText(s.unsafecondition)==='Yes'">Unsafe condition</span>
+                <span class="tag" :class="/^fail/i.test(String(s.conditionalassessment||'')) ? 'bad' : 'good'" v-if="secText(s.conditionalassessment)">Condition: {{ secText(s.conditionalassessment) }}</span>
+              </div>
+              <div class="cv-field" v-if="s.exteriorelements"><b>Exterior elements</b>{{ s.exteriorelements }}</div>
+              <div class="cv-field" v-if="s.waterproofingelements"><b>Waterproofing elements</b>{{ s.waterproofingelements }}</div>
+              <div class="cv-field" v-if="s.eee || s.lbc || s.awe"><b>Life expectancy</b><span v-if="s.eee">EEE {{ s.eee }}</span><span v-if="s.lbc"> &middot; LBC {{ s.lbc }}</span><span v-if="s.awe"> &middot; AWE {{ s.awe }}</span></div>
+              <div class="seccmts" v-if="secText(s.additionalconsiderations, s.additionalconsiderationshtml)">
+                <div style="white-space:pre-wrap">{{ secText(s.additionalconsiderations, s.additionalconsiderationshtml) }}</div>
+              </div>
+              <div class="photos" v-if="(s.images||[]).length">
+                <img v-for="(img,i) in s.images" :key="i" :src="thumb(img)" loading="lazy" @click="lightbox=img" alt="inspection photo" @error="thumbErr($event, img)">
+              </div>
+              <div class="cv-inv" v-if="cv.inv[s._id || s.id]">
+                <div style="color:#C00000;font-weight:700;margin-bottom:4px">Invasive inspection</div>
+                <div style="white-space:pre-wrap" v-if="cv.inv[s._id || s.id].invasiveDescription">{{ cv.inv[s._id || s.id].invasiveDescription }}</div>
+                <div class="cv-field" v-if="cv.inv[s._id || s.id].postinvasiverepairsrequired"><b>Post-invasive repairs required</b>{{ ynText(cv.inv[s._id || s.id].postinvasiverepairsrequired) }}</div>
+                <div class="photos" v-if="(cv.inv[s._id || s.id].invasiveimages||[]).length">
+                  <img v-for="(img,i) in cv.inv[s._id || s.id].invasiveimages" :key="'i'+i" :src="thumb(img)" loading="lazy" @click="lightbox=img" alt="invasive photo" @error="thumbErr($event, img)">
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+  </template>
 
   <!-- ============ APP SHELL ============ -->
   <template v-else>
@@ -694,6 +853,50 @@ input,select{font-family:inherit;font-size:16px}
               </template>
             </div>
           </div>
+          <!-- PORTAL ACCESS (Oct 23 2026): read-only website logins for this
+               client's people. Admins only (the server checks too). -->
+          <div class="page-head" style="margin-top:22px">
+            <h2 style="font-size:19px">Portal access <span class="count" v-if="user && user.role==='admin'">({{ portal.list.length }})</span></h2>
+            <div class="spacer" style="flex:1"></div>
+            <button class="btn-dl" v-if="user && user.role==='admin'" :disabled="portal.busy" @click="portalNew()">&#65291; Add login</button>
+          </div>
+          <div style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:10px 18px;margin-bottom:14px">
+            <div class="hint" style="margin:4px 0 8px">People at {{ clientOpen.name }} can sign in at www.e3-web.com and <b>view</b> the inspections of the properties below &mdash; photos, notes and ratings &mdash; as they are entered. They cannot change anything, and they never see reports, proposals, inspectors or other clients. Logins do not use any of your user seats.</div>
+            <div class="hint" v-if="!(user && user.role==='admin')" style="margin:0 0 6px">Only an admin can add or change client logins.</div>
+            <template v-else>
+              <div class="empty" v-if="portal.loading" style="padding:8px 0">Loading&hellip;</div>
+              <div class="hint" v-else-if="!portal.list.length" style="margin:0 0 6px">No logins yet.</div>
+              <div class="pa-row" v-for="l in portal.list" :key="l.username">
+                <div class="nm"><b>{{ [l.first_name, l.last_name].filter(Boolean).join(' ') || l.username }}</b><small>{{ l.username }}<span v-if="l.email"> &middot; {{ l.email }}</span></small></div>
+                <span class="tag bad" v-if="l.isActive===false">Turned off</span>
+                <span class="tag good" v-else>Active</span>
+                <button class="btn-dl" :disabled="portal.busy" @click="portalToggle(l)">{{ l.isActive===false ? 'Turn on' : 'Turn off' }}</button>
+                <button class="btn-dl" :disabled="portal.busy" @click="portalResetOpen(l)">Reset password</button>
+              </div>
+              <div class="pa-msg" v-if="portal.msg">{{ portal.msg }}</div>
+              <div style="margin-top:6px" v-if="portal.msg"><button class="btn-dl" @click="portalCopy()">Copy sign-in instructions</button> <button class="btn-cancel" @click="portal.msg=''">Done</button></div>
+            </template>
+          </div>
+          <div class="overlay" v-if="portal.form" @click.self="portal.form=null">
+            <div class="modal" style="max-width:520px">
+              <h3>{{ portal.form.mode==='reset' ? 'Reset password for ' + portal.form.username : 'New login for ' + clientOpen.name }}</h3>
+              <div class="cl-form">
+                <template v-if="portal.form.mode!=='reset'">
+                  <div class="two"><div><label>First name</label><input v-model.trim="portal.form.first_name"></div><div><label>Last name</label><input v-model.trim="portal.form.last_name"></div></div>
+                  <label>Email</label><input v-model.trim="portal.form.email" type="email" placeholder="name@company.com">
+                  <label>Username *</label><input v-model.trim="portal.form.username" autocomplete="off" placeholder="letters, numbers, . _ - @">
+                </template>
+                <label>{{ portal.form.mode==='reset' ? 'New password *' : 'Temporary password *' }}</label>
+                <div style="display:flex;gap:8px"><input v-model="portal.form.password" type="text" autocomplete="off" style="flex:1"><button type="button" class="btn-dl" @click="portal.form.password=portalGenPw()">Generate</button></div>
+                <div class="hint" style="margin:4px 0 0">At least 8 characters. You will get sign-in instructions to send them.</div>
+              </div>
+              <div class="mrow" style="margin-top:18px">
+                <button class="btn-cancel" @click="portal.form=null">Cancel</button>
+                <button class="btn-edit" :disabled="portal.busy || !portal.form.password || portal.form.password.length < 8 || (portal.form.mode!=='reset' && !portal.form.username)" @click="portalSave()">{{ portal.busy ? 'Saving…' : (portal.form.mode==='reset' ? 'Reset password' : 'Create login') }}</button>
+              </div>
+            </div>
+          </div>
+
         </template>
       </template>
 
@@ -2241,7 +2444,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-23.1';
+const APP_BUILD = '2026-10-23.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2308,6 +2511,10 @@ createApp({
       // separate companies from Deck Inspectors.
       logo: '', logoW: 0, logoH: 0, logoE3: LOGO_E3,
       user: null, loginForm: { username: '', password: '' }, loginError: '', loggingIn: false,
+      // client portal (read-only owner / property-manager view, Oct 23 2026)
+      cv: { view: 'list', props: [], loading: false, q: '', prop: null, structure: { subProjects: [], locations: [] }, loadingStruct: false, unit: null, sections: [], loadingSecs: false, inv: {} },
+      // Portal access on the staff client page
+      portal: { list: [], loading: false, form: null, busy: false, msg: '', clientId: '' },
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
@@ -2374,6 +2581,13 @@ createApp({
     lightbox() { this.lbZoom = 1; this.lbX = 0; this.lbY = 0; this._lbDrag = false; this._lbMoved = false; },
   },
   computed: {
+    // A client portal login (owner / property manager) - read-only view.
+    isClient() { return !!(this.user && String(this.user.role || '').toLowerCase() === 'client'); },
+    cvFiltered() {
+      const q = (this.cv.q || '').toLowerCase();
+      if (!q) return this.cv.props;
+      return this.cv.props.filter((p) => ((p.name || '') + ' ' + (p.address || '')).toLowerCase().includes(q));
+    },
     // Every other unit in this project a section could be moved to, labelled
     // "Building › Unit" so identically-named units stay tellable apart.
     // Total units across every building, and how many are fully inspected
@@ -2543,7 +2757,7 @@ createApp({
   created() {
     try {
       const saved = localStorage.getItem('e3v2_user');
-      if (saved) { this.user = JSON.parse(saved); this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); }
+      if (saved) { this.user = JSON.parse(saved); if (this.isClient) this.cvStart(); else { this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); } }
     } catch (e) { /* ignore */ }
     history.replaceState({ v: 'projects' }, '');
     window.addEventListener('popstate', (e) => this.onPop(e));
@@ -2561,6 +2775,186 @@ createApp({
     setTimeout(chk, 15000);
   },
   methods: {
+    /* ---------- CLIENT PORTAL - read-only view (Oct 23 2026) ----------
+       Only these calls are made for a client login; the server allows nothing
+       else for them (service/clientAccess.js). */
+    cvStart() {
+      this.loadBranding();
+      this.cv.view = 'list';
+      history.replaceState({ v: 'cv-list' }, '');
+      this.cvLoadProps();
+    },
+    async cvLoadProps() {
+      this.cv.loading = !this.cv.props.length;
+      try {
+        const res = await this.api('/project/allprojects');
+        const data = await res.json();
+        const list = (data.projects || []).filter((p) => !p.isdeleted);
+        list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { numeric: true, sensitivity: 'base' }));
+        this.cv.props = list;
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not load your properties.', 'err');
+      } finally { this.cv.loading = false; }
+    },
+    cvHome() {
+      if (this.cv.view !== 'list') history.pushState({ v: 'cv-list' }, '');
+      this.cv.view = 'list'; this.cv.unit = null;
+      this.cvLoadProps();
+    },
+    cvOpenProp(p, fromHistory) {
+      if (!p) return;
+      if (!fromHistory) history.pushState({ v: 'cv-prop', pid: p.id }, '');
+      const changed = !this.cv.prop || this.cv.prop.id !== p.id;
+      this.cv.prop = p; this.cv.view = 'prop'; this.cv.unit = null;
+      if (changed) this.cv.structure = { subProjects: [], locations: [] };
+      this.cvLoadStruct();
+    },
+    async cvLoadStruct() {
+      const pid = this.cv.prop && this.cv.prop.id;
+      if (!pid) return;
+      this.cv.loadingStruct = !this.cv.structure.subProjects.length && !this.cv.structure.locations.length;
+      try {
+        const res = await this.api('/project/getProjectMetadata/' + encodeURIComponent(pid));
+        if (!res.ok) throw new Error('load');
+        const data = await res.json();
+        const item = (data.item && data.item[0]) || {};
+        if (!this.cv.prop || this.cv.prop.id !== pid) return;
+        this.cv.structure = { subProjects: item.subProjects || [], locations: item.locations || [] };
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not load this inspection.', 'err');
+      } finally { this.cv.loadingStruct = false; }
+    },
+    cvBackToProp() {
+      if (this.cv.prop) this.cvOpenProp(this.cv.prop); else this.cvHome();
+    },
+    cvOpenUnit(loc, fromHistory) {
+      if (!loc) return;
+      if (!fromHistory) history.pushState({ v: 'cv-unit', pid: this.cv.prop && this.cv.prop.id, loc: { locationId: loc.locationId, locationName: loc.locationName, url: loc.url || '', rating: loc.rating || '', description: loc.description || '' } }, '');
+      this.cv.unit = loc; this.cv.view = 'unit'; this.cv.sections = []; this.cv.inv = {};
+      window.scrollTo(0, 0);
+      this.cvLoadSecs();
+    },
+    async cvLoadSecs() {
+      const locId = this.cv.unit && this.cv.unit.locationId;
+      if (!locId) return;
+      this.cv.loadingSecs = true;
+      try {
+        const res = await this.api('/section/getSectionsByParentId', { method: 'POST', json: { parentid: locId } });
+        if (!res.ok) throw new Error('load');
+        const data = await res.json();
+        if (!this.cv.unit || this.cv.unit.locationId !== locId) return;
+        const secs = (data.sections || []).slice();
+        secs.sort((a, b) => (Number(a.sequenceNo) || 0) - (Number(b.sequenceNo) || 0));
+        this.cv.sections = secs;
+        const pb = [];
+        for (const s of secs) for (const im of (s.images || [])) pb.push(im);
+        this.prebuild(pb);
+        // invasive findings, where the inspector flagged further invasive review
+        for (const s of secs) {
+          if (this.ynText(s.furtherinvasivereviewrequired) !== 'Yes') continue;
+          const sid = s._id || s.id;
+          fetch(API + '/invasivesection/getInvasiveSectionByParentId', {
+            method: 'POST', headers: this.authHdr({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ parentSectionId: sid }),
+          }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+            const rec = j && j.sections && j.sections[0];
+            if (rec && this.cv.unit && this.cv.unit.locationId === locId) this.cv.inv = Object.assign({}, this.cv.inv, { [sid]: rec });
+          }).catch(() => {});
+        }
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not load the inspection points.', 'err');
+      } finally { this.cv.loadingSecs = false; }
+    },
+    cvOnPop(st) {
+      if (st.v === 'cv-unit' && st.loc) {
+        const p = this.cv.props.find((x) => x.id === st.pid);
+        if (p && (!this.cv.prop || this.cv.prop.id !== p.id)) { this.cv.prop = p; this.cv.structure = { subProjects: [], locations: [] }; this.cvLoadStruct(); }
+        this.cvOpenUnit(st.loc, true); return;
+      }
+      if (st.v === 'cv-prop') {
+        const p = this.cv.props.find((x) => x.id === st.pid);
+        if (p) { this.cvOpenProp(p, true); return; }
+      }
+      this.cv.view = 'list'; this.cv.unit = null;
+    },
+
+    /* ---------- Portal access on the staff client page (admins) ---------- */
+    async portalLoad() {
+      const c = this.clientOpen;
+      this.portal.msg = ''; this.portal.form = null;
+      if (!c || !(this.user && this.user.role === 'admin')) { this.portal.list = []; return; }
+      if (this.portal.clientId !== c.id) this.portal.list = [];
+      this.portal.clientId = c.id;
+      this.portal.loading = !this.portal.list.length;
+      try {
+        const res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins');
+        const j = res.ok ? await res.json() : [];
+        if (this.clientOpen && this.clientOpen.id === c.id) this.portal.list = Array.isArray(j) ? j : [];
+      } catch (e) { /* keep what we had */ }
+      finally { this.portal.loading = false; }
+    },
+    portalGenPw() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+      const a = new Uint32Array(10); crypto.getRandomValues(a);
+      return Array.from(a, (n) => chars[n % chars.length]).join('');
+    },
+    portalNew() {
+      const c = this.clientOpen || {};
+      this.portal.msg = '';
+      this.portal.form = { mode: 'new', first_name: '', last_name: '', email: c.email || '', username: '', password: this.portalGenPw() };
+    },
+    portalResetOpen(l) {
+      this.portal.msg = '';
+      this.portal.form = { mode: 'reset', username: l.username, password: this.portalGenPw() };
+    },
+    portalInstructions(username, password) {
+      const co = (this.brandInfo && this.brandInfo.name) || 'our inspection team';
+      return 'You can now view your property inspections online.\n\n'
+        + 'Website: https://www.e3-web.com\n'
+        + 'Username: ' + username + '\n'
+        + 'Password: ' + password + '\n\n'
+        + 'Open the website on a computer or phone and sign in. You will see your properties and the inspection findings, photos and ratings as they are entered. This access is view-only.\n\n'
+        + '- ' + co;
+    },
+    async portalSave() {
+      const c = this.clientOpen; const f = this.portal.form;
+      if (!c || !f) return;
+      this.portal.busy = true;
+      try {
+        let res;
+        if (f.mode === 'reset') {
+          res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins/password', { method: 'POST', json: { username: f.username, password: f.password } });
+        } else {
+          res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins', { method: 'POST', json: { username: f.username, password: f.password, first_name: f.first_name, last_name: f.last_name, email: f.email } });
+        }
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast((j && j.message) || 'Could not save the login.', 'err'); return; }
+        this.portal.msg = this.portalInstructions(f.username, f.password);
+        this.portal.form = null;
+        this.toast(f.mode === 'reset' ? 'Password reset.' : 'Login created.');
+        this.portalLoad().then(() => { this.portal.msg = this.portalInstructions(f.username, f.password); });
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not save the login.', 'err');
+      } finally { this.portal.busy = false; }
+    },
+    async portalToggle(l) {
+      const c = this.clientOpen; if (!c) return;
+      const on = l.isActive === false;
+      this.portal.busy = true;
+      try {
+        const res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins/status', { method: 'POST', json: { username: l.username, active: on } });
+        if (!res.ok) throw new Error('bad');
+        l.isActive = on;
+        this.toast(on ? 'Login turned on.' : 'Login turned off - it stops working within a minute.');
+      } catch (e) {
+        if (e.message !== 'auth') this.toast('Could not update the login.', 'err');
+      } finally { this.portal.busy = false; }
+    },
+    async portalCopy() {
+      try { await navigator.clipboard.writeText(this.portal.msg); this.toast('Copied - paste it into an email or text.'); }
+      catch (e) { this.toast('Select the text and copy it.', 'err'); }
+    },
+
     /* ---------- infrastructure ---------- */
     // Headers for the few RAW fetch() calls that bypass api() (they must not
     // log the user out on a 401). Those routes now require the sign-in token
@@ -2600,7 +2994,7 @@ createApp({
     // reaching phones. Polled with the version check (focus + every 10 min)
     // and right after sign-in.
     async checkSyncHealth() {
-      if (!this.user) return;
+      if (!this.user || this.isClient) return;
       try {
         const res = await fetch(API + '/project/synchealth', { headers: { Authorization: this.user.token }, cache: 'no-store' });
         if (!res.ok) return;                      // 401 etc: leave the last known state
@@ -3054,6 +3448,7 @@ createApp({
         this.user = await res.json();
         localStorage.setItem('e3v2_user', JSON.stringify(this.user));
         this.loginForm.password = '';
+        if (this.isClient) { this.cvStart(); return; }
         this.loadProjects();
         this.loadBranding();
         this.checkSyncHealth();
@@ -3063,6 +3458,7 @@ createApp({
     },
     logout() {
       this.stopPolling();
+      this.cv = { view: 'list', props: [], loading: false, q: '', prop: null, structure: { subProjects: [], locations: [] }, loadingStruct: false, unit: null, sections: [], loadingSecs: false, inv: {} };
       this.user = null; this.view = 'projects'; this.projects = []; this.current = null;
       localStorage.removeItem('e3v2_user');
     },
@@ -6723,6 +7119,7 @@ createApp({
       if (!fromHistory) history.pushState({ v: 'clients', cid: id }, '');
       this.view = 'clients'; this.clientOpen = c; this.addPropPick = '';
       if (!this.projects.length) this.loadProjects();
+      this.portalLoad();
       await this.loadPortfolio();
     },
     async loadPortfolio() {
@@ -7151,6 +7548,7 @@ createApp({
     onPop(e) {
       const st = (e && e.state) || { v: 'projects' };
       if (!this.user) return;
+      if (this.isClient) { this.cvOnPop(st); return; }
       if (st.v === 'users') { this.view = 'users'; if (!this.users.length) this.loadUsers(); return; }
       if (st.v === 'proposals') { this.view = 'proposals'; this.prop = null; this.loadProposals(); return; }
       if (st.v === 'clients') { if (st.cid) { this.openClient(st.cid, true); } else { this.view = 'clients'; this.clientOpen = null; this.loadClients(true); } return; }
