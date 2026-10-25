@@ -490,7 +490,13 @@ input,select{font-family:inherit;font-size:16px}
 .ct-props{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .ct-props span{font-size:12px;background:var(--bg);border-radius:6px;padding:2px 8px}
 .ct-pick{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-top:6px}
-.ct-pick label{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:14px;font-weight:400}
+.ct-pick label{display:flex;gap:8px;align-items:center;justify-content:flex-start;padding:4px 0;margin:0;font-size:14px;font-weight:400}
+.modal .cl-form .ct-pick input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;padding:0}
+/* portal forms (Oct 24): the action buttons stay visible at the bottom of a long form */
+.modal .mrow.stick{position:sticky;bottom:-28px;background:#fff;padding:12px 0 2px;margin-top:14px;border-top:1px solid var(--line);flex-wrap:wrap;align-items:center}
+.pw-ok{font-size:12px;margin-top:4px;color:#0B7A5C;font-weight:600}
+.pw-bad{font-size:12px;margin-top:4px;color:#B26A00;font-weight:600}
+.why-off{flex:1 1 100%;text-align:right;font-size:12.5px;color:#B26A00;font-weight:600}
 .ap-results{background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);max-height:320px;overflow:auto;margin-top:6px}
 .ap-results div{padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--line);font-size:14px}
 .ap-results div:hover,.ap-results div.on{background:var(--brand-soft)}
@@ -671,6 +677,7 @@ input,select{font-family:inherit;font-size:16px}
               <template v-if="ct.form.mode!=='assign'">
                 <label>{{ ct.form.mode==='reset' ? 'New password *' : 'Temporary password *' }}</label>
                 <div style="display:flex;gap:8px"><input v-model="ct.form.password" type="text" autocomplete="off" style="flex:1"><button type="button" class="btn-dl" @click="ct.form.password=portalGenPw()">Generate</button></div>
+                <div :class="pwOk(ct.form.password) ? 'pw-ok' : 'pw-bad'">{{ pwOk(ct.form.password) ? '✓ Password is long enough' : 'At least 8 characters (' + (ct.form.password||'').length + ' so far)' }}</div>
               </template>
               <template v-if="ct.form.mode!=='reset'">
                 <label>Properties this contractor works on</label>
@@ -681,9 +688,10 @@ input,select{font-family:inherit;font-size:16px}
                 </div>
               </template>
             </div>
-            <div class="mrow" style="margin-top:18px">
+            <div class="mrow stick">
+              <span class="why-off" v-if="ctWhyOff">{{ ctWhyOff }}</span>
               <button class="btn-cancel" @click="ct.form=null">Cancel</button>
-              <button class="btn-edit" :disabled="ct.busy || (ct.form.mode!=='assign' && (!ct.form.password || ct.form.password.length < 8)) || (ct.form.mode==='new' && !ct.form.username)" @click="ctSave()">{{ ct.busy ? 'Saving…' : (ct.form.mode==='reset' ? 'Reset password' : (ct.form.mode==='assign' ? 'Save properties' : 'Create login')) }}</button>
+              <button class="btn-edit" :disabled="ct.busy || !!ctWhyOff" @click="ctSave()">{{ ct.busy ? 'Saving…' : (ct.form.mode==='reset' ? 'Reset password' : (ct.form.mode==='assign' ? 'Save properties' : 'Create login')) }}</button>
             </div>
           </div>
         </div>
@@ -1057,11 +1065,13 @@ input,select{font-family:inherit;font-size:16px}
                 </template>
                 <label>{{ portal.form.mode==='reset' ? 'New password *' : 'Temporary password *' }}</label>
                 <div style="display:flex;gap:8px"><input v-model="portal.form.password" type="text" autocomplete="off" style="flex:1"><button type="button" class="btn-dl" @click="portal.form.password=portalGenPw()">Generate</button></div>
-                <div class="hint" style="margin:4px 0 0">At least 8 characters. You will get sign-in instructions to send them.</div>
+                <div :class="pwOk(portal.form.password) ? 'pw-ok' : 'pw-bad'">{{ pwOk(portal.form.password) ? '✓ Password is long enough' : 'At least 8 characters (' + (portal.form.password||'').length + ' so far)' }}</div>
+                <div class="hint" style="margin:4px 0 0">You will get sign-in instructions to send them.</div>
               </div>
-              <div class="mrow" style="margin-top:18px">
+              <div class="mrow stick">
+                <span class="why-off" v-if="portalWhyOff">{{ portalWhyOff }}</span>
                 <button class="btn-cancel" @click="portal.form=null">Cancel</button>
-                <button class="btn-edit" :disabled="portal.busy || !portal.form.password || portal.form.password.length < 8 || (portal.form.mode!=='reset' && !portal.form.username)" @click="portalSave()">{{ portal.busy ? 'Saving…' : (portal.form.mode==='reset' ? 'Reset password' : 'Create login') }}</button>
+                <button class="btn-edit" :disabled="portal.busy || !!portalWhyOff" @click="portalSave()">{{ portal.busy ? 'Saving…' : (portal.form.mode==='reset' ? 'Reset password' : 'Create login') }}</button>
               </div>
             </div>
           </div>
@@ -2776,7 +2786,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-24.2';
+const APP_BUILD = '2026-10-24.3';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2942,6 +2952,21 @@ createApp({
       return this.rp.list.filter((j) => f === 'all' || j.job.status === f);
     },
     rpQueueCount() { return this.isClient || this.isContractor ? 0 : this.rp.list.filter((j) => j.job.status === 'submitted').length; },
+    // Why the Create / Save button is off - shown next to it (Oct 24 2026).
+    ctWhyOff() {
+      const f = this.ct.form; if (!f) return '';
+      if (f.mode === 'new' && !String(f.username || '').trim()) return 'Enter a username.';
+      if (f.mode === 'new' && !/^[A-Za-z0-9._@-]{3,60}$/.test(String(f.username || '').trim())) return 'Username: 3-60 letters, numbers, . _ - or @ (no spaces).';
+      if (f.mode !== 'assign' && !this.pwOk(f.password)) return 'Password needs at least 8 characters.';
+      return '';
+    },
+    portalWhyOff() {
+      const f = this.portal.form; if (!f) return '';
+      if (f.mode !== 'reset' && !String(f.username || '').trim()) return 'Enter a username.';
+      if (f.mode !== 'reset' && !/^[A-Za-z0-9._@-]{3,60}$/.test(String(f.username || '').trim())) return 'Username: 3-60 letters, numbers, . _ - or @ (no spaces).';
+      if (!this.pwOk(f.password)) return 'Password needs at least 8 characters.';
+      return '';
+    },
     ctPickList() {
       const f = this.ct.form; if (!f) return [];
       const q = String(f.q || '').toLowerCase();
@@ -3556,6 +3581,7 @@ createApp({
       } catch (e) { /* keep what we had */ }
       finally { this.portal.loading = false; }
     },
+    pwOk(pw) { return String(pw || '').length >= 8; },
     portalGenPw() {
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
       const a = new Uint32Array(10); crypto.getRandomValues(a);
