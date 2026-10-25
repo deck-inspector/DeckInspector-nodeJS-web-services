@@ -109,7 +109,7 @@ router.route("/login").post(async function (req, res) {
     if (isClientLogin && isMobile) {
       return res
         .status(403)
-        .send("Client accounts use the website: open www.e3-web.com in your phone's browser.");
+        .send("Client and contractor accounts use the website: open www.e3-web.com in your phone's browser.");
     }
 
     // Usernames listed in MULTI_DEVICE_USERS (comma-separated, case-insensitive)
