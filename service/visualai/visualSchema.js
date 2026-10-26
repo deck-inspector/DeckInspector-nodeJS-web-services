@@ -80,12 +80,15 @@ function emptySummary() {
   const checks = {}; COVER_CHECKS.forEach(k => { checks[k] = false; });
   return { propertyType: '', totalUnitCount: '', unitsWithEEE: '', totalEEE: '', eeeInspected: '', immediateThreatCount: '',
            checks, additionalAreas: '', additionalItems: '', exclusionReason: '', overview: {}, otherLabel: '',
-           comments1: '', comments2: '' };
+           comments1: '', comments2: '',
+           // Oct 26 2026 (David's writing rules): the cell under "Units or areas specifically
+           // excluded", the Repair Method / Replacement checkboxes and the Repair Method dropdowns.
+           excludedNote: '', repairChecks: {}, repairLists: {} };
 }
 function isApartment(t) { return /apartment|721/i.test(s(t)); }
 
 // slots = overview slots read from the tenant's master (see readMasterOptions).
-function normalizeSummary(d, slots, exclusionOptions) {
+function normalizeSummary(d, slots, exclusionOptions, master) {
   d = d || {};
   const out = emptySummary();
   out.propertyType = pick(d.propertyType, PROPERTY_TYPES, '');
@@ -108,6 +111,24 @@ function normalizeSummary(d, slots, exclusionOptions) {
   out.otherLabel = otherSlot ? pickLoose(d.otherLabel, otherSlot.labelOptions) : '';
   out.comments1 = s(d.comments1).slice(0, 3000);
   out.comments2 = s(d.comments2).slice(0, 3000);
+  out.excludedNote = s(d.excludedNote).slice(0, 600);
+  const rc = d.repairChecks || {}, rl = d.repairLists || {};
+  const hasRc = d.repairChecks && typeof d.repairChecks === 'object' && Object.keys(d.repairChecks).length;
+  if (!hasRc) { /* draft made before the Repair Method fields existed: leave the master's defaults */ }
+  else if (master && Array.isArray(master.repairChecks)) {
+    master.repairChecks.forEach(c => { out.repairChecks[c.key] = !!rc[c.key]; });
+    // David's rule: when box 1 or 2 of "Replacement of Wood Structures or Waterproof
+    // Deck Coatings" is ticked, box 3 (final inspection) is always ticked.
+    const rep = master.repairChecks.filter(c => /replacement/i.test(c.group));
+    if (rep.length >= 3 && (out.repairChecks[rep[0].key] || out.repairChecks[rep[1].key])) out.repairChecks[rep[rep.length - 1].key] = true;
+  } else {
+    Object.keys(rc).slice(0, 40).forEach(k => { if (/^rc\d+$/.test(k)) out.repairChecks[k] = !!rc[k]; });
+  }
+  if (master && Array.isArray(master.repairLists)) {
+    master.repairLists.forEach(l => { out.repairLists[l.key] = l.options && l.options.length ? pickLoose(rl[l.key], l.options) : s(rl[l.key]).slice(0, 200); });
+  } else {
+    ['wpSystem', 'wpManufacturer', 'contractors'].forEach(k => { if (rl[k]) out.repairLists[k] = s(rl[k]).slice(0, 200); });
+  }
   return out;
 }
 // Match a dropdown option ignoring case and stray spaces; '' when not an option.
@@ -175,6 +196,11 @@ function readMasterOptions(xml) {
     // the two "Additional Comments" text boxes: text controls (no list) after the last slot
     res.commentIds = blocks.filter(x => !x.list && !x.check && x.id).map(x => x.id).slice(0, 2);
   }
+  // Repair Method page: the 13 checkboxes (three groups) and the dropdowns after
+  // "Type of Waterproof System:", "Manufacturer of Waterproof System:" and
+  // "Type of Contractors to Perform Repairs:" (Oct 26 2026).
+  Object.assign(res, readRepairOptions(xml));
+  res.excludedCell = xml.indexOf('specifically') !== -1 && /excluded/.test(xml);
   const r = xml.indexOf('Reason for exclusion');
   if (r !== -1) {
     const seg = xml.slice(r, r + 20000);
@@ -182,6 +208,46 @@ function readMasterOptions(xml) {
     if (bl) { res.exclusionOptions = bl.options; res.exclusionId = bl.id; }
   }
   return res;
+}
+
+
+const REPAIR_LISTS = [
+  ['wpSystem', /type of waterproof system:?\s*$/i, 'Type of Waterproof System'],
+  ['wpManufacturer', /manufacturer of waterproof system:?\s*$/i, 'Manufacturer of Waterproof System'],
+  ['contractors', /type of contractors to perform repairs:?\s*$/i, 'Type of Contractors to Perform Repairs'],
+];
+const plain = x => unesc(String(x).replace(/<w:sdt>[\s\S]*?<\/w:sdt>/g, ' ').replace(/<w:tab\/>/g, ' ').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+// Region of the Repair Method page: from the "Repair Method" heading to the first
+// paragraph after the last "Replacement" checkbox ("If the inspector concludes...").
+function repairRegion(xml) {
+  const a = xml.indexOf('>Repair Method<') !== -1 ? xml.indexOf('>Repair Method<') : xml.indexOf('Repair Method');
+  if (a === -1) return null;
+  let b = xml.indexOf('If the inspector concludes', a);
+  if (b === -1) b = Math.min(xml.length, a + 80000);
+  return { a, b };
+}
+function readRepairOptions(xml) {
+  const out = { repairChecks: [], repairLists: [] };
+  const rg = repairRegion(xml); if (!rg) return out;
+  const reg = xml.slice(rg.a, rg.b);
+  let group = 'Repair Method', n = 0;
+  for (const q of sdtBlocks(reg)) {
+    const info = sdtInfo(reg.slice(q.start, q.end));
+    const ps = Math.max(reg.lastIndexOf('<w:p>', q.start), reg.lastIndexOf('<w:p ', q.start));
+    const pe = reg.indexOf('</w:p>', q.end);
+    const before = plain(reg.slice(ps === -1 ? 0 : ps, q.start));
+    // the group heading is the last non-empty paragraph before this one that holds no control
+    const prev = reg.slice(Math.max(0, q.start - 6000), ps === -1 ? q.start : ps).split('</w:p>').map(x => x.slice(Math.max(0, x.indexOf('<')))).map(x => x.indexOf('<w:sdt>') === -1 ? plain(x) : '').filter(Boolean);
+    const h = prev.length ? prev[prev.length - 1] : '';
+    if (h && (/:$/.test(h) || /^replacement/i.test(h))) group = h.replace(/:$/, '');
+    if (info.check) {
+      out.repairChecks.push({ key: 'rc' + (n++), id: info.id, group, label: plain(reg.slice(q.end, pe === -1 ? q.end : pe)) });
+    } else if (info.list) {
+      const def = REPAIR_LISTS.find(d => d[1].test(before));
+      if (def && !out.repairLists.some(l => l.key === def[0])) out.repairLists.push({ key: def[0], label: def[2], id: info.id, options: info.options });
+    }
+  }
+  return out;
 }
 
 // ---------- Claude tool schemas ----------
@@ -227,6 +293,15 @@ function summaryToolSchema(master) {
     comments2: { type: 'string', description: 'Second comments box: recommended next steps / repairs (may be empty).' },
   };
   if (other) props.otherLabel = { type: 'string', enum: other.labelOptions };
+  props.excludedNote = { type: 'string', description: 'Text printed in the box directly below "Units or areas specifically excluded from this Report of Inspection (If any), are:" - follow the company writing rules; empty if none.' };
+  if (master.repairChecks && master.repairChecks.length) {
+    const rc = {}; master.repairChecks.forEach(c => { rc[c.key] = { type: 'boolean', description: `[${c.group}] ${c.label}` }; });
+    props.repairChecks = { type: 'object', description: 'Repair Method page checkboxes (true = ticked).', properties: rc, required: master.repairChecks.map(c => c.key) };
+  }
+  if (master.repairLists && master.repairLists.length) {
+    const rl = {}; master.repairLists.forEach(l => { rl[l.key] = l.options && l.options.length ? { type: 'string', enum: l.options, description: l.label } : { type: 'string', description: l.label }; });
+    props.repairLists = { type: 'object', description: 'Repair Method page dropdowns.', properties: rl, required: master.repairLists.map(l => l.key) };
+  }
   return { type: 'object', properties: props, required: ['propertyType', 'checks', 'overview', 'comments1'] };
 }
 

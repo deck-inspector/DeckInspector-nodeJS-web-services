@@ -104,7 +104,47 @@ function fillCover(doc, sum, master) {
   }
   doc = setControlText(doc, master.commentIds[0], sum.comments1);
   doc = setControlText(doc, master.commentIds[1], sum.comments2);
+  // 6. (Oct 26 2026) the box under "Units or areas specifically excluded ..."
+  doc = setExcludedNote(doc, sum.excludedNote);
+  // 7. Repair Method page: checkboxes + dropdowns. Drafts made before this change
+  //    carry no repair fields - the master's own defaults are left as they are.
+  const rc = sum.repairChecks || {};
+  if (Object.keys(rc).length) {
+    for (const c of master.repairChecks || []) if (c.key in rc) doc = setCheckById(doc, c.id, !!rc[c.key]);
+  }
+  const rl = sum.repairLists || {};
+  for (const l of master.repairLists || []) if (rl[l.key]) doc = setControlText(doc, l.id, rl[l.key]);
   return doc;
+}
+function setCheckById(doc, id, on) {
+  if (!id) return doc;
+  for (const b of V.sdtBlocks(doc)) {
+    if (V.sdtInfo(doc.slice(b.start, b.end)).id === String(id)) return setCheckAt(doc, b.start, on);
+  }
+  return doc;
+}
+// The single-cell table right after the "Units or areas specifically excluded from this
+// Report of Inspection (If any), are:" paragraph: write the text into its first paragraph.
+function setExcludedNote(doc, text) {
+  text = String(text || '').trim();
+  if (!text) return doc;
+  const lab = doc.search(/specifically<\/w:t>(?:(?!<\/w:p>)[\s\S])*?excluded|specifically excluded/);
+  if (lab === -1) return doc;
+  const pEnd = doc.indexOf('</w:p>', lab);
+  const tbl = doc.indexOf('<w:tbl>', pEnd);
+  if (tbl === -1 || tbl - pEnd > 400) return doc;          // the box must follow the label directly
+  const tc = doc.indexOf('<w:tc>', tbl);
+  const p0 = doc.slice(tc).search(/<w:p[ >]/);
+  if (tc === -1 || p0 === -1) return doc;
+  const ps = tc + p0;
+  const pe = doc.indexOf('</w:p>', ps);
+  const para = doc.slice(ps, pe);
+  if (/<w:t[ >]/.test(para) && para.replace(/<[^>]+>/g, '').trim()) return doc;   // already has text - leave it
+  const head = para.match(/^<w:p\b[^>]*>(?:<w:pPr>[\s\S]*?<\/w:pPr>)?/)[0];
+  const lines = text.replace(/\r/g, '').split('\n');
+  const run = '<w:r><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">' +
+    lines.map((l, i) => (i ? '</w:t><w:br/><w:t xml:space="preserve">' : '') + esc(l)).join('') + '</w:t></w:r>';
+  return doc.slice(0, ps) + head + run + doc.slice(ps + head.length);
 }
 function setByAlias(doc, alias, value) {
   if (!value) return doc;
@@ -117,4 +157,4 @@ function setByAlias(doc, alias, value) {
   return setControlText(doc, id, value);
 }
 
-module.exports = { fillCover, setControlText };
+module.exports = { fillCover, setControlText, setExcludedNote, setCheckById };

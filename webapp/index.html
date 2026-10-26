@@ -1526,6 +1526,7 @@ input,select{font-family:inherit;font-size:16px}
                     <label>EEE posing an immediate threat</label><input v-model="va.f.summary.immediateThreatCount">
                     <label>Reason for exclusion</label><select v-model="va.f.summary.exclusionReason"><option value="">(leave as the master)</option><option v-for="o in va.schema.options.exclusion" :key="o" :value="o">{{ o }}</option></select>
                   </div>
+                  <div style="margin-top:6px" @input="va.dirty=true"><b>Units or areas specifically excluded &mdash; text in the box below it</b><textarea class="rvta" style="min-height:50px" v-model="va.f.summary.excludedNote" placeholder="(empty)"></textarea></div>
                   <div class="hint" style="margin:4px 0">Apartments (SB 721): unit counts are N/A. HOA / condo (SB 326): enter the unit counts.</div>
                   <div class="rvchecks" @change="va.dirty=true">
                     <label v-for="k in va.schema.coverChecks" :key="k"><input type="checkbox" v-model="va.f.summary.checks[k]"> {{ rvCheckLabel(k) }}</label>
@@ -1547,6 +1548,18 @@ input,select{font-family:inherit;font-size:16px}
                   </div>
                   <div style="margin-top:8px" @input="va.dirty=true"><b>Additional Comments &mdash; summary of findings</b><textarea class="rvta" style="min-height:140px" v-model="va.f.summary.comments1"></textarea>
                   <b>Additional Comments &mdash; recommendations</b><textarea class="rvta" style="min-height:70px" v-model="va.f.summary.comments2"></textarea></div>
+                  <template v-if="va.schema.repairChecks && va.schema.repairChecks.length">
+                    <div style="margin-top:10px;font-weight:700">Repair Method</div>
+                    <div v-for="g in vaRepairGroups()" :key="g.name" style="margin:4px 0" @change="va.dirty=true">
+                      <div style="font-size:13px;font-weight:600">{{ g.name }}</div>
+                      <label v-for="c in g.items" :key="c.key" style="display:block;font-size:13px"><input type="checkbox" v-model="va.f.summary.repairChecks[c.key]"> {{ c.label }}</label>
+                    </div>
+                  </template>
+                  <div class="rvgrid" style="margin-top:6px" v-if="va.schema.repairLists && va.schema.repairLists.length" @change="va.dirty=true">
+                    <template v-for="l in va.schema.repairLists" :key="l.key">
+                      <label>{{ l.label }}</label><select v-model="va.f.summary.repairLists[l.key]"><option value="">(as the master)</option><option v-for="o in l.options" :key="o" :value="o">{{ o }}</option></select>
+                    </template>
+                  </div>
                 </details>
                 <div class="hint" style="margin:8px 0 2px">Sections: <a href="#" @click.prevent="vaPickAll(true)">select all</a> &middot; <a href="#" @click.prevent="vaPickAll(false)">none</a> &middot; <b>{{ vaPickedCount() }}</b> will be applied.</div>
                 <details class="rvsec" v-for="s in vaRows()" :key="s.id">
@@ -2786,7 +2799,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-24.3';
+const APP_BUILD = '2026-10-26.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3715,12 +3728,24 @@ createApp({
       if (!d) return null;
       return Object.assign({}, d, { exteriorelements: [].concat(d.exteriorelements || []).join(', '), waterproofingelements: [].concat(d.waterproofingelements || []).join(', ') });
     },
+    vaRepairGroups() {
+      const out = [];
+      ((this.va.schema && this.va.schema.repairChecks) || []).forEach(c => {
+        let g = out.find(x => x.name === c.group); if (!g) { g = { name: c.group, items: [] }; out.push(g); } g.items.push(c);
+      });
+      return out;
+    },
     vaFromData(d) {
       const f = { sections: {}, summary: null };
       Object.entries(d.sections || {}).forEach(([id, x]) => { if (x.draft) f.sections[id] = this.vaEdit(x.draft); });
       if (d.summary) {
         f.summary = JSON.parse(JSON.stringify(d.summary));
         (this.va.schema ? this.va.schema.slots : []).forEach(sl => { if (!f.summary.overview[sl.key]) f.summary.overview[sl.key] = { type: '', condition: '' }; });
+        if (f.summary.excludedNote == null) f.summary.excludedNote = '';
+        f.summary.repairChecks = f.summary.repairChecks || {};
+        f.summary.repairLists = f.summary.repairLists || {};
+        ((this.va.schema && this.va.schema.repairChecks) || []).forEach(c => { if (!(c.key in f.summary.repairChecks)) f.summary.repairChecks[c.key] = false; });
+        ((this.va.schema && this.va.schema.repairLists) || []).forEach(l => { if (!(l.key in f.summary.repairLists)) f.summary.repairLists[l.key] = ''; });
       }
       return f;
     },

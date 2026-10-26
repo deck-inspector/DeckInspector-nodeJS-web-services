@@ -183,7 +183,7 @@ function publicView(m, master) {
   const sections = {};
   Object.entries(m.sections || {}).forEach(([id, x]) => { sections[id] = Object.assign({}, x, { draft: x.draft ? V.normalizeSection(x.draft) : null }); });
   return Object.assign({}, m, { sections,
-    summary: m.summary ? V.normalizeSummary(m.summary, master.slots, master.exclusionOptions) : null,
+    summary: m.summary ? V.normalizeSummary(m.summary, master.slots, master.exclusionOptions, master) : null,
     aiConfigured: AI.isConfigured(), aiModel: AI.modelName() });
 }
 
@@ -234,6 +234,8 @@ router.get('/schema', async (req, res) => {
   res.json({ options: { life: V.LIFE, review: V.REVIEW, assess: V.ASSESS, yn: V.YN, propertyTypes: V.PROPERTY_TYPES,
                         exterior: V.EXTERIOR, waterproof: V.WATERPROOF, exclusion: master.exclusionOptions },
              coverChecks: V.COVER_CHECKS, slots: master.slots.map(s => ({ key: s.key, label: s.label, typeOptions: s.typeOptions, conditionOptions: s.conditionOptions, labelOptions: s.labelOptions || null })),
+             repairChecks: (master.repairChecks || []).map(c => ({ key: c.key, group: c.group, label: c.label })),
+             repairLists: (master.repairLists || []).map(l => ({ key: l.key, label: l.label, options: l.options })),
              aiConfigured: AI.isConfigured(), model: AI.modelName(), maxPhotos: AI.MAX_PHOTOS });
 });
 
@@ -298,7 +300,7 @@ router.put('/:projectId/draft', async (req, res) => {
   if (m.status === 'analyzing') return res.status(409).json({ message: 'Claude is still drafting - wait or press Stop.' });
   const b = req.body || {};
   Object.entries(b.sections || {}).forEach(([id, d]) => { if (m.sections && m.sections[id]) { m.sections[id].draft = V.normalizeSection(d); m.sections[id].edited = true; } });
-  if (b.summary) m.summary = V.normalizeSummary(b.summary, master.slots, master.exclusionOptions);
+  if (b.summary) m.summary = V.normalizeSummary(b.summary, master.slots, master.exclusionOptions, master);
   m.editedBy = (req.user && req.user.username) || '';
   res.json(publicView(await writeManifest(ctx.pid, m), master));
 });
@@ -397,7 +399,7 @@ router.post('/:projectId/analyze', async (req, res) => {
       summary = Object.assign({}, summary, { unitsWithEEE: String(counts.unitsWithEEE), totalEEE: String(counts.totalEEE),
                                              eeeInspected: String(counts.eeeInspected), immediateThreatCount: String(counts.immediateThreatCount) });
       if (!summary.propertyType) summary.propertyType = /hoa|association|condo/i.test(project.name + ' ' + project.description) ? V.PROPERTY_TYPES[1] : V.PROPERTY_TYPES[0];
-      summary = V.normalizeSummary(summary, master.slots, master.exclusionOptions);
+      summary = V.normalizeSummary(summary, master.slots, master.exclusionOptions, master);
       await prog.set({ phase: 'saving' }); await prog.done();
       await save({ summary, error: failed ? `${failed} item(s) could not be drafted - see the red notes below, or run Draft with Claude again and choose Continue.` : '' });
       console.log('Visual AI done', ctx.pid, JSON.stringify({ sections: todo.length, failed, photos, usage, seconds: Math.round((Date.now() - t0) / 1000) }));
@@ -438,7 +440,7 @@ router.post('/:projectId/apply', async (req, res) => {
   if (m.status === 'analyzing') return res.status(409).json({ message: 'Claude is still drafting - wait or press Stop.' });
   const b = req.body || {};
   Object.entries(b.sections || {}).forEach(([id, d]) => { if (m.sections && m.sections[id]) m.sections[id].draft = V.normalizeSection(d); });
-  if (b.summary) m.summary = V.normalizeSummary(b.summary, master.slots, master.exclusionOptions);
+  if (b.summary) m.summary = V.normalizeSummary(b.summary, master.slots, master.exclusionOptions, master);
   const only = Array.isArray(b.ids) ? new Set(b.ids.map(String)) : null;
   let list;
   try { list = await collectSections(ctx.pid); } catch (e) { return res.status(503).json({ message: e.message }); }
@@ -473,7 +475,7 @@ router.post('/:projectId/apply', async (req, res) => {
     const c = countsFrom(await collectSections(ctx.pid).catch(() => list), {});
     Object.assign(m.summary, { totalEEE: String(c.totalEEE), eeeInspected: String(c.eeeInspected), immediateThreatCount: String(c.immediateThreatCount) });
     if (!V.isApartment(m.summary.propertyType)) m.summary.unitsWithEEE = String(c.unitsWithEEE);
-    m.summary = V.normalizeSummary(m.summary, master.slots, master.exclusionOptions);
+    m.summary = V.normalizeSummary(m.summary, master.slots, master.exclusionOptions, master);
   }
   m.applied = { at: new Date().toISOString(), by: who, sections: ok, failed: failed.length, summary: m.summary || null };
   await writeManifest(ctx.pid, m);

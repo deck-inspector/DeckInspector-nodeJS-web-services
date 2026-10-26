@@ -61,6 +61,9 @@ RULES:
 - overview: for each row pick the option that best describes the typical construction and the conditions noted on average; "None" / "N/A" when that element type is not present.
 - comments1 (printed in "Additional Comments"): a SHORT summary of the findings - one short sentence per TYPE of concern found, then the action. Do NOT recite each location, unit or section, do not list counts or ratings, do not describe good conditions. House style examples: "Waterproofing failures have been noted at specific locations identified within the report. Repairs are required to ensure water does not enter the structure." / "Railings are splitting, allowing water to enter the structure. Repairs are necessary. Maintenance is recommended." / "Where the waterproofing has failed, repair or replacement is necessary." / "Floor coverings prevented the inspection of some waterproofing; future inspection is required." If there are no concerns at all, one sentence: "No concerns were noted at the time of inspection." 1-5 sentences, no markdown, no bullets.
 - comments2: empty unless a further recommendation is needed (e.g. "Contact the inspector for a final inspection after repairs are completed."); at most 1-2 sentences.
+- excludedNote: the text for the box directly below "Units or areas specifically excluded from this Report of Inspection (If any), are:" on page 1. Leave it empty unless the company writing rules or the inspection call for text there.
+- repairChecks (Repair Method page): tick (true) a box only when the inspection supports it, grouped as given - "Where there are signs of wood rot" applies when any section reports wood rot, decay, damage or deterioration of the deck or structure; "Where there are signs of failed waterproof traffic coating (Decks)" applies when a traffic coating, tile or concrete deck surface has failed; "Replacement of Wood Structures or Waterproof Deck Coatings" boxes describe the replacement needed. Leave every box false when no section has that problem. Follow the company writing rules for which boxes to tick.
+- repairLists (Repair Method page dropdowns: Type of Waterproof System, Manufacturer of Waterproof System, Type of Contractors to Perform Repairs): choose ONLY from the options given; choose "NA" when not known from the inspection or when the company writing rules say so.
 - Plain professional English. Do not mention AI.${rulesBlock(rules)}`;
 }
 
@@ -197,6 +200,8 @@ async function draftSummary({ project, sectionsOut, counts, master, company, rul
     `PROJECT (JSON): ${JSON.stringify(project)}\n\nE3 COUNTS: ${JSON.stringify(counts)}\n\n` +
     `INSPECTION OVERVIEW ROWS AND THEIR DROPDOWN OPTIONS:\n${options || '(none found in the master)'}\n\n` +
     (master.exclusionOptions && master.exclusionOptions.length ? `REASON FOR EXCLUSION OPTIONS: ${JSON.stringify(master.exclusionOptions)}\n\n` : '') +
+    ((master.repairChecks && master.repairChecks.length) ? `REPAIR METHOD CHECKBOXES (repairChecks):\n${master.repairChecks.map(c => `${c.key}: [${c.group}] ${c.label}`).join('\n')}\n\n` : '') +
+    ((master.repairLists && master.repairLists.length) ? `REPAIR METHOD DROPDOWNS (repairLists):\n${master.repairLists.map(l => `${l.key} (${l.label}) options: ${JSON.stringify(l.options)}`).join('\n')}\n\n` : '') +
     `ALL SECTIONS (${compact.length}, JSON):\n${JSON.stringify(compact)}\n\nNow call fill_summary.` }];
   return withRetry(async () => {
     const r = await callTool({ system: summarySystem(company, rules), content, toolName: 'fill_summary', toolSchema: V.summaryToolSchema(master), maxTokens: 12000, signal });
