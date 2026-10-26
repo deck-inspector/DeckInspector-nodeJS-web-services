@@ -20,6 +20,20 @@ const generateProjectReport = async function generate(projectId,sectionImageProp
         return partialUrl;
     }
     if (reportFormat==='pdf') {
+        // Oct 26 2026 (David): the HTML -> headless-browser PDF distorted and
+        // skewed the report. When Microsoft 365 conversion is configured, build
+        // the Word report and let Microsoft's Word engine render the PDF, so it
+        // matches the Word report exactly. The HTML path stays as the fallback.
+        const { graphConfigured } = require('./convertDocxToPdf');
+        if (graphConfigured()) {
+            try {
+                const wordUrl = await GenerateReport.generateReport(projectId, reportType);
+                if (!wordUrl) throw new Error('generateReport returned no url');
+                return await wordUrlToPdfUrl(wordUrl, String(projectId), reportType, 'project-report.docx');
+            } catch (e) {
+                console.error('Project PDF via Word failed - using the HTML PDF instead:', e && e.message);
+            }
+        }
         const projectHtml =  await getProjectHtml(project, sectionImageProperties, reportType);
         return await generatePdfFile(fileName,projectHtml,companyName);
     } else {
@@ -27,6 +41,28 @@ const generateProjectReport = async function generate(projectId,sectionImageProp
         if (!generatedUrl) { throw new Error('generateReport returned no url (merge or upload produced no file)'); }
         return generatedUrl;
     }
+}
+
+// Download a generated Word report, convert it to PDF and store the PDF next
+// to it in blob storage; returns the PDF's url.
+async function wordUrlToPdfUrl(wordUrl, tagId, reportType, nameForConverter) {
+    const axios = require('axios');
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    const uploadBlob = require('../database/uploadimage');
+    const { convertDocxToPdf } = require('./convertDocxToPdf');
+    const resp = await axios.get(wordUrl, { responseType: 'arraybuffer', timeout: 120000 });
+    const pdf = await convertDocxToPdf(Buffer.from(resp.data), nameForConverter);
+    const fileName = `${tagId}_${reportType}_${new Date().toISOString().slice(0,19).replace(/[T:]/g, '-')}.pdf`;
+    const tmp = path.join(os.tmpdir(), fileName);
+    fs.writeFileSync(tmp, Buffer.from(pdf));
+    try {
+        const result = await uploadBlob.uploadFile('projectreports', fileName, tmp, { metadata: { uploader: 'system' }, tags: { id: String(tagId), reportType: String(reportType) } });
+        const url = JSON.parse(result).url;
+        if (!url) throw new Error('PDF upload returned no url');
+        return url;
+    } finally { try { fs.unlinkSync(tmp); } catch (e) { /* temp cleanup */ } }
 }
 
 const generateLocationReportDoc = async function generate(projectId,locationId,sectionImageProperties,companyName,reportType,

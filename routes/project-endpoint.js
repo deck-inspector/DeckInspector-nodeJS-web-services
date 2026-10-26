@@ -1776,23 +1776,8 @@ async function brandClientFormVerbatim(zip, companyIdentifier) {
   }
 }
 
-// Convert a Word buffer to PDF using the self-hosted converter (Gotenberg /
-// LibreOffice on the VM). This is the ONLY faithful way to match Word - the
-// browser preview (html2pdf) reflowed pages and broke the layout.
-async function convertDocxToPdf(buf, filename) {
-  const base = (process.env.CONVERT_URL || '').replace(/\/+$/, '');
-  if (!base) throw new Error('CONVERT_URL not configured');
-  const token = process.env.CONVERT_TOKEN || '';
-  const fd = new FormData();
-  fd.append('files', new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), filename);
-  const headers = token ? { 'X-Convert-Token': token } : {};
-  const resp = await fetch(base + '/forms/libreoffice/convert', { method: 'POST', headers, body: fd });
-  if (!resp.ok) {
-    const t = await resp.text().catch(() => '');
-    throw new Error('converter ' + resp.status + ' ' + t.slice(0, 200));
-  }
-  return Buffer.from(await resp.arrayBuffer());
-}
+// Word -> PDF: shared converter (Microsoft 365 first, LibreOffice fallback).
+const { convertDocxToPdf } = require('../service/convertDocxToPdf');
 
 // On-site FILL: build a completed, branded Word file (download).
 router.route('/clientformfill')
