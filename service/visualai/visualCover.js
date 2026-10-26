@@ -144,7 +144,15 @@ function setExcludedNote(doc, text) {
   const lines = text.replace(/\r/g, '').split('\n');
   const run = '<w:r><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">' +
     lines.map((l, i) => (i ? '</w:t><w:br/><w:t xml:space="preserve">' : '') + esc(l)).join('') + '</w:t></w:r>';
-  return doc.slice(0, ps) + head + run + doc.slice(ps + head.length);
+  doc = doc.slice(0, ps) + head + run + doc.slice(ps + head.length);
+  // The master's row is a fixed one-line height (hRule="exact") - longer text was cut off
+  // (David, Oct 26). Let the row grow with its text.
+  const tr = doc.lastIndexOf('<w:tr ', ps) > doc.lastIndexOf('<w:tr>', ps) ? doc.lastIndexOf('<w:tr ', ps) : doc.lastIndexOf('<w:tr>', ps);
+  const trPrEnd = tr === -1 ? -1 : doc.indexOf('</w:trPr>', tr);
+  if (tr !== -1 && trPrEnd !== -1 && trPrEnd < ps) {
+    doc = doc.slice(0, tr) + doc.slice(tr, trPrEnd).replace(/(<w:trHeight\b[^>]*?)\s*w:hRule="exact"/, '$1 w:hRule="atLeast"') + doc.slice(trPrEnd);
+  }
+  return doc;
 }
 function setByAlias(doc, alias, value) {
   if (!value) return doc;
