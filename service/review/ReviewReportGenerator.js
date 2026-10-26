@@ -391,7 +391,19 @@ async function generate({ projectId, companyName, fields, uploader }) {
   // Our E3 inspection report goes between Section E and the prior-report summary.
   const visual = await buildVisualBody(projectId);
   const [head, tail] = splitReview(review);
-  const out = RGU.mergeViaPython([head, visual, tail], `${projectId}_review`);
+  let out = RGU.mergeViaPython([head, visual, tail], `${projectId}_review`);
+  if (!out) {
+    // Same fallback the Visual/Final reports use: the report must still print
+    // even when the python (docxcompose) merge is unavailable on the server.
+    console.warn('ReviewReport: python merge failed - using Node DocxMerger fallback');
+    try {
+      const DocxMerger = require('docx-merger');
+      const merged = await RGU.saveDocxMerger(new DocxMerger({}, [head, visual, tail]), 'nodebuffer');
+      out = RGU.sanitizeDocxBuffer(merged);
+    } catch (e) {
+      console.error('ReviewReport: Node merge fallback failed', e);
+    }
+  }
   if (!out) throw new Error('combining the review with the E3 inspection report failed');
 
   const tmp = path.join(os.tmpdir(), `${projectId}_ReviewReport.docx`);
