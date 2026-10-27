@@ -227,6 +227,23 @@ input,select{font-family:inherit;font-size:16px}
 
 /* ---------- inspection browser ---------- */
 .card-btns{display:flex;gap:8px}
+/* proposal -> project link (Oct 27 2026) */
+.proplink-line{margin-top:6px;font-size:13px;font-weight:700;color:#1565D8}
+.proplink-box{border:1.5px dashed var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px;background:var(--bg)}
+.proplink-box.linked{border-style:solid;border-color:#1565D8;background:#EEF4FD}
+.proplink-head{font-size:14.5px}
+.proplink-box .hint,.proplink-warn .hint{font-size:13px;line-height:1.4}
+.proplink-kind{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:800;background:#fff;border:1.5px solid var(--line);color:var(--ink-soft)}
+.proplink-kind.final{border-color:#1565D8;color:#1565D8}
+.proplink-warn{border:1.5px solid #E8A33D;background:#FFF6E6;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:14px}
+.proplink-list{margin-top:10px;max-height:46vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+.proplink-row{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font-family:inherit}
+.proplink-row:hover:not(:disabled){border-color:#1565D8}
+.proplink-row.cur{border-color:#1565D8;background:#EEF4FD}
+.proplink-row:disabled{opacity:.6;cursor:not-allowed}
+.proplink-row .pl-name{font-weight:800;font-size:15px}
+.proplink-row .pl-addr{font-size:13px;color:var(--ink-soft)}
+.proplink-row .pl-tag{font-size:12px;font-weight:700;color:var(--ink-soft)}
 .card-btns .btn{flex:1;padding:12px;font-size:15px}
 .btn-inspect{background:var(--charcoal);color:#fff}
 .btn-inspect:hover{background:var(--charcoal-dark)}
@@ -1107,6 +1124,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="body">
                 <h3><span class="propno" v-if="pr.proposalNumber">{{ pr.proposalNumber }}</span>{{ pr.name }}<span v-if="pr.cycle" style="color:#1565D8;font-size:12px;font-weight:800"> &bull; FINAL INSPECTION</span></h3>
                 <div class="addr">{{ (pr.form && ([pr.form.addressStreet, pr.form.addressCity, pr.form.addressStateZip].filter(Boolean).join(', ') || pr.form.address)) || 'No address' }}</div>
+                <div class="proplink-line" v-if="propLinkedTo(pr)">&#128279; {{ propLinkLabel(pr) }}</div>
                 <div class="clrow" v-if="pr.ownerClientId || pr.managerClientId">
                   <span class="clchip" v-if="pr.ownerClientId" @click.stop="openClient(pr.ownerClientId)"><b>Owner</b>{{ clientName(pr.ownerClientId) }}</span>
                   <span class="clchip mgr" v-if="pr.managerClientId" @click.stop="openClient(pr.managerClientId)"><b>Mgr</b>{{ clientName(pr.managerClientId) }}</span>
@@ -1118,6 +1136,7 @@ input,select{font-family:inherit;font-size:16px}
                 <div class="actions card-btns">
                   <button class="btn btn-inspect" @click="editProposal(pr)">Open</button>
                   <button class="btn btn-reports" v-if="pr.status!=='accepted' || propProjectGone(pr)" :disabled="propConverting" :title="propProjectGone(pr) ? 'The project created from this proposal was deleted — accept again to create it afresh' : ''" @click="acceptProposal(pr)">{{ propProjectGone(pr) ? 'Re-accept → New Project' : 'Accept → Project' }}</button>
+                  <button class="btn btn-dl" v-if="pr.status!=='accepted' && !propLinkedTo(pr)" title="Attach this proposal to a project that already exists (e.g. a Final Inspection Upon Completion of Repairs for a past Visual Inspection)" @click="openPropLink(pr)">&#128279; Link</button>
                   <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete proposal" @click="propDeleting = pr">&#128465;</button>
                 </div>
               </div>
@@ -1128,6 +1147,31 @@ input,select{font-family:inherit;font-size:16px}
         <!-- editor + live document -->
         <div v-else class="prop-wrap">
           <div class="prop-form">
+            <!-- PROJECT LINK (David, Oct 27 2026): a proposal written months after the
+                 Visual Inspection must attach to THAT project as its Final Inspection
+                 Upon Completion of Repairs, not create a duplicate project on accept. -->
+            <div class="proplink-box" :class="{linked: propLinkedTo(prop)}">
+              <template v-if="propLinkedTo(prop)">
+                <div class="proplink-head">&#128279; Linked to <b>{{ propLinkedTo(prop).name }}</b></div>
+                <div class="proplink-kind" :class="{final: !!prop.cycle}">{{ prop.cycle ? 'Final Inspection Upon Completion of Repairs' : 'Visual Inspection' }}</div>
+                <div class="hint" style="margin:8px 0 0" v-if="prop.status!=='accepted'">{{ prop.cycle === 'pending-final'
+                  ? 'On accept, the Final Inspection opens on this project (Final Repairs form, BAD units marked) and this proposal becomes its proposal and invoice. No new project is created.'
+                  : 'On accept, this proposal attaches to this project. No new project is created.' }}</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" v-if="prop.status!=='accepted'">
+                  <button type="button" class="btn-dl" @click="openPropLink(null)">Change&hellip;</button>
+                  <button type="button" class="btn-dl" @click="unlinkProp">&#10005; Unlink</button>
+                </div>
+              </template>
+              <template v-else>
+                <div class="proplink-head">Not linked to a project</div>
+                <div class="hint" style="margin:4px 0 8px">Accepting creates a new project. For a Final Inspection on a property you already inspected, link it to that project instead.</div>
+                <button type="button" class="btn-dl" :disabled="prop.status==='accepted' && !propProjectGone(prop)" @click="openPropLink(null)">&#128279; Link to existing project</button>
+              </template>
+            </div>
+            <div class="proplink-warn" v-if="propAddrMatch()">
+              <b>{{ propAddrMatch().name }}</b> already exists as a project. Link this proposal to it so accepting doesn't create a duplicate.
+              <button type="button" class="btn-dl" style="display:block;margin-top:8px" @click="openPropLink(null, propAddrMatch())">&#128279; Link it</button>
+            </div>
             <h4>Prepared for</h4>
             <label>Property</label><input v-model.trim="prop.form.property" placeholder="e.g. 325 W. 45th St. Apartments">
             <label>Street Address</label><input v-model.trim="prop.form.addressStreet" placeholder="e.g. 1219 Journeys End Dr.">
@@ -1670,6 +1714,11 @@ input,select{font-family:inherit;font-size:16px}
             <div v-else>
               <div class="hint">No proposal is linked to this project yet. Create one here — it stays attached to <b>this</b> project (a recalled Final-Inspection project keeps its history; no duplicate project is created on accept).</div>
               <div style="margin:8px 0"><button class="btn-dl" :disabled="propBusy" @click="newProposalForProject">&#65291; Create Proposal for this Project</button></div>
+            </div>
+            <div v-if="reportPropPending" class="proplink-box linked" style="margin-top:10px">
+              <div class="proplink-head"><span class="propno" v-if="reportPropPending.proposalNumber">{{ reportPropPending.proposalNumber }}</span>Final Inspection Upon Completion of Repairs proposal &mdash; {{ reportPropPending.status === 'accepted' ? 'accepted' : 'waiting for the client' }}</div>
+              <div class="hint" style="margin:4px 0 8px">Linked to this project. When it is accepted, the Final Inspection opens here with its own proposal and invoice.</div>
+              <button class="btn-dl" @click="openPendingProposal">&#9998; Open in Proposals</button>
             </div>
           </div>
           <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px">
@@ -2666,6 +2715,34 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ LINK PROPOSAL TO PROJECT (Oct 27 2026) ============ -->
+  <div class="overlay" v-if="propLinkOpen && prop" @click.self="propLinkOpen=false">
+    <div class="modal">
+      <h3>Link this proposal to a project</h3>
+      <div style="font-weight:700;margin:4px 0 6px">This proposal is for</div>
+      <div class="kindrow" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <button type="button" class="kind" :class="{on: propLinkFor==='final'}" @click="propLinkFor='final'">Final Inspection Upon Completion of Repairs</button>
+        <button type="button" class="kind" :class="{on: propLinkFor==='visual'}" @click="propLinkFor='visual'">Visual Inspection</button>
+      </div>
+      <input v-model.trim="propLinkQuery" placeholder="Search projects by name or address" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:15px;box-sizing:border-box">
+      <div class="proplink-list">
+        <div class="empty" v-if="!propLinkCandidates().length" style="padding:18px">No projects match.</div>
+        <button type="button" v-for="p in propLinkCandidates()" :key="projectId(p)" class="proplink-row"
+          :class="{cur: prop.linkedProjectId === projectId(p)}" :disabled="!!propLinkConflict(p)" @click="pickPropLink(p)">
+          <span class="pl-name">{{ p.name }}</span>
+          <span class="pl-addr">{{ p.address || 'No address' }}</span>
+          <span class="pl-tag" v-if="propLinkConflict(p)" style="color:#B3261E">{{ propLinkConflict(p) }}</span>
+          <span class="pl-tag" v-else-if="isFinalInsp(p)" style="color:#1565D8">Final Inspection open &mdash; attaches to it</span>
+          <span class="pl-tag" v-else-if="p.iscomplete">Completed</span>
+          <span class="pl-tag" v-else>In progress</span>
+        </button>
+      </div>
+      <div class="mrow">
+        <button class="btn-cancel" @click="propLinkOpen=false">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ DELETE PROPOSAL CONFIRM ============ -->
   <div class="overlay" v-if="propDeleting" @click.self="propDeleting=null">
     <div class="modal">
@@ -2894,7 +2971,7 @@ createApp({
       inspectProp: null, inspectPropDoc: null, openingInspProp: false, emailBusy: false,
       sigEd: { open: false, company: '', phone: '', website: '', color: '#E8500B', logoUrl: '', logoWidth: 300, saving: false, uploading: false },
       signers: [], signerPick: '', signerSaving: false, sgEd: { open: false, rows: [], saving: false },
-      finalByPid: {}, dataByPid: {}, payByPid: {}, reportPropVisual: null,
+      finalByPid: {}, dataByPid: {}, payByPid: {}, reportPropVisual: null, reportPropPending: null,
       qbo: { loading: false, configured: false, connected: false, qboCompanyName: '', invoice: null,
              email: '', propertyName: '', customerName: '', phone: '', shipLine: '', ship: {}, txnDateStr: '', txnDateIso: '',
              inspectionAmount: '', reportAmount: '',
@@ -2935,6 +3012,7 @@ createApp({
       moveDlg: null, addPropPick: '', addPropRole: 'owner',
       propCustom: {},
       propBusy: false, propConverting: false, propDeleting: null,
+      propLinkOpen: false, propLinkQuery: '', propLinkFor: 'final',   // link proposal -> existing project (Oct 27 2026)
       toasts: [], toastSeq: 0,
       appBuild: APP_BUILD, updateAvailable: '', syncHealth: null,
     };
@@ -4294,7 +4372,7 @@ createApp({
       this.vaStopTick();
       this.va = Object.assign({}, this.va, { busy: '', data: {}, f: null, dirty: false, timer: null, pick: {} });
       if (this.reportKind === 'Visual' && this.va.open) this.$nextTick(() => this.vaLoad());
-      this.assignPick = ''; this.emailReportPick = ''; this.emailDocs = []; this.reportProp = null;
+      this.assignPick = ''; this.emailReportPick = ''; this.emailDocs = []; this.reportProp = null; this.reportPropPending = null;
       this.signerPick = (p && p.signer && p.signer.id) || '';
       this.loadSigners();
       this.loadReports();
@@ -4462,6 +4540,8 @@ createApp({
         this.reportProp = list.find(pr => pr && pr.linkedProjectId === pid && String(pr.cycle || '') === cyc) || null;
         // the original visual-inspection proposal, kept for the final's prefill
         this.reportPropVisual = cyc ? (list.find(pr => pr && pr.linkedProjectId === pid && !pr.cycle) || null) : null;
+        // a Final proposal linked from the Proposals page, waiting for the client
+        this.reportPropPending = list.find(pr => pr && pr.linkedProjectId === pid && pr.cycle === 'pending-final') || null;
       } catch (e) { /* section simply hides */ }
     },
     async downloadReportProposal() {
@@ -4484,6 +4564,13 @@ createApp({
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not generate the proposal document.', 'err');
       } finally { this.downloadingProp = false; }
+    },
+    openPendingProposal() {
+      const pr = this.reportPropPending; if (!pr) return;
+      history.pushState({ v: 'proposals' }, '');
+      this.view = 'proposals'; this.prop = null;
+      this.loadProposals();
+      this.editProposal(pr);
     },
     openReportProposal() {
       const pr = this.reportProp; if (!pr) return;
@@ -5965,7 +6052,10 @@ createApp({
       const f = (this.forms || []).find(x => /final\s*repairs?\s*inspection/i.test(x.name || ''));
       return f ? (f._id || f.id) : null;
     },
-    async scheduleFinalInsp(p) {
+    // opts.quiet (Oct 27 2026): called from Accept on a linked Final proposal -
+    // no toast, no jump to the project page; returns { cycle, msg } or null.
+    async scheduleFinalInsp(p, opts) {
+      const quiet = !!(opts && opts.quiet);
       try {
         // Set the flag first (merge PUT - formId must ride along, see
         // saveCardDate), then reopen. Reopen preserves the flag; only
@@ -6010,9 +6100,11 @@ createApp({
             markedMsg = n ? (' ' + n + ' BAD unit' + (n === 1 ? '' : 's') + ' marked \u{1F534} and pre-loaded with the repair questions.') : ' No BAD units found to mark.';
           }
         } catch (e) { /* marking is best-effort; scheduling already succeeded */ }
-        this.toast((repairsForm
+        const openedMsg = (repairsForm
           ? 'Final Inspection opened — inspection form switched to Final Repairs Inspection.'
-          : 'Final Inspection opened.') + markedMsg + ' It is under New \u2014 not yet scheduled; create the proposal and invoice here, then set the date on the card.');
+          : 'Final Inspection opened.') + markedMsg;
+        if (quiet) { await this.loadProjects(); return { cycle, msg: openedMsg }; }
+        this.toast(openedMsg + ' It is under New \u2014 not yet scheduled; create the proposal and invoice here, then set the date on the card.');
         // Open the project page (proposal + invoice live there), then refresh the list behind it.
         const pid = this.projectId(p);
         this.openReports(p);
@@ -6023,8 +6115,10 @@ createApp({
           this.resetCardDate(fresh);
           this.current = fresh;
         }
+        return { cycle, msg: openedMsg };
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not schedule the Final Inspection.', 'err');
+        return null;
       }
     },
     // Put the project's original Inspection Form back (after the Final
@@ -8154,6 +8248,100 @@ createApp({
       if (!want) return null;
       return list.find(p => norm(p.name) === want) || null;
     },
+    /* ---------- link a proposal to an EXISTING project (David, Oct 27 2026) ----------
+       cycle '' = the Visual Inspection proposal; 'pending-final' = a Final
+       Inspection Upon Completion of Repairs proposal waiting for the client
+       (kept out of the visual's proposal/invoice lookups); a finalcycle
+       timestamp = attached to that open Final Inspection. */
+    propLinkedTo(pr) {
+      if (!pr || !pr.linkedProjectId) return null;
+      return (this.projects || []).find(p => this.projectId(p) === pr.linkedProjectId) || null;
+    },
+    propLinkLabel(pr) {
+      const p = this.propLinkedTo(pr); if (!p) return '';
+      return p.name + (pr.cycle ? ' \u2022 Final Inspection' : ' \u2022 Visual Inspection');
+    },
+    normAddr(s) {
+      const map = { street: 'st', avenue: 'ave', av: 'ave', drive: 'dr', boulevard: 'blvd', road: 'rd', lane: 'ln', place: 'pl', court: 'ct', circle: 'cir', way: 'way', north: 'n', south: 's', east: 'e', west: 'w' };
+      return String(s || '').toLowerCase().replace(/[.,#]/g, ' ').split(/\s+/).filter(Boolean).map(w => map[w] || w).join(' ');
+    },
+    // The existing project this unlinked proposal's street address points at.
+    propAddrMatch() {
+      const pr = this.prop;
+      if (!pr || this.propLinkedTo(pr) || (pr.status === 'accepted' && !this.propProjectGone(pr))) return null;
+      const street = this.normAddr(pr.form && pr.form.addressStreet);
+      if (!street || !/^\d/.test(street) || street.length < 6) return null;
+      return (this.projects || []).find(p => {
+        const a = this.normAddr(String(p.address || '').split(',')[0]);
+        const n = this.normAddr(p.name);
+        return a === street || (' ' + n + ' ').includes(' ' + street + ' ');
+      }) || null;
+    },
+    // Why this project can't take the proposal as the chosen kind ('' = OK).
+    propLinkConflict(p, kind, ignoreSelf) {
+      kind = kind || this.propLinkFor;
+      const pid = this.projectId(p);
+      const me = this.prop && this.prop.id;
+      const others = (this.proposals || []).filter(x => x && x.linkedProjectId === pid && x.id !== me);
+      const tag = x => (x.proposalNumber ? x.proposalNumber + ' ' : '');
+      if (kind === 'visual') {
+        const v = others.find(x => !x.cycle);
+        return v ? 'Already has Visual Inspection proposal ' + tag(v).trim() : '';
+      }
+      if (this.isFinalInsp(p) && this.cycleOf(p)) {
+        const f = others.find(x => x.cycle === this.cycleOf(p));
+        if (f) return 'Its open Final Inspection already has proposal ' + tag(f).trim();
+      }
+      const pend = others.find(x => x.cycle === 'pending-final');
+      return pend ? 'Already has a Final proposal waiting: ' + tag(pend).trim() : '';
+    },
+    propLinkCandidates() {
+      const q = this.normAddr(this.propLinkQuery);
+      const list = (this.projects || []).filter(p => !q || this.normAddr((p.name || '') + ' ' + (p.address || '')).includes(q));
+      // the address match first, then the most recently edited
+      const hit = this.propAddrMatch();
+      return list.slice().sort((a, b) => (hit && this.projectId(b) === this.projectId(hit)) - (hit && this.projectId(a) === this.projectId(hit))
+        || String(b.editedat || b.createdat || '').localeCompare(String(a.editedat || a.createdat || ''))).slice(0, 60);
+    },
+    async openPropLink(pr, suggest) {
+      if (pr) await this.editProposal(pr);
+      if (!this.prop) return;
+      if (!(this.projects || []).length) await this.loadProjects();
+      this.propLinkFor = (this.prop.linkedProjectId && !this.prop.cycle) ? 'visual' : 'final';
+      const street = this.prop.form && this.prop.form.addressStreet;
+      this.propLinkQuery = suggest ? String(suggest.name || '') : String(street || '');
+      if (!this.propLinkCandidates().length) this.propLinkQuery = '';
+      this.propLinkOpen = true;
+    },
+    async pickPropLink(p) {
+      if (!this.prop || this.propLinkConflict(p)) return;
+      const pid = this.projectId(p);
+      const isFinal = this.propLinkFor === 'final';
+      this.prop.linkedProjectId = pid;
+      this.prop.cycle = !isFinal ? '' : ((this.isFinalInsp(p) && this.cycleOf(p)) ? this.cycleOf(p) : 'pending-final');
+      // Fill only what's blank: the project's clients, and (for a Final) the
+      // Visual Inspection proposal's contact details.
+      if (!this.prop.ownerClientId && p.ownerClientId) this.prop.ownerClientId = p.ownerClientId;
+      if (!this.prop.managerClientId && p.managerClientId) this.prop.managerClientId = p.managerClientId;
+      if (isFinal) {
+        const vis = (this.proposals || []).find(x => x && x.linkedProjectId === pid && !x.cycle);
+        if (vis && vis.form) {
+          for (const k of ['ownerMgr', 'contact', 'contactPhone', 'contactEmail', 'addressStreet', 'addressCity', 'addressStateZip']) {
+            if (!this.prop.form[k] && vis.form[k]) this.prop.form[k] = vis.form[k];
+          }
+        }
+      }
+      this.propLinkOpen = false;
+      const ok = await this.saveProposal(true);
+      if (ok) this.toast('Linked to ' + p.name + (isFinal ? ' as its Final Inspection Upon Completion of Repairs.' : ' as its Visual Inspection.'));
+    },
+    async unlinkProp() {
+      if (!this.prop) return;
+      this.prop.linkedProjectId = null;
+      this.prop.cycle = '';
+      const ok = await this.saveProposal(true);
+      if (ok) this.toast('Unlinked — accepting will create a new project.');
+    },
     propProjectGone(pr) {
       if (!pr || pr.status !== 'accepted') return false;
       if (!(this.projects || []).length) return false;   // list not loaded yet - don't guess
@@ -8162,9 +8350,31 @@ createApp({
     async acceptProposal(pr) {
       if (pr) { await this.editProposal(pr); }
       if (!this.prop || !this.prop.form.property) { this.toast('Give the proposal a Property name first.', 'err'); return; }
+      // Unlinked but the address is already a project: don't silently duplicate it.
+      if (!this.propLinkedTo(this.prop)) {
+        const dup = this.propAddrMatch();
+        if (dup && !confirm('"' + dup.name + '" already exists as a project.\n\nPress Cancel to go back and link this proposal to it (use "Link to existing project").\nPress OK to create a SECOND, separate project anyway.')) return;
+      }
       this.propConverting = true;
+      let finalMsg = '';
       try {
         await this.saveProposal(true);
+        // Linked Final proposal: open (or join) the project's Final Inspection
+        // cycle first, so the proposal becomes that cycle's proposal + invoice.
+        if (this.prop.cycle === 'pending-final') {
+          const proj = this.propLinkedTo(this.prop);
+          if (proj) {
+            let cyc = (this.isFinalInsp(proj) && this.cycleOf(proj) && !this.propLinkConflict(proj, 'final', true)) ? this.cycleOf(proj) : '';
+            if (cyc) finalMsg = 'attached to its open Final Inspection.';
+            else {
+              const r = await this.scheduleFinalInsp(proj, { quiet: true });
+              if (!r || !r.cycle) throw new Error('handled');
+              cyc = r.cycle; finalMsg = r.msg;
+            }
+            this.prop.cycle = cyc;
+            await this.saveProposal(true);
+          }
+        }
         // Already attached to an existing project (created from its Reports
         // page)? Accept in place - never create a duplicate project.
         if (this.prop.linkedProjectId && this.propLinkedProject(this.prop)) {
@@ -8175,9 +8385,10 @@ createApp({
           if (this.prop.managerClientId) await this.setClient(this.prop.linkedProjectId, 'manager', this.prop.managerClientId);
           if (!this.projects.length) await this.loadProjects();
           const linked = this.projects.find(p => this.projectId(p) === this.prop.linkedProjectId);
-          // Property photo -> the project's photo (= report cover photo)
-          if (linked) await this.propPhotoToProject(linked);
-          this.toast('Proposal accepted — linked to ' + ((linked && linked.name) || 'its project') + '. Now upload the signed proposal to its Documents.');
+          // Property photo -> the project's photo (= report cover photo). A Final
+          // proposal never replaces the cover the Visual Inspection already set.
+          if (linked && !this.prop.cycle) await this.propPhotoToProject(linked);
+          this.toast('Proposal accepted — linked to ' + ((linked && linked.name) || 'its project') + (finalMsg ? (/^attached/.test(finalMsg) ? ' and ' + finalMsg : '. ' + finalMsg) : '.') + ' Now upload the signed proposal to its Documents.');
           this.prop = null;
           this.goHome();
           if (linked) this.openDocs(linked);
@@ -8186,6 +8397,7 @@ createApp({
         // Re-accept: the project made from this proposal was deleted (or was
         // never linked) - create it again rather than pointing at a missing one.
         this.prop.linkedProjectId = null;
+        this.prop.cycle = '';   // a brand-new project starts at its Visual Inspection
         const res = await this.api('/project/add', {
           method: 'POST',
           json: {
@@ -8215,7 +8427,7 @@ createApp({
         this.goHome();
         if (created) this.openDocs(created);
       } catch (e) {
-        if (e.message !== 'auth') this.toast('Could not convert the proposal into a project.', 'err');
+        if (e.message !== 'auth' && e.message !== 'handled') this.toast('Could not convert the proposal into a project.', 'err');
       } finally { this.propConverting = false; }
     },
     /* ---------- proposal property photo (Oct 12 2026) ---------- */
