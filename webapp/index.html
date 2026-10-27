@@ -1136,7 +1136,7 @@ input,select{font-family:inherit;font-size:16px}
                 <div class="actions card-btns">
                   <button class="btn btn-inspect" @click="editProposal(pr)">Open</button>
                   <button class="btn btn-reports" v-if="pr.status!=='accepted' || propProjectGone(pr)" :disabled="propConverting" :title="propProjectGone(pr) ? 'The project created from this proposal was deleted — accept again to create it afresh' : ''" @click="acceptProposal(pr)">{{ propProjectGone(pr) ? 'Re-accept → New Project' : 'Accept → Project' }}</button>
-                  <button class="btn btn-dl" v-if="pr.status!=='accepted' && !propLinkedTo(pr)" title="Attach this proposal to a project that already exists (e.g. a Final Inspection Upon Completion of Repairs for a past Visual Inspection)" @click="openPropLink(pr)">&#128279; Link</button>
+                  <button class="btn btn-dl" v-if="(pr.status!=='accepted' || propProjectGone(pr)) && !propLinkedTo(pr)" title="Attach this proposal to a project that already exists (e.g. a Final Inspection Upon Completion of Repairs for a past Visual Inspection)" @click="openPropLink(pr)">&#128279; Link</button>
                   <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete proposal" @click="propDeleting = pr">&#128465;</button>
                 </div>
               </div>
@@ -8272,7 +8272,7 @@ createApp({
       const street = this.normAddr(pr.form && pr.form.addressStreet);
       if (!street || !/^\d/.test(street) || street.length < 6) return null;
       return (this.projects || []).find(p => {
-        const a = this.normAddr(String(p.address || '').split(',')[0]);
+        const a = this.normAddr(String(p.address || '').split(/[,\n]/)[0]);   // addresses are saved with commas or line breaks
         const n = this.normAddr(p.name);
         return a === street || (' ' + n + ' ').includes(' ' + street + ' ');
       }) || null;
@@ -8317,6 +8317,9 @@ createApp({
       if (!this.prop || this.propLinkConflict(p)) return;
       const pid = this.projectId(p);
       const isFinal = this.propLinkFor === 'final';
+      // Accepted into a project that was since deleted (e.g. a duplicate made
+      // before linking existed): back to draft so Accept attaches it here.
+      if (this.prop.status === 'accepted') this.prop.status = 'draft';
       this.prop.linkedProjectId = pid;
       this.prop.cycle = !isFinal ? '' : ((this.isFinalInsp(p) && this.cycleOf(p)) ? this.cycleOf(p) : 'pending-final');
       // Fill only what's blank: the project's clients, and (for a Final) the
