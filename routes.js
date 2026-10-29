@@ -24,7 +24,8 @@ var visualAiRouter = require("./routes/visualai-endpoint");
 // Repairs portal - contractor photos, supervisor sign-off, inspector review (routes/repairs-endpoint.js)
 var repairsRouter = require("./routes/repairs-endpoint");
 // Client portal (Oct 23 2026): read-only owner / property-manager logins.
-const { clientGuard } = require("./service/clientAccess");
+const { clientGuard, portalPhoto } = require("./service/clientAccess");
+const portalShield = require("./service/portalShield");
 const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
 
@@ -35,6 +36,13 @@ module.exports = function (app) {
   // manager) token may only READ its own portfolio's inspection - see
   // service/clientAccess.js.
   app.use("/api", clientGuard);
+  // PORTAL PHOTOS (Oct 27 2026): what client / contractor logins see instead of
+  // storage addresses - expiring, watermarked, reduced size. The signed link is
+  // the permission (an <img> can't send a token). See service/portalShield.js.
+  app.get("/api/pphoto/:tok", portalPhoto);
+  // Portal terms of use - staff can read them too (portal logins are answered
+  // by clientGuard, which also records their acceptance).
+  app.get("/api/portal/terms", authenticateToken, (req, res) => res.status(200).json(portalShield.TERMS));
   app.use("/api/user", authenticateToken, userRouter);
   app.use("/api/projectdocuments", authenticateToken, projectDocumentsRouter);
   // Report downloads stay link-friendly (plain <a href> in the web app, no
