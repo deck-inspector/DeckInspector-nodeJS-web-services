@@ -54,7 +54,7 @@ async function nextProposalNo(companyIdentifier) {
 }
 
 // Insert or update a proposal. `proposal` = { id?, companyIdentifier, name,
-// status, form, linkedProjectId, createdBy }
+// status, form, linkedProjectId, createdBy, parentProposalId?, propertyIndex? }
 var upsertProposal = async function (proposal) {
   const id = proposal.id || uuidv4();
   // Keep what the web app does not send back: the number and the creation date.
@@ -66,8 +66,22 @@ var upsertProposal = async function (proposal) {
   });
   if (prev && prev.createdAt) doc.createdAt = prev.createdAt;
   if (prev && prev.proposalNo) doc.proposalNo = prev.proposalNo;
+  // MULTIPLE PROPERTIES (Oct 29 2026): each extra property of an accepted
+  // proposal is stored as its own accepted "child" proposal linked to that
+  // property's project (so invoicing, the Reports/Inspection proposal buttons
+  // and the number search all work per project). A child shares its parent's
+  // number with a property suffix ("P-1162-2") and never takes a new number.
+  let suffix = '';
+  if (doc.parentProposalId) {
+    if (!doc.proposalNo) {
+      const parent = await getProposalById(doc.parentProposalId);
+      if (parent && parent.proposalNo) doc.proposalNo = parent.proposalNo;
+    }
+    const idx = parseInt(doc.propertyIndex, 10);
+    if (idx > 1) suffix = '-' + idx;
+  }
   if (!doc.proposalNo) doc.proposalNo = await nextProposalNo(doc.companyIdentifier);
-  doc.proposalNumber = formatProposalNo(doc.proposalNo);
+  doc.proposalNumber = formatProposalNo(doc.proposalNo) + suffix;
   if (!doc.createdAt) doc.createdAt = doc.updatedAt;
   const q = `UPSERT INTO ${collectionPath()} (KEY, VALUE) VALUES ($1, $2)`;
   await executeQuery(q, [id, doc]);
