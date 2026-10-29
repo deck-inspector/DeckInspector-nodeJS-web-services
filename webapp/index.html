@@ -512,6 +512,24 @@ input,select{font-family:inherit;font-size:16px}
 /* portal forms (Oct 24): the action buttons stay visible at the bottom of a long form */
 .modal .mrow.stick{position:sticky;bottom:-28px;background:#fff;padding:12px 0 2px;margin-top:14px;border-top:1px solid var(--line);flex-wrap:wrap;align-items:center}
 .pw-ok{font-size:12px;margin-top:4px;color:#0B7A5C;font-weight:600}
+/* PORTAL DATA PROTECTION (Oct 27 2026): client / contractor logins - no text
+   selection, no image drag / long-press save, no printing. Cosmetic: the real
+   protection is on the server (watermarked expiring photos, limits, log, terms). */
+#app.portal .main, #app.portal .lightbox, #app.portal .topbar{-webkit-user-select:none;user-select:none}
+#app.portal img{-webkit-user-drag:none;-webkit-touch-callout:none}
+#app.portal input, #app.portal textarea{-webkit-user-select:text;user-select:text}
+@media print{body.no-print #app{display:none !important}body.no-print::before{content:'Printing is turned off for portal accounts.';display:block;padding:40px;font:16px sans-serif}}
+.terms-card{max-width:720px;width:100%}
+.terms-box{max-height:52vh;overflow:auto;border:1.5px solid var(--line);border-radius:12px;padding:14px 18px;background:#fafbfc;font-size:14px;line-height:1.5;margin:10px 0 14px}
+.terms-box h4{margin:12px 0 4px;font-size:14px}
+.terms-agree{display:flex;gap:10px;align-items:flex-start;font-size:14px;margin:0 0 14px;cursor:pointer}
+.terms-agree input{width:auto;margin-top:3px}
+.act-row{display:grid;grid-template-columns:minmax(160px,1.2fr) 2fr auto;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:13px}
+.act-row:first-child{border-top:0}
+.act-row small{display:block;color:var(--muted)}
+.act-props span{display:inline-block;background:#eef2f7;border-radius:999px;padding:1px 8px;margin:2px 4px 0 0}
+.act-row .act-flag{color:#B42318;font-weight:700}
+@media (max-width:640px){.act-row{grid-template-columns:1fr}}
 .pw-bad{font-size:12px;margin-top:4px;color:#B26A00;font-weight:600}
 .why-off{flex:1 1 100%;text-align:right;font-size:12.5px;color:#B26A00;font-weight:600}
 .ap-results{background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);max-height:320px;overflow:auto;margin-top:6px}
@@ -584,6 +602,26 @@ input,select{font-family:inherit;font-size:16px}
         <a href="/apk" target="_blank" rel="noopener" title="Direct APK download for phones that cannot use Google Play">APK</a>
         <span class="sep">&middot;</span>
         <a href="https://apps.apple.com/app/id6504299913" target="_blank" rel="noopener">iPhone app (App Store)</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PORTAL TERMS OF USE (Oct 27 2026) ============
+       A client / contractor login must accept the current terms first; the
+       server refuses everything else until then (service/clientAccess.js). -->
+  <div class="login-wrap" v-else-if="terms.open && terms.data">
+    <div class="login-card terms-card">
+      <img v-if="logo" :src="logo" alt="Company logo" style="max-height:56px;max-width:220px;display:block;margin:0 auto 10px">
+      <h1 style="text-align:center;margin-bottom:6px">{{ terms.data.title }}</h1>
+      <div class="hint" style="text-align:center;margin:0">{{ termsText(terms.data.intro) }} <span style="white-space:nowrap">Version {{ terms.data.version }}</span></div>
+      <div class="terms-box">
+        <template v-for="(t,i) in terms.data.sections" :key="i"><h4>{{ t.h }}</h4><div>{{ termsText(t.p) }}</div></template>
+      </div>
+      <label class="terms-agree"><input type="checkbox" v-model="terms.agree"> <span>I have read these terms and agree to them for myself and the organization I represent.</span></label>
+      <div class="login-err" v-if="terms.err">{{ terms.err }}</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn-cancel" @click="logout()">Decline and sign out</button>
+        <button class="btn btn-primary" :disabled="!terms.agree || terms.busy" @click="termsAccept()">{{ terms.busy ? 'Saving…' : 'I agree' }}</button>
       </div>
     </div>
   </div>
@@ -1069,6 +1107,24 @@ input,select{font-family:inherit;font-size:16px}
               </div>
               <div class="pa-msg" v-if="portal.msg">{{ portal.msg }}</div>
               <div style="margin-top:6px" v-if="portal.msg"><button class="btn-dl" @click="portalCopy()">Copy sign-in instructions</button> <button class="btn-cancel" @click="portal.msg=''">Done</button></div>
+              <!-- PORTAL ACTIVITY (Oct 27 2026): what this client's people and contractors looked at -->
+              <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+                <button class="btn-dl" @click="actToggle()">{{ act.open && act.clientId===clientOpen.id ? 'Hide activity' : '&#128065; Activity — last 30 days' }}</button>
+                <template v-if="act.open && act.clientId===clientOpen.id">
+                  <div class="hint" style="margin:8px 0 4px">Everyone at {{ clientOpen.name }} and their contractors. Photos they open carry their name and the date; heavy use is slowed down automatically and shows here in red. Updated every few minutes.</div>
+                  <div class="empty" v-if="act.loading" style="padding:8px 0">Loading&hellip;</div>
+                  <div class="login-err" v-else-if="act.err">{{ act.err }}</div>
+                  <div class="hint" v-else-if="!act.rows.length" style="margin:4px 0">No portal activity in the last 30 days.</div>
+                  <div v-else>
+                    <div class="act-row" v-for="a in act.rows" :key="a.username">
+                      <div><b>{{ a.name || a.username }}</b><small>{{ a.username }} &middot; {{ a.role === 'contractor' ? 'Contractor' : 'Client' }}</small><small>Last seen {{ actWhen(a.lastSeen) }} &middot; {{ a.days }} day{{ a.days===1 ? '' : 's' }} active</small></div>
+                      <div class="act-props"><span v-for="pp in (a.properties||[]).slice(0,6)" :key="pp.id">{{ pp.name }} ({{ pp.views }})</span><span v-if="(a.properties||[]).length > 6">+{{ a.properties.length - 6 }} more</span><span v-if="!(a.properties||[]).length" style="background:none">No properties opened</span>
+                        <small style="margin-top:4px">From {{ (a.ips||[]).join(', ') || '—' }}</small></div>
+                      <div style="text-align:right;white-space:nowrap">{{ a.thumb + a.full }} photos<small>{{ a.full }} enlarged</small><small :class="{ 'act-flag': a.throttled }">{{ a.throttled ? a.throttled + ' slowed down' : 'no slow-downs' }}</small></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
             </template>
           </div>
           <div class="overlay" v-if="portal.form" @click.self="portal.form=null">
@@ -2167,7 +2223,7 @@ input,select{font-family:inherit;font-size:16px}
           <div class="rp-label">Repair photos ({{ it.photos.length }})<span v-if="it.doneBy" style="font-weight:400"> &middot; done by {{ it.doneBy }}</span><span v-if="it.acceptedBy" style="font-weight:400"> &middot; accepted by {{ it.acceptedBy }}</span></div>
           <div class="rp-thumbs" v-if="it.photos.length">
             <div class="ph" v-for="ph in it.photos" :key="ph.url">
-              <img :src="ph.url" @click="lightbox=ph.url" alt="repair photo">
+              <img :src="thumb(ph.url)" @click="lightbox=ph.url" alt="repair photo">
               <button class="x" v-if="rpCanWork(it) && (rpKind==='client' || ph.by===user.username)" title="Remove this photo" @click="rpRemove(it, ph.url)">&times;</button>
             </div>
           </div>
@@ -2876,7 +2932,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-26.1';
+const APP_BUILD = '2026-10-28.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -2954,6 +3010,9 @@ createApp({
       addPropQ: '',
       // Portal access on the staff client page
       portal: { list: [], loading: false, form: null, busy: false, msg: '', clientId: '' },
+      // Portal activity (admins, client page) + portal terms of use (Oct 27 2026)
+      act: { open: false, loading: false, days: 30, rows: [], clientId: '', err: '' },
+      terms: { open: false, data: null, agree: false, busy: false, err: '' },
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
@@ -3018,9 +3077,12 @@ createApp({
     };
   },
   watch: {
+    // (the #app element itself is outside Vue's template, so set its class directly)
+    portalMode: { immediate: true, handler(v) { try { document.body.classList.toggle('no-print', !!v); const a = document.getElementById('app'); if (a) a.classList.toggle('portal', !!v); } catch (e) { /* no body yet */ } } },
     lightbox() { this.lbZoom = 1; this.lbX = 0; this.lbY = 0; this._lbDrag = false; this._lbMoved = false; },
   },
   computed: {
+    portalMode() { return !!(this.isClient || this.isContractor); },
     // A client portal login (owner / property manager) - read-only view.
     isClient() { return !!(this.user && (String(this.user.role || '').toLowerCase() === 'client' || (this.portalAs && this.portalAs.kind === 'client'))); },
     // The client's contractor (repairs portal) - photo uploads only.
@@ -3243,10 +3305,11 @@ createApp({
   created() {
     try {
       const saved = localStorage.getItem('e3v2_user');
-      if (saved) { this.user = JSON.parse(saved); if (this.isContractor) this.rpStart(); else if (this.isClient) this.cvStart(); else { this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); this.rpLoadQueueQuiet(); } }
+      if (saved) { this.user = JSON.parse(saved); if (this.isContractor || this.isClient) this.portalEnter(); else { this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); this.rpLoadQueueQuiet(); } }
     } catch (e) { /* ignore */ }
     history.replaceState({ v: 'projects' }, '');
     window.addEventListener('popstate', (e) => this.onPop(e));
+    document.addEventListener('contextmenu', (e) => this.noCtx(e));
     // LOCAL PHOTO CACHE (David, Aug 29): a service worker keeps every photo
     // this computer has loaded until the project is completed or its report
     // is marked sent. It caches photos ONLY - never the app or API data.
@@ -3419,6 +3482,52 @@ createApp({
 
     /* ---------- REPAIRS PORTAL (Oct 23 2026) ---------- */
     rpStart() { this.loadBranding(); this.rpLoadList(); },
+    /* ---------- portal terms of use (Oct 27 2026) ---------- */
+    async portalEnter() {
+      this.loadBranding();
+      if (!this.portalAs) {
+        try {
+          const res = await this.api('/portal/terms');
+          if (res.ok) {
+            const t = await res.json();
+            if (!t.accepted) { this.terms = { open: true, data: t, agree: false, busy: false, err: '' }; return; }
+          }
+        } catch (e) { if (e.message === 'auth') return; }
+      }
+      this.terms = { open: false, data: null, agree: false, busy: false, err: '' };
+      if (this.isContractor) this.rpStart(); else if (this.isClient) this.cvStart();
+    },
+    termsText(t) { return String(t || '').replace(/\{\{COMPANY\}\}/g, (this.brandInfo && this.brandInfo.name) || 'the inspection company'); },
+    async termsAccept() {
+      if (!this.terms.data || !this.terms.agree) return;
+      this.terms.busy = true; this.terms.err = '';
+      try {
+        const res = await this.api('/portal/terms/accept', { method: 'POST', json: { version: this.terms.data.version } });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); this.terms.err = j.message || 'Could not save - please try again.'; return; }
+        await this.portalEnter();
+      } catch (e) { if (e.message !== 'auth') this.terms.err = 'Could not reach the server - please try again.'; }
+      finally { this.terms.busy = false; }
+    },
+    noCtx(e) {
+      if (!this.portalMode) return;
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA') e.preventDefault();
+    },
+    /* ---------- portal activity on the staff client page (admins) ---------- */
+    async actLoad() {
+      const c = this.clientOpen;
+      if (!c) return;
+      this.act.clientId = c.id; this.act.loading = true; this.act.err = '';
+      try {
+        const res = await this.api('/clients/' + encodeURIComponent(c.id) + '/activity?days=' + this.act.days);
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.act.err = j.message || 'Could not load the activity.'; this.act.rows = []; return; }
+        if (this.clientOpen && this.clientOpen.id === c.id) this.act.rows = j.logins || [];
+      } catch (e) { if (e.message !== 'auth') this.act.err = 'Could not load the activity.'; }
+      finally { this.act.loading = false; }
+    },
+    actToggle() { this.act.open = !this.act.open; if (this.act.open) this.actLoad(); },
+    actWhen(iso) { try { return iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'; } catch (e) { return iso || '—'; } },
     async rpLoadList() {
       this.rp.open = false;
       this.rp.loading = !this.rp.list.length;
@@ -3779,6 +3888,9 @@ createApp({
         if (this.user) { this.logout(); this.toast('Session expired — please sign in again.', 'err'); }
         throw new Error('auth');
       }
+      // portal logins: terms of use not accepted yet (or updated) / too many requests
+      if (res.status === 428 && this.user && !this.portalAs && pathname !== '/portal/terms') { this.portalEnter(); throw new Error('terms'); }
+      if (res.status === 429) this.toast('Too many requests — please slow down and try again in a few minutes.', 'err');
       return res;
     },
     // Phone-sync health: red banner when the server says web edits are not
@@ -4251,8 +4363,7 @@ createApp({
         this.user = await res.json();
         localStorage.setItem('e3v2_user', JSON.stringify(this.user));
         this.loginForm.password = '';
-        if (this.isContractor) { this.rpStart(); return; }
-        if (this.isClient) { this.cvStart(); return; }
+        if (this.isContractor || this.isClient) { this.portalEnter(); return; }
         this.rpLoadQueueQuiet();
         this.loadProjects();
         this.loadBranding();
@@ -4266,6 +4377,8 @@ createApp({
       this.portalAs = null; this.mv.open = false;
       this.rp = { list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' };
       this.ct = { list: [], loading: false, form: null, busy: false, msg: '' };
+      this.terms = { open: false, data: null, agree: false, busy: false, err: '' };
+      this.act = { open: false, loading: false, days: 30, rows: [], clientId: '', err: '' };
       this.cv = { view: 'list', props: [], loading: false, q: '', prop: null, structure: { subProjects: [], locations: [] }, loadingStruct: false, unit: null, sections: [], loadingSecs: false, inv: {} };
       this.user = null; this.view = 'projects'; this.projects = []; this.current = null;
       localStorage.removeItem('e3v2_user');
@@ -4295,7 +4408,7 @@ createApp({
         if (e.message !== 'auth') this.toast('Could not load projects.', 'err');
       } finally { this.loadingProjects = false; }
     },
-    hasImage(p) { return p && p.url && /^https?:/i.test(p.url); },
+    hasImage(p) { return p && p.url && (/^https?:/i.test(p.url) || /^\/api\/pphoto\//.test(p.url)); },
     /* ---------- billing cycles + paid badge (David, Oct 22 2026) ----------
        '' = the original Visual Inspection; a Final Inspection cycle is the
        finalcycle timestamp written when "Schedule Final Inspection" is
@@ -6441,6 +6554,8 @@ createApp({
     // full multi-MB originals). Grids show a small server-made copy; the zoom
     // viewer still opens the full original. Non-blob URLs pass through as-is.
     thumb(u) {
+      // portal logins get expiring watermarked links (Oct 27 2026): ask for the grid size
+      if (u && /\/api\/pphoto\//.test(u)) return u + (u.indexOf('?') < 0 ? '?' : '&') + 's=t';
       // straight to the banked thumbnail in storage - zero server round-trip
       // when it exists; thumbErr() ladders down when it doesn't (yet).
       const d = this.thumbDirect(u);
