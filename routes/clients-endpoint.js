@@ -184,6 +184,35 @@ router.post("/:id/logins/password", async (req, res) => {
   }
 });
 
+// GET /api/clients/:id/activity?days=30 - what this client's portal logins (its
+// people and its contractors) looked at: last seen, properties, photos, slow-downs,
+// where from. ADMINS ONLY. (service/portalShield.js keeps the log, Oct 27 2026)
+router.get("/:id/activity", async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+    const cur = await clientOf(req, res); if (!cur) return;
+    const days = Math.min(180, Math.max(1, parseInt(req.query.days, 10) || 30));
+    const shield = require("../service/portalShield");
+    const rows = await shield.activityFor(company(req), cur.id, days);
+    let names = {};
+    try {
+      const props = await clients.getPortfolio(company(req), cur.id);
+      for (const p of props || []) names[p.id || p._id] = p.name || p.address || "";
+    } catch (e) { names = {}; }
+    res.status(200).json({
+      days,
+      logins: rows.map((a) => Object.assign({}, a, {
+        properties: Object.entries(a.projects || {})
+          .map(([id, n]) => ({ id, name: names[id] || "(property not in this portfolio)", views: n }))
+          .sort((x, y) => y.views - x.views),
+      })),
+    });
+  } catch (e) {
+    console.error("client activity:", e && e.message);
+    res.status(500).json({ message: "Could not load the activity." });
+  }
+});
+
 // GET /api/clients/:id
 router.get("/:id", async (req, res) => {
   try {
