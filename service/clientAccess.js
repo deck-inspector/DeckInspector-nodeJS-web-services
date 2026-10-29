@@ -22,6 +22,8 @@
 
 const jwt = require("jsonwebtoken");
 const couchbase = require("../database/couchbase");
+// Oct 27 2026: photo links, rate limits, activity log, terms of use (portal logins only)
+const shield = require("./portalShield");
 
 const USER_TTL_MS = 60 * 1000;
 const MAX_IDS = 500;
@@ -108,10 +110,16 @@ function projectAllowed(row, client) {
   return row.ownerClientId === client.clientId || row.managerClientId === client.clientId;
 }
 
+// null when any id is outside the client's portfolio, else the project ids touched
 async function allIdsAllowed(ids, client) {
   const map = await resolveProjects(ids);
-  for (const id of ids) if (!projectAllowed(map.get(id), client)) return false;
-  return true;
+  const pids = new Set();
+  for (const id of ids) {
+    const row = map.get(id);
+    if (!projectAllowed(row, client)) return null;
+    pids.add(row.id);
+  }
+  return [...pids];
 }
 
 // ---------------------------------------------------------------- scrubbing
@@ -211,11 +219,45 @@ function deny(res, code, message) {
   return res.status(code).json({ success: false, message });
 }
 
+// Terms of use (Oct 27 2026): read + accept. Nothing else works until accepted.
+const TERMS_FREE = [
+  { method: "POST", re: /^\/login\/(login|logout)$/i },
+  { method: "GET", re: /^\/tenants\/identifier\/([^/]+)$/i },
+];
+async function acceptTerms(req, res, client) {
+  const v = req.body && req.body.version;
+  if (v !== shield.TERMS_VERSION) return deny(res, 409, "These terms have been updated - please reload the page.");
+  // Users live in the PROD scope (same as model/user.js / login), not DB_SCOPE_NAME
+  const q = `UPDATE \`${process.env.DB_BUCKET_NAME}\`.\`${process.env.DB_PROD_SCOPE_NAME || "inventory"}\`.Users AS u USE KEYS $1 SET u.termsVersion = $2, u.termsAcceptedAt = $3, u.termsAcceptedIp = $4`;
+  await couchbase.cluster.query(q, { parameters: [client.userId, shield.TERMS_VERSION, new Date().toISOString(), shield.ipOf(req)] });
+  forgetUser(client.username);
+  return res.status(200).json({ success: true, version: shield.TERMS_VERSION });
+}
+
 async function handleClient(req, res, next, client) {
   // match case-insensitively (as Express routes do) but keep the original
   // spelling so ids taken from the path are exact
   const path = String(req.path || "").replace(/\/+$/, "");
   const method = String(req.method || "").toUpperCase();
+
+  // terms of use
+  if (method === "GET" && /^\/portal\/terms$/i.test(path)) {
+    return res.status(200).json(Object.assign({ accepted: client.termsVersion === shield.TERMS_VERSION }, shield.TERMS));
+  }
+  if (method === "POST" && /^\/portal\/terms\/accept$/i.test(path)) return acceptTerms(req, res, client);
+  if (client.termsVersion !== shield.TERMS_VERSION && !TERMS_FREE.some((r) => r.method === method && r.re.test(path))) {
+    return res.status(428).json({ success: false, needTerms: true, message: "Please accept the portal terms of use to continue." });
+  }
+
+  // bulk pulling is stopped and recorded; normal browsing never gets near this
+  if (!shield.allow(client.username, "api")) {
+    shield.note(client, "throttled", { req });
+    return deny(res, 429, "Too many requests - please slow down and try again in a few minutes.");
+  }
+
+  // photo links the page sends back (remove photo, thumbnail pre-build) -> storage address
+  if (req.body && typeof req.body === "object") shield.unsignPhotos(req.body, client);
+
   let rule = null, match = null;
   for (const r of (client.role === "contractor" ? CONTRACTOR_RULES : RULES)) {
     if (r.method !== method) continue;
@@ -224,12 +266,23 @@ async function handleClient(req, res, next, client) {
   }
   if (!rule) return deny(res, 403, client.role === "contractor" ? "Contractor accounts can add repair photos only." : "Client accounts can view inspections only.");
 
-  if (rule.kind === "pass") return next();
+  const origin = shield.originOf(req);
+  const protect = (body) => shield.signPhotos(body, client, origin);
+
+  if (rule.kind === "pass") {
+    const rp = /^\/repairs\/job\/([^/]+)$/i.exec(path);
+    let pid = null;
+    if (rp) { try { pid = decodeURIComponent(rp[1]); } catch (e) { pid = null; } }
+    shield.note(client, "api", { req, projectIds: pid ? [pid] : [] });
+    wrapJson(res, protect);
+    return next();
+  }
 
   if (rule.kind === "portfolio") {
+    shield.note(client, "api", { req });
     const clients = require("../model/clients");
     const rows = await clients.getPortfolio(client.company, client.clientId);
-    return res.status(201).json({ success: true, projects: scrub(rows || []) });
+    return res.status(201).json(protect({ success: true, projects: scrub(rows || []) }));
   }
 
   if (rule.kind === "branding") {
@@ -242,8 +295,10 @@ async function handleClient(req, res, next, client) {
 
   const ids = rule.ids(req, match);
   if (!ids) return deny(res, 400, "Missing or invalid id.");
-  if (!(await allIdsAllowed(ids, client))) return deny(res, 403, "This inspection is not in your portfolio.");
-  wrapJson(res, (body) => scrub(body));
+  const pids = await allIdsAllowed(ids, client);
+  if (!pids) return deny(res, 403, "This inspection is not in your portfolio.");
+  shield.note(client, "api", { req, projectIds: pids });
+  wrapJson(res, (body) => protect(scrub(body)));
   return next();
 }
 
@@ -272,6 +327,7 @@ function clientGuard(req, res, next) {
     if (rec.isActive === false) return deny(res, 401, "This login has been turned off.");
     if (!rec.clientId || rec.companyIdentifier !== payload.company) return deny(res, 403, "This login is not linked to a client.");
     req.clientViewer = {
+      userId: rec.id, termsVersion: rec.termsVersion || "",
       username: rec.username, company: rec.companyIdentifier, clientId: rec.clientId,
       role: isContractorRecord(rec) ? "contractor" : "client",
       contractorProjects: Array.isArray(rec.contractorProjects) ? rec.contractorProjects.map(String) : [],
@@ -284,4 +340,7 @@ function clientGuard(req, res, next) {
   });
 }
 
-module.exports = { clientGuard, isClientRecord, isContractorRecord, isPortalRecord, forgetUser, scrub, resolveProjects, projectAllowed, RULES, CONTRACTOR_RULES };
+// GET /api/pphoto/:tok - the watermarked, expiring portal photo (service/portalShield.js)
+const portalPhoto = shield.makePhotoHandler(lookupUser);
+
+module.exports = { clientGuard, portalPhoto, isClientRecord, isContractorRecord, isPortalRecord, forgetUser, scrub, resolveProjects, projectAllowed, RULES, CONTRACTOR_RULES };
