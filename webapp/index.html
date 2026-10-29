@@ -421,6 +421,25 @@ input,select{font-family:inherit;font-size:16px}
 .ppdoc .pp-photo img{max-width:2.5in;max-height:1.5in;object-fit:contain;border:1.25px solid #404040;box-shadow:2px 3px 5px rgba(0,0,0,.35)}
 .ppdoc .pp-photo .cap{margin-top:5px;font-size:8.5pt;font-style:italic;color:#595959}
 .ppdoc .pp-sec{font-weight:700;color:#C00000;margin:14px 0 6px}
+/* multiple properties (Oct 29 2026) */
+.ppdoc .pp-sched-h{text-align:center;font-weight:700;color:#C00000;text-transform:uppercase;margin:14px 0 4px}
+.ppdoc table.pp-sched{margin:4px 0 4px;font-size:10pt}
+.ppdoc .pp-sched td{vertical-align:middle;padding:3px 6px}
+.ppdoc .pp-sched tr.hd td,.ppdoc .pp-sched tr.tot td{background:#E7E6E6;font-weight:700}
+.ppdoc .pp-sched td.n,.ppdoc .pp-sched td.u{text-align:center;width:36px}
+.ppdoc .pp-sched td.u{width:56px}
+.ppdoc .pp-sched td.ph{width:1.3in;text-align:center;padding:4px}
+.ppdoc .pp-sched td.ph img{max-width:1.15in;max-height:.8in;object-fit:contain;display:inline-block;vertical-align:middle}
+.ppdoc .pp-sched td.ph i{color:#808080;font-size:8pt}
+.xprop-nophoto{margin-top:6px;font-size:12px;color:#b45309;font-weight:600}
+.ppdoc .pp-sched td.amt{text-align:right;width:110px;font-weight:700;color:#C00000}
+.ppdoc .pp-sched-note{text-align:center;font-size:8.5pt;font-style:italic;color:#595959;margin:0 0 12px}
+.xprop{border:1.5px solid var(--line);border-radius:10px;padding:8px 10px 10px;margin:8px 0;background:#fafafa}
+.xprop.done{border-color:#7cc59a;background:#f3faf6}
+.xprop-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:700;font-size:13px}
+.xprop-head .ok{color:#1d7a46;font-weight:600;font-size:12px}
+.xprop img{margin-top:6px;width:100%;max-height:120px;object-fit:cover;border-radius:8px;border:1.5px solid var(--line)}
+.xprop-total{display:flex;justify-content:space-between;font-weight:800;font-size:13.5px;margin:6px 2px 2px}
 .ppdoc table{width:100%;border-collapse:collapse;margin:10px 0 14px}
 .ppdoc td{border:1px solid #444;padding:4px 7px;vertical-align:bottom}
 .ppdoc .pp-info td:first-child{font-weight:700;width:120px;text-transform:uppercase}
@@ -1181,6 +1200,7 @@ input,select{font-family:inherit;font-size:16px}
                 <h3><span class="propno" v-if="pr.proposalNumber">{{ pr.proposalNumber }}</span>{{ pr.name }}<span v-if="pr.cycle" style="color:#1565D8;font-size:12px;font-weight:800"> &bull; FINAL INSPECTION</span></h3>
                 <div class="addr">{{ (pr.form && ([pr.form.addressStreet, pr.form.addressCity, pr.form.addressStateZip].filter(Boolean).join(', ') || pr.form.address)) || 'No address' }}</div>
                 <div class="proplink-line" v-if="propLinkedTo(pr)">&#128279; {{ propLinkLabel(pr) }}</div>
+                <div class="proplink-line" v-if="pr.form && pr.form.extraProperties && pr.form.extraProperties.length">&#127968; {{ pr.form.extraProperties.length + 1 }} properties in this proposal</div>
                 <div class="clrow" v-if="pr.ownerClientId || pr.managerClientId">
                   <span class="clchip" v-if="pr.ownerClientId" @click.stop="openClient(pr.ownerClientId)"><b>Owner</b>{{ clientName(pr.ownerClientId) }}</span>
                   <span class="clchip mgr" v-if="pr.managerClientId" @click.stop="openClient(pr.managerClientId)"><b>Mgr</b>{{ clientName(pr.managerClientId) }}</span>
@@ -1191,7 +1211,7 @@ input,select{font-family:inherit;font-size:16px}
                 </div>
                 <div class="actions card-btns">
                   <button class="btn btn-inspect" @click="editProposal(pr)">Open</button>
-                  <button class="btn btn-reports" v-if="pr.status!=='accepted' || propProjectGone(pr)" :disabled="propConverting" :title="propProjectGone(pr) ? 'The project created from this proposal was deleted — accept again to create it afresh' : ''" @click="acceptProposal(pr)">{{ propProjectGone(pr) ? 'Re-accept → New Project' : 'Accept → Project' }}</button>
+                  <button class="btn btn-reports" v-if="pr.status!=='accepted' || propProjectGone(pr) || propExtrasPending(pr)" :disabled="propConverting" :title="propProjectGone(pr) ? 'The project created from this proposal was deleted — accept again to create it afresh' : ''" @click="acceptProposal(pr)">{{ propProjectGone(pr) ? 'Re-accept → New Project' : 'Accept → Project' }}</button>
                   <button class="btn btn-dl" v-if="(pr.status!=='accepted' || propProjectGone(pr)) && !propLinkedTo(pr)" title="Attach this proposal to a project that already exists (e.g. a Final Inspection Upon Completion of Repairs for a past Visual Inspection)" @click="openPropLink(pr)">&#128279; Link</button>
                   <button class="btn-del" style="flex:0 0 auto;padding:12px 12px" title="Delete proposal" @click="propDeleting = pr">&#128465;</button>
                 </div>
@@ -1264,6 +1284,35 @@ input,select{font-family:inherit;font-size:16px}
             <img v-if="prop.form.propertyPhoto" :src="prop.form.propertyPhoto" alt="property photo" style="margin-top:8px;width:100%;max-height:180px;object-fit:cover;border-radius:10px;border:1.5px solid var(--line)">
             <label>Owner / MGR</label><input v-model.trim="prop.form.ownerMgr" placeholder="Owner or property manager">
             <div style="display:flex;gap:8px"><div style="flex:1"><label>Contact Phone</label><input v-model.trim="prop.form.contactPhone" placeholder="760-555-0000"></div><div style="flex:1.4"><label>Contact Email</label><input v-model.trim="prop.form.contactEmail" placeholder="name@email.com"></div></div>
+            <!-- MULTIPLE PROPERTIES (David, Oct 29 2026): one proposal for several
+                 properties. Each extra property has its own price and photo, prints in a
+                 Schedule of Properties table, and becomes its OWN project on Accept.
+                 Owner / Manager / Contact above are shared by every property. -->
+            <h4>Additional Properties</h4>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Add more properties to this proposal. Each one becomes its own project when the proposal is accepted. The owner, manager and contact above apply to all of them.</div>
+            <template v-if="propExtras().length">
+              <div style="display:flex;gap:8px"><div style="flex:1"><label>Units (this property)</label><input v-model.trim="prop.form.units" placeholder="e.g. 24"></div><div style="flex:1.2"><label>Inspection Price (this property)</label><input :value="prop.form.values[10]" disabled title="Set in the Inspection Price field under Document selections"></div></div>
+              <div class="xprop" v-for="(x, i) in prop.form.extraProperties" :key="x.key" :class="{done: propExtraProject(x)}">
+                <div class="xprop-head">
+                  <span>Property {{ i + 2 }}<span class="ok" v-if="propExtraProject(x)"> &#10003; project created</span></span>
+                  <button type="button" class="btn-dl" v-if="!propExtraProject(x)" @click="removePropExtra(i)" title="Remove this property">&#10005; Remove</button>
+                </div>
+                <label>Property</label><input v-model.trim="x.property" :disabled="!!propExtraProject(x)" placeholder="e.g. 410 Palm Canyon Apartments">
+                <label>Street Address</label><input v-model.trim="x.addressStreet" :disabled="!!propExtraProject(x)" placeholder="Street">
+                <div style="display:flex;gap:8px"><div style="flex:1.4"><label>City</label><input v-model.trim="x.addressCity" :disabled="!!propExtraProject(x)" placeholder="City"></div><div style="flex:1"><label>State &amp; Zip</label><input v-model.trim="x.addressStateZip" :disabled="!!propExtraProject(x)" placeholder="CA 92262"></div></div>
+                <div style="display:flex;gap:8px"><div style="flex:1"><label>Units</label><input v-model.trim="x.units" placeholder="e.g. 12"></div><div style="flex:1.2"><label>Inspection Price</label><input v-model.trim="x.price" :disabled="!!propExtraProject(x)" placeholder="$0.00"></div></div>
+                <label>Property Photo</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button type="button" class="btn-dl" :disabled="photoBusy || !propExtraAddress(x)" @click="propExtraSatPhoto(x)">&#128225; Satellite</button>
+                  <label class="btn-dl" style="cursor:pointer">&#128247; Upload<input type="file" accept="image/*" style="display:none" @change="propExtraPhotoFile($event, x)"></label>
+                  <button type="button" class="btn-dl" v-if="x.photo" :disabled="photoBusy" @click="x.photo=''">&#10005; Remove</button>
+                </div>
+                <img v-if="x.photo" :src="x.photo" alt="property photo">
+                <div class="xprop-nophoto" v-else>&#9888; Add a photo so the client can confirm this is the right property.</div>
+              </div>
+              <div class="xprop-total"><span>Total &mdash; {{ propExtras().length + 1 }} properties</span><span>{{ propTotalText() || '—' }}</span></div>
+            </template>
+            <button type="button" class="btn-dl" style="margin-top:6px" @click="addPropExtra">&#65291; Add property</button>
             <h4>Document selections</h4>
             <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Every dropdown from the Word document, with the same choices. Press &#9998; on any field to type your own pricing or wording instead.</div>
             <template v-for="f in propFields" :key="f.idx">
@@ -1288,7 +1337,7 @@ input,select{font-family:inherit;font-size:16px}
               <button class="btn btn-dl" style="flex:1" :disabled="propBusy || !prop.form.property" @click="downloadPropWord">&#11015; Word</button>
               <button class="btn btn-dl" style="flex:1" @click="printProposal">&#128424; Print / PDF</button>
               <button class="btn btn-dl" style="flex:1" title="Open a ready-to-send email in Outlook — attach the downloaded proposal before sending" @click="emailProposal">&#9993; Email (Outlook)</button>
-              <button class="btn btn-reports" style="flex:1 1 100%" v-if="prop.status!=='accepted' || propProjectGone(prop)" :disabled="propConverting || !prop.form.property" @click="acceptProposal(null)">{{ propConverting ? 'Converting…' : (propProjectGone(prop) ? '✓ Re-accept → Create the Project again' : '✓ Accepted → Convert to Project') }}</button>
+              <button class="btn btn-reports" style="flex:1 1 100%" v-if="prop.status!=='accepted' || propProjectGone(prop) || propExtrasPending(prop)" :disabled="propConverting || !prop.form.property" @click="acceptProposal(null)">{{ propConverting ? 'Converting…' : (propProjectGone(prop) ? '✓ Re-accept → Create the Project again' : (prop.status==='accepted' && propExtrasPending(prop) ? '✓ Create projects for the remaining properties' : (propExtras().length ? '✓ Accepted → Convert to ' + (propExtras().length + 1) + ' Projects' : '✓ Accepted → Convert to Project'))) }}</button>
             </div>
           </div>
 
@@ -1308,7 +1357,16 @@ input,select{font-family:inherit;font-size:16px}
               <tr><td>Contact:</td><td>{{ prop.form.contactPhone || prop.form.contact }}</td><td colspan="2">{{ prop.form.contactEmail }}</td></tr>
               <tr><td style="text-transform:none">{{ pv(3) }}</td><td colspan="3">{{ pv(4) }}</td></tr>
             </table>
-            <div class="pp-photo" v-if="prop.form.propertyPhoto"><img :src="prop.form.propertyPhoto" alt="property photo"><div class="cap">{{ [prop.form.property, propAddress()].filter(Boolean).join('  \u2022  ') }}</div></div>
+            <div class="pp-photo" v-if="prop.form.propertyPhoto && propRows().length < 2"><img :src="prop.form.propertyPhoto" alt="property photo"><div class="cap">{{ [prop.form.property, propAddress()].filter(Boolean).join('  \u2022  ') }}</div></div>
+            <template v-if="propRows().length > 1">
+              <div class="pp-sched-h">Schedule of Properties</div>
+              <table class="pp-sched">
+                <tr class="hd"><td class="n">#</td><td class="ph">Photo</td><td>Property</td><td>Address</td><td class="u" v-if="propRowsUnits()">Units</td><td class="amt" style="color:#000">Inspection Price</td></tr>
+                <tr v-for="(r, i) in propRows()" :key="i"><td class="n">{{ i + 1 }}</td><td class="ph"><img v-if="r.photo" :src="r.photo" alt=""><i v-else>No photo</i></td><td><b>{{ r.property }}</b></td><td>{{ r.address }}</td><td class="u" v-if="propRowsUnits()">{{ r.units }}</td><td class="amt">{{ r.price }}</td></tr>
+                <tr class="tot"><td :colspan="propRowsUnits() ? 5 : 4" style="text-align:right">Total &mdash; {{ propRows().length }} properties</td><td class="amt">{{ propTotalText() }}</td></tr>
+              </table>
+              <div class="pp-sched-note">Each property is inspected and reported separately. The pricing terms below apply to each property; the Inspection Price for each property is listed above.</div>
+            </template>
             <div class="pp-sec">INSPECTIONS PARAMETERS:</div>
             <p><b>{{ coName }},</b> a Certified E3 Inspector, will conduct an onsite inspection located at the address above. The complete inspection is conducted in multiple sections by State Licensed Architects, Engineers, ICC Inspectors or Contractors as required by City or State Civil Code, starting with a Visual Inspection of the Exterior Elevated Elements (EEE). The visual inspection looks at all decks, stairs, railing, and wooden structures (including metal structures and attachments where 604 Affidavits are required) supporting or attached to any structure which extends beyond the exterior walls where people may walk, stand, or sit (load or static). This inspection follows the guidelines as defined by the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551/ 2026 Updated Inspection Reporting Requirements (SB326) or Section 604 of The San Francisco Housing Code.</p>
             <p>This proposal and pricing have been developed using a 100% EEE review process versus a statistical sampling of the project outlined in California Civil Code &sect;5551 or California Health and 15% sampling for Safety Code &sect;17973 (SB721) and 100% for Section 604 of The San Francisco Housing Code. The reason {{ coName }} use the 100% inspection method for HOA / Condo is to verify all surfaces and structures are safe. The Statistical Sampling method does not provide 100% accuracy and leaves the possibility of an unsafe condition.</p>
@@ -3254,7 +3312,8 @@ createApp({
     // Proposal search (David, Oct 22 2026): number ("P-1001", "1001"), property,
     // address, owner/MGR, contact, phone, email and client names. Newest number first.
     filteredProposals() {
-      let list = this.proposals || [];
+      // an extra property's own record (Oct 29 2026) lives under its parent proposal
+      let list = (this.proposals || []).filter(x => x && !x.parentProposalId);
       if (this.propStatusFilter === 'accepted') list = list.filter(x => x.status === 'accepted');
       else if (this.propStatusFilter === 'draft') list = list.filter(x => x.status !== 'accepted');
       const q = String(this.propQuery || '').toLowerCase().trim();
@@ -4658,7 +4717,7 @@ createApp({
       } catch (e) { /* section simply hides */ }
     },
     async downloadReportProposal() {
-      const pr = this.reportProp; if (!pr) return;
+      const pr = await this.propDocSource(this.reportProp); if (!pr) return;
       this.downloadingProp = true;
       try {
         const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.propFormWithNo(pr) } });
@@ -5666,7 +5725,7 @@ createApp({
       } catch (e) { this.inspectPropDoc = null; }
     },
     async openInspectProposal() {
-      const pr = this.inspectProp; if (!pr) return;
+      const pr0 = this.inspectProp; if (!pr0) return;
       if (this.inspectPropDoc && this.inspectPropDoc.url) {
         window.open(this.inspectPropDoc.url, '_blank', 'noopener');
         return;
@@ -5677,6 +5736,7 @@ createApp({
       if (w) { try { w.document.title = 'Proposal'; w.document.body.innerHTML = '<p style="font:16px sans-serif;padding:24px">Preparing the proposal&hellip;</p>'; } catch (e) {} }
       this.openingInspProp = true;
       try {
+        const pr = await this.propDocSource(pr0);
         const res = await this.api('/project/generateproposal', { method: 'POST', json: { form: this.propFormWithNo(pr), format: 'pdf' } });
         if (!res.ok) throw new Error('bad');
         const url = URL.createObjectURL(await res.blob());
@@ -8185,7 +8245,8 @@ createApp({
       const f = (pr && pr.form) || {};
       const no = pr.proposalNo ? String(pr.proposalNo) : '';
       return [pr.proposalNumber, no, pr.name, f.property, f.address, f.addressStreet, f.addressCity, f.addressStateZip,
-              f.ownerMgr, f.contact, f.contactPhone, f.contactEmail, pr.status, pr.cycle ? 'final inspection' : '',
+              f.ownerMgr, f.contact, f.contactPhone, f.contactEmail, pr.status,
+              ...(Array.isArray(f.extraProperties) ? f.extraProperties.flatMap(x => [x.property, x.addressStreet, x.addressCity]) : []), pr.cycle ? 'final inspection' : '',
               pr.ownerClientId ? this.clientName(pr.ownerClientId) : '', pr.managerClientId ? this.clientName(pr.managerClientId) : '']
         .filter(Boolean).join(' \u2022 ').toLowerCase();
     },
@@ -8221,7 +8282,7 @@ createApp({
           : (f.value || '').trim();
       }
       this.propCustom = {};
-      this.prop = { id: null, status: 'draft', ownerClientId: null, managerClientId: null, form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', propertyPhoto: '', values } };
+      this.prop = { id: null, status: 'draft', ownerClientId: null, managerClientId: null, form: { property: '', address: '', addressStreet: '', addressCity: '', addressStateZip: '', ownerMgr: '', contact: '', contactPhone: '', contactEmail: '', propertyPhoto: '', units: '', extraProperties: [], values } };
     },
     // Proposal ATTACHED to an existing project (David, Aug 21: a recalled
     // Final-Inspection project like Virginia Gardens needs a new proposal on
@@ -8276,6 +8337,8 @@ createApp({
       for (const k of ['addressStreet','addressCity','addressStateZip','contactPhone','contactEmail','propertyPhoto']) {
         if (copy.form[k] == null) copy.form[k] = '';
       }
+      if (!Array.isArray(copy.form.extraProperties)) copy.form.extraProperties = [];
+      if (copy.form.units == null) copy.form.units = '';
       if (copy.ownerClientId == null) copy.ownerClientId = null;
       if (copy.managerClientId == null) copy.managerClientId = null;
       this.loadClients();
@@ -8465,6 +8528,122 @@ createApp({
       if (!(this.projects || []).length) return false;   // list not loaded yet - don't guess
       return !this.propLinkedProject(pr);
     },
+    /* ---------- multiple properties (David, Oct 29 2026) ---------- */
+    // an accepted proposal with an extra property that has no live project yet
+    propExtrasPending(pr) {
+      const xs = (pr && pr.form && Array.isArray(pr.form.extraProperties)) ? pr.form.extraProperties : [];
+      if (!pr || pr.status !== 'accepted' || !(this.projects || []).length) return false;
+      return xs.some(x => (String(x.property || '').trim() || x.addressStreet) && !this.propExtraProject(x));
+    },
+    propExtras() { return (this.prop && this.prop.form && Array.isArray(this.prop.form.extraProperties)) ? this.prop.form.extraProperties : []; },
+    addPropExtra() {
+      if (!this.prop) return;
+      if (!Array.isArray(this.prop.form.extraProperties)) this.prop.form.extraProperties = [];
+      const f = this.prop.form;
+      // same city/state as the main property is the usual case for a portfolio
+      this.prop.form.extraProperties.push({ key: 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        property: '', addressStreet: '', addressCity: f.addressCity || '', addressStateZip: f.addressStateZip || '',
+        units: '', price: '', photo: '', projectId: null, childProposalId: null });
+    },
+    removePropExtra(i) {
+      const x = this.propExtras()[i]; if (!x) return;
+      if ((x.property || x.addressStreet) && !confirm('Remove "' + (x.property || x.addressStreet) + '" from this proposal?')) return;
+      this.prop.form.extraProperties.splice(i, 1);
+    },
+    propExtraAddress(x) { return [x.addressStreet, x.addressCity, x.addressStateZip].map(v => String(v || '').trim()).filter(Boolean).join(', '); },
+    // the project an extra property already became (null if none / deleted)
+    propExtraProject(x) {
+      if (!x || !x.projectId) return null;
+      return (this.projects || []).find(p => this.projectId(p) === x.projectId) || null;
+    },
+    async propExtraSatPhoto(x) {
+      const tmp = { address: this.propExtraAddress(x), name: x.property || 'proposal', url: '' };
+      await this.satPhoto(tmp);
+      if (tmp.url) x.photo = tmp.url;
+    },
+    async propExtraPhotoFile(e, x) {
+      const tmp = { name: x.property || 'proposal', url: '' };
+      await this.photoFile(e, tmp);
+      if (tmp.url) x.photo = tmp.url;
+    },
+    propRows() {
+      const f = (this.prop && this.prop.form) || {};
+      const rows = [{ property: f.property || '', address: this.propAddress(), units: f.units || '', price: (f.values && f.values[10]) || '', photo: f.propertyPhoto || '' }];
+      for (const x of this.propExtras()) {
+        if (String(x.property || '').trim() || this.propExtraAddress(x)) rows.push({ property: x.property || '', address: this.propExtraAddress(x), units: x.units || '', price: x.price || '', photo: x.photo || '' });
+      }
+      return rows;
+    },
+    propRowsUnits() { return this.propRows().some(r => String(r.units || '').trim()); },
+    propMoney(s) { const m = String(s == null ? '' : s).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : null; },
+    propTotalText() {
+      let t = 0;
+      for (const r of this.propRows()) { const n = this.propMoney(r.price); if (n == null) return ''; t += n; }
+      return '$' + t.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    },
+    // The proposal to SHOW for a project: an extra property's own record shows
+    // the whole multi-property proposal it came from.
+    async propDocSource(pr) {
+      if (!pr || !pr.parentProposalId) return pr;
+      let parent = (this.proposals || []).find(x => x && x.id === pr.parentProposalId);
+      if (!parent) {
+        try { const res = await this.api('/project/proposals'); if (res.ok) { const l = await res.json(); parent = (l || []).find(x => x && x.id === pr.parentProposalId); } } catch (e) { /* use the property's own */ }
+      }
+      return parent || pr;
+    },
+    // On Accept: every extra property without a live project gets its own
+    // project + its own accepted proposal record (same number, "-2", "-3"...),
+    // so invoicing and the proposal buttons work on each project. Returns the
+    // number of projects created.
+    async acceptExtraProperties() {
+      const extras = this.propExtras();
+      let made = 0;
+      for (let i = 0; i < extras.length; i++) {
+        const x = extras[i];
+        if (!String(x.property || '').trim() && !this.propExtraAddress(x)) continue;
+        if (this.propExtraProject(x)) continue;          // already a project
+        const name = String(x.property || '').trim() || String(x.addressStreet || '').trim();
+        const street = this.normAddr(x.addressStreet);
+        const dup = (street && /^\d/.test(street) && street.length >= 6) ? (this.projects || []).find(p => {
+          const a = this.normAddr(String(p.address || '').split(/[,\n]/)[0]);
+          return a === street || (' ' + this.normAddr(p.name) + ' ').includes(' ' + street + ' ');
+        }) : null;
+        if (dup && !confirm('Property ' + (i + 2) + ': "' + dup.name + '" already exists as a project.\n\nPress OK to create a SECOND, separate project anyway, or Cancel to skip this property (you can accept again later).')) continue;
+        const res = await this.api('/project/add', {
+          method: 'POST',
+          json: {
+            name, description: 'Created from accepted proposal ' + (this.prop.proposalNumber || ''),
+            address: this.propExtraAddress(x),
+            createdby: this.user.username, url: x.photo || '', assignedto: [],
+            projecttype: 'multilevel', editedat: new Date().toISOString(), formId: null,
+            ownerClientId: this.prop.ownerClientId || null, managerClientId: this.prop.managerClientId || null,
+          },
+        });
+        if (!res.ok) throw new Error('bad');
+        await this.loadProjects();
+        const created = [...this.projects].filter(p => p.name === name)
+          .sort((a, b) => new Date(b.createdat || 0) - new Date(a.createdat || 0))[0];
+        if (!created) continue;
+        x.projectId = this.projectId(created);
+        // the property's own proposal record: the shared proposal with THIS
+        // property in the Prepared-for box and its price as the Inspection Price
+        const cf = JSON.parse(JSON.stringify(this.prop.form));
+        cf.property = name; cf.address = '';
+        cf.addressStreet = x.addressStreet || ''; cf.addressCity = x.addressCity || ''; cf.addressStateZip = x.addressStateZip || '';
+        cf.propertyPhoto = x.photo || ''; cf.units = x.units || '';
+        cf.values = Object.assign({}, cf.values, { 10: x.price || '' });
+        cf.extraProperties = [];
+        const cr = await this.api('/project/proposals/save', {
+          method: 'POST',
+          json: { id: x.childProposalId || undefined, name, status: 'accepted', form: cf, linkedProjectId: x.projectId,
+                  ownerClientId: this.prop.ownerClientId || null, managerClientId: this.prop.managerClientId || null, cycle: '',
+                  parentProposalId: this.prop.id, propertyIndex: i + 2 },
+        });
+        if (cr.ok) { const j = await cr.json(); if (j && j.id) x.childProposalId = j.id; }
+        made++;
+      }
+      return made;
+    },
     async acceptProposal(pr) {
       if (pr) { await this.editProposal(pr); }
       if (!this.prop || !this.prop.form.property) { this.toast('Give the proposal a Property name first.', 'err'); return; }
@@ -8506,7 +8685,9 @@ createApp({
           // Property photo -> the project's photo (= report cover photo). A Final
           // proposal never replaces the cover the Visual Inspection already set.
           if (linked && !this.prop.cycle) await this.propPhotoToProject(linked);
-          this.toast('Proposal accepted — linked to ' + ((linked && linked.name) || 'its project') + (finalMsg ? (/^attached/.test(finalMsg) ? ' and ' + finalMsg : '. ' + finalMsg) : '.') + ' Now upload the signed proposal to its Documents.');
+          const moreL = await this.acceptExtraProperties();
+          if (moreL) await this.saveProposal(true);
+          this.toast('Proposal accepted — linked to ' + ((linked && linked.name) || 'its project') + (finalMsg ? (/^attached/.test(finalMsg) ? ' and ' + finalMsg : '. ' + finalMsg) : '.') + (moreL ? ' ' + moreL + ' more ' + (moreL === 1 ? 'project' : 'projects') + ' created for the other properties.' : '') + ' Now upload the signed proposal to its Documents.');
           this.prop = null;
           this.goHome();
           if (linked) this.openDocs(linked);
@@ -8540,7 +8721,10 @@ createApp({
         this.prop.status = 'accepted';
         this.prop.linkedProjectId = created ? this.projectId(created) : null;
         await this.saveProposal(true);
-        this.toast('Proposal accepted — project created. Now upload the signed proposal to its Documents.');
+        const more = await this.acceptExtraProperties();
+        if (more) await this.saveProposal(true);
+        this.toast(more ? ('Proposal accepted — ' + (more + 1) + ' projects created, one per property. Upload the signed proposal to the first project\'s Documents.')
+                        : 'Proposal accepted — project created. Now upload the signed proposal to its Documents.');
         this.prop = null;
         this.goHome();
         if (created) this.openDocs(created);
