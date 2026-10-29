@@ -2131,7 +2131,7 @@ router.route('/proposals/save')
     .post(async function (req, res){
       try{
         const companyIdentifier = req.user && req.user.company;
-        const { id, name, status, form, linkedProjectId, ownerClientId, managerClientId, cycle } = req.body;
+        const { id, name, status, form, linkedProjectId, ownerClientId, managerClientId, cycle, parentProposalId, propertyIndex } = req.body;
         const result = await proposals.upsertProposal({
           id: id || undefined,
           companyIdentifier,
@@ -2142,6 +2142,8 @@ router.route('/proposals/save')
           ownerClientId: ownerClientId || null,      // client portfolios (Sep 19)
           managerClientId: managerClientId || null,
           cycle: String(cycle || '').trim(),         // '' = visual; else Final Inspection cycle (Oct 22 2026)
+          // multiple properties (Oct 29 2026): an extra property's own proposal record
+          ...(parentProposalId ? { parentProposalId: String(parentProposalId), propertyIndex: parseInt(propertyIndex, 10) || 2 } : {}),
           createdBy: (req.user && req.user.username) || ''
         });
         res.status(200).json(result);
