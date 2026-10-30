@@ -1292,6 +1292,7 @@ input,select{font-family:inherit;font-size:16px}
             <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Add more properties to this proposal. Each one becomes its own project when the proposal is accepted. The owner, manager and contact above apply to all of them.</div>
             <template v-if="propExtras().length">
               <div style="display:flex;gap:8px"><div style="flex:1"><label>Units (this property)</label><input v-model.trim="prop.form.units" placeholder="e.g. 24"></div><div style="flex:1.2"><label>Inspection Price (this property)</label><input v-model.trim="prop.form.values[10]" placeholder="$0.00" title="Price for this property only (same as the Inspection Price under Document selections)"></div></div>
+              <label>Report Fee (this property)</label><input v-model.trim="prop.form.values[21]" placeholder="$0.00" title="Report fee for this property only (same as the Report Fee under Document selections)">
               <div class="xprop" v-for="(x, i) in prop.form.extraProperties" :key="x.key" :class="{done: propExtraProject(x)}">
                 <div class="xprop-head">
                   <span>Property {{ i + 2 }}<span class="ok" v-if="propExtraProject(x)"> &#10003; project created</span></span>
@@ -1300,7 +1301,7 @@ input,select{font-family:inherit;font-size:16px}
                 <label>Property</label><input v-model.trim="x.property" :disabled="!!propExtraProject(x)" placeholder="e.g. 410 Palm Canyon Apartments">
                 <label>Street Address</label><input v-model.trim="x.addressStreet" :disabled="!!propExtraProject(x)" placeholder="Street">
                 <div style="display:flex;gap:8px"><div style="flex:1.4"><label>City</label><input v-model.trim="x.addressCity" :disabled="!!propExtraProject(x)" placeholder="City"></div><div style="flex:1"><label>State &amp; Zip</label><input v-model.trim="x.addressStateZip" :disabled="!!propExtraProject(x)" placeholder="CA 92262"></div></div>
-                <div style="display:flex;gap:8px"><div style="flex:1"><label>Units</label><input v-model.trim="x.units" placeholder="e.g. 12"></div><div style="flex:1.2"><label>Inspection Price</label><input v-model.trim="x.price" :disabled="!!propExtraProject(x)" placeholder="$0.00"></div></div>
+                <div style="display:flex;gap:8px"><div style="flex:1"><label>Units</label><input v-model.trim="x.units" placeholder="e.g. 12"></div><div style="flex:1.2"><label>Inspection Price</label><input v-model.trim="x.price" :disabled="!!propExtraProject(x)" placeholder="$0.00"></div><div style="flex:1.2"><label>Report Fee</label><input v-model.trim="x.reportFee" :disabled="!!propExtraProject(x)" :placeholder="(prop.form.values[21] || '$0.00') + ' (same as first)'"></div></div>
                 <label>Property Photo</label>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                   <button type="button" class="btn-dl" :disabled="photoBusy || !propExtraAddress(x)" @click="propExtraSatPhoto(x)">&#128225; Satellite</button>
@@ -1310,7 +1311,7 @@ input,select{font-family:inherit;font-size:16px}
                 <img v-if="x.photo" :src="x.photo" alt="property photo">
                 <div class="xprop-nophoto" v-else>&#9888; Add a photo so the client can confirm this is the right property.</div>
               </div>
-              <div class="xprop-total"><span>Total &mdash; {{ propExtras().length + 1 }} properties</span><span>{{ propTotalText() || '—' }}</span></div>
+              <div class="xprop-total"><span>Total &mdash; {{ propExtras().length + 1 }} properties<br><span style="font-weight:600;font-size:11.5px;color:var(--ink-soft)">Inspection {{ propTotalText('price') || '—' }} + Report fees {{ propTotalText('reportFee') || '—' }}</span></span><span>{{ propTotalText() || '—' }}</span></div>
             </template>
             <button type="button" class="btn-dl" style="margin-top:6px" @click="addPropExtra">&#65291; Add property</button>
             <h4>Document selections</h4>
@@ -1361,11 +1362,12 @@ input,select{font-family:inherit;font-size:16px}
             <template v-if="propRows().length > 1">
               <div class="pp-sched-h">Schedule of Properties</div>
               <table class="pp-sched">
-                <tr class="hd"><td class="n">#</td><td class="ph">Photo</td><td>Property</td><td>Address</td><td class="u" v-if="propRowsUnits()">Units</td><td class="amt" style="color:#000">Inspection Price</td></tr>
-                <tr v-for="(r, i) in propRows()" :key="i"><td class="n">{{ i + 1 }}</td><td class="ph"><img v-if="r.photo" :src="r.photo" alt=""><i v-else>No photo</i></td><td><b>{{ r.property }}</b></td><td>{{ r.address }}</td><td class="u" v-if="propRowsUnits()">{{ r.units }}</td><td class="amt">{{ r.price }}</td></tr>
-                <tr class="tot"><td :colspan="propRowsUnits() ? 5 : 4" style="text-align:right">Total &mdash; {{ propRows().length }} properties</td><td class="amt">{{ propTotalText() }}</td></tr>
+                <tr class="hd"><td class="n">#</td><td class="ph">Photo</td><td>Property</td><td>Address</td><td class="u" v-if="propRowsUnits()">Units</td><td class="amt" style="color:#000">Inspection Price</td><td class="amt" style="color:#000">Report Fee</td></tr>
+                <tr v-for="(r, i) in propRows()" :key="i"><td class="n">{{ i + 1 }}</td><td class="ph"><img v-if="r.photo" :src="r.photo" alt=""><i v-else>No photo</i></td><td><b>{{ r.property }}</b></td><td>{{ r.address }}</td><td class="u" v-if="propRowsUnits()">{{ r.units }}</td><td class="amt">{{ r.price }}</td><td class="amt">{{ r.reportFee }}</td></tr>
+                <tr class="tot"><td :colspan="propRowsUnits() ? 5 : 4" style="text-align:right">Totals &mdash; {{ propRows().length }} properties</td><td class="amt">{{ propTotalText('price') }}</td><td class="amt">{{ propTotalText('reportFee') }}</td></tr>
+                <tr class="tot"><td :colspan="propRowsUnits() ? 6 : 5" style="text-align:right">Total (Inspection Prices + Report Fees)</td><td class="amt">{{ propTotalText() }}</td></tr>
               </table>
-              <div class="pp-sched-note">Each property is inspected and reported separately. The pricing terms below apply to each property; the Inspection Price for each property is listed above.</div>
+              <div class="pp-sched-note">Each property is inspected and reported separately. The pricing terms below apply to each property; the Inspection Price and Report Fee for each property are listed above. Each property is billed separately.</div>
             </template>
             <div class="pp-sec">INSPECTIONS PARAMETERS:</div>
             <p><b>{{ coName }},</b> a Certified E3 Inspector, will conduct an onsite inspection located at the address above. The complete inspection is conducted in multiple sections by State Licensed Architects, Engineers, ICC Inspectors or Contractors as required by City or State Civil Code, starting with a Visual Inspection of the Exterior Elevated Elements (EEE). The visual inspection looks at all decks, stairs, railing, and wooden structures (including metal structures and attachments where 604 Affidavits are required) supporting or attached to any structure which extends beyond the exterior walls where people may walk, stand, or sit (load or static). This inspection follows the guidelines as defined by the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551/ 2026 Updated Inspection Reporting Requirements (SB326) or Section 604 of The San Francisco Housing Code.</p>
@@ -8543,7 +8545,7 @@ createApp({
       // same city/state as the main property is the usual case for a portfolio
       this.prop.form.extraProperties.push({ key: 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         property: '', addressStreet: '', addressCity: f.addressCity || '', addressStateZip: f.addressStateZip || '',
-        units: '', price: '', photo: '', projectId: null, childProposalId: null });
+        units: '', price: '', reportFee: (f.values && f.values[21]) || '', photo: '', projectId: null, childProposalId: null });
     },
     removePropExtra(i) {
       const x = this.propExtras()[i]; if (!x) return;
@@ -8568,17 +8570,21 @@ createApp({
     },
     propRows() {
       const f = (this.prop && this.prop.form) || {};
-      const rows = [{ property: f.property || '', address: this.propAddress(), units: f.units || '', price: (f.values && f.values[10]) || '', photo: f.propertyPhoto || '' }];
+      const rf0 = (f.values && f.values[21]) || '';
+      const rows = [{ property: f.property || '', address: this.propAddress(), units: f.units || '', price: (f.values && f.values[10]) || '', reportFee: rf0, photo: f.propertyPhoto || '' }];
       for (const x of this.propExtras()) {
-        if (String(x.property || '').trim() || this.propExtraAddress(x)) rows.push({ property: x.property || '', address: this.propExtraAddress(x), units: x.units || '', price: x.price || '', photo: x.photo || '' });
+        if (String(x.property || '').trim() || this.propExtraAddress(x)) rows.push({ property: x.property || '', address: this.propExtraAddress(x), units: x.units || '', price: x.price || '', reportFee: (x.reportFee != null && String(x.reportFee).trim() !== '') ? x.reportFee : rf0, photo: x.photo || '' });
       }
       return rows;
     },
     propRowsUnits() { return this.propRows().some(r => String(r.units || '').trim()); },
     propMoney(s) { const m = String(s == null ? '' : s).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : null; },
-    propTotalText() {
+    // key: 'price' | 'reportFee' | omitted = both added together
+    propTotalText(key) {
       let t = 0;
-      for (const r of this.propRows()) { const n = this.propMoney(r.price); if (n == null) return ''; t += n; }
+      for (const r of this.propRows()) {
+        for (const k of (key ? [key] : ['price', 'reportFee'])) { const n = this.propMoney(r[k]); if (n == null) return ''; t += n; }
+      }
       return '$' + t.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
     // The proposal to SHOW for a project: an extra property's own record shows
@@ -8631,7 +8637,8 @@ createApp({
         cf.property = name; cf.address = '';
         cf.addressStreet = x.addressStreet || ''; cf.addressCity = x.addressCity || ''; cf.addressStateZip = x.addressStateZip || '';
         cf.propertyPhoto = x.photo || ''; cf.units = x.units || '';
-        cf.values = Object.assign({}, cf.values, { 10: x.price || '' });
+        const rf = (x.reportFee != null && String(x.reportFee).trim() !== '') ? x.reportFee : ((cf.values && cf.values[21]) || '');
+        cf.values = Object.assign({}, cf.values, { 10: x.price || '', 21: rf });
         cf.extraProperties = [];
         const cr = await this.api('/project/proposals/save', {
           method: 'POST',
