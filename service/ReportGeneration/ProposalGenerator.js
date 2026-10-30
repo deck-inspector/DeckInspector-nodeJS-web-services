@@ -537,11 +537,13 @@ class ProposalGenerator {
         const f = form || {};
         const extras = Array.isArray(f.extraProperties) ? f.extraProperties : [];
         const addr = (o) => [o.addressStreet, o.addressCity, o.addressStateZip].map(x => String(x || '').trim()).filter(Boolean).join(', ');
-        const v10 = f.values ? (f.values[10] != null ? f.values[10] : f.values['10']) : '';
-        const rows = [{ property: f.property || '', address: addr(f) || String(f.address || '').trim(), units: f.units || '', price: v10 || '', photo: f.propertyPhoto || '' }];
+        const vv = (i) => f.values ? (f.values[i] != null ? f.values[i] : f.values[String(i)]) : '';
+        const v10 = vv(10), v21 = vv(21);
+        const rows = [{ property: f.property || '', address: addr(f) || String(f.address || '').trim(), units: f.units || '', price: v10 || '', reportFee: v21 || '', photo: f.propertyPhoto || '' }];
         for (const x of extras) {
             if (!x || !(String(x.property || '').trim() || addr(x))) continue;
-            rows.push({ property: x.property || '', address: addr(x), units: x.units || '', price: x.price || '', photo: x.photo || '' });
+            // each property has its own Report Fee (David, Oct 29 2026); blank = the first property's
+            rows.push({ property: x.property || '', address: addr(x), units: x.units || '', price: x.price || '', reportFee: (x.reportFee != null && String(x.reportFee).trim() !== '') ? x.reportFee : (v21 || ''), photo: x.photo || '' });
         }
         return rows;
     }
@@ -608,8 +610,8 @@ class ProposalGenerator {
             if (tblEnd === -1) return doc;
             const at = tblEnd + '</w:tbl>'.length;
             const showUnits = rows.some(r => String(r.units || '').trim());
-            // # | Photo | Property | Address | Units | Price
-            const cols = showUnits ? [400, 1900, 2100, 2800, 660, 1500] : [400, 1900, 2500, 3060, 0, 1500];
+            // # | Photo | Property | Address | Units | Inspection Price | Report Fee
+            const cols = showUnits ? [400, 1700, 1800, 2260, 700, 1250, 1250] : [400, 1700, 2100, 2660, 0, 1250, 1250];
             const font = '<w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi" w:cstheme="minorHAnsi"/>';
             const bd = '<w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="404040"/><w:left w:val="single" w:sz="4" w:space="0" w:color="404040"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="404040"/><w:right w:val="single" w:sz="4" w:space="0" w:color="404040"/></w:tcBorders>';
             const cell = (w, text, o) => {
@@ -632,21 +634,29 @@ class ProposalGenerator {
                           cell(cols[2], 'Property', { b: 1, shade: 1 }), cell(cols[3], 'Address', { b: 1, shade: 1 })];
             if (showUnits) head.push(cell(cols[4], 'Units', { b: 1, shade: 1, jc: 'center' }));
             head.push(cell(cols[5], 'Inspection Price', { b: 1, shade: 1, jc: 'right' }));
+            head.push(cell(cols[6], 'Report Fee', { b: 1, shade: 1, jc: 'right' }));
             const body = [tr(head, true)];
-            let total = 0, allPriced = true;
+            let total = 0, allPriced = true, rTotal = 0, allR = true;
             rows.forEach((r, i) => {
                 const c = [cell(cols[0], String(i + 1), { jc: 'center' }), cell(cols[1], '', { run: photoRun(i) }),
                            cell(cols[2], r.property, { b: 1 }), cell(cols[3], r.address)];
                 if (showUnits) c.push(cell(cols[4], r.units, { jc: 'center' }));
                 c.push(cell(cols[5], r.price, { b: 1, red: 1, jc: 'right' }));
+                c.push(cell(cols[6], r.reportFee, { b: 1, red: 1, jc: 'right' }));
                 body.push(tr(c));
                 const n = this.parseMoney(r.price);
                 if (n == null) allPriced = false; else total += n;
+                const rf = this.parseMoney(r.reportFee);
+                if (rf == null) allR = false; else rTotal += rf;
             });
-            const totTxt = allPriced ? '$' + total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-            const span = useCols.length - 1;
-            body.push(tr([cell(useCols.slice(0, span).reduce((a, b) => a + b, 0), 'Total — ' + rows.length + ' properties', { b: 1, shade: 1, jc: 'right', span }),
-                          cell(cols[5], totTxt, { b: 1, red: 1, shade: 1, jc: 'right' })]));
+            const money = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const span = useCols.length - 2;
+            const spanW = useCols.slice(0, span).reduce((a, b) => a + b, 0);
+            body.push(tr([cell(spanW, 'Totals — ' + rows.length + ' properties', { b: 1, shade: 1, jc: 'right', span }),
+                          cell(cols[5], allPriced ? money(total) : '', { b: 1, red: 1, shade: 1, jc: 'right' }),
+                          cell(cols[6], allR ? money(rTotal) : '', { b: 1, red: 1, shade: 1, jc: 'right' })]));
+            body.push(tr([cell(spanW + cols[5], 'Total (Inspection Prices + Report Fees)', { b: 1, shade: 1, jc: 'right', span: span + 1 }),
+                          cell(cols[6], (allPriced && allR) ? money(total + rTotal) : '', { b: 1, red: 1, shade: 1, jc: 'right' })]));
             const tbl = '<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:jc w:val="center"/><w:tblLayout w:type="fixed"/>'
                 + '<w:tblCellMar><w:left w:w="90" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'
                 + useCols.map(w => '<w:gridCol w:w="' + w + '"/>').join('') + '</w:tblGrid>' + body.join('') + '</w:tbl>';
@@ -654,7 +664,7 @@ class ProposalGenerator {
                 + '<w:r><w:rPr>' + font + '<w:b/><w:bCs/><w:caps/><w:color w:val="C00000"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>Schedule of Properties</w:t></w:r></w:p>';
             const note = '<w:p><w:pPr><w:spacing w:before="40" w:after="160"/><w:jc w:val="center"/></w:pPr>'
                 + '<w:r><w:rPr>' + font + '<w:i/><w:color w:val="595959"/><w:sz w:val="17"/><w:szCs w:val="17"/></w:rPr><w:t xml:space="preserve">'
-                + this.xmlEscape('Each property is inspected and reported separately. The pricing terms below apply to each property; the Inspection Price for each property is listed above.')
+                + this.xmlEscape('Each property is inspected and reported separately. The pricing terms below apply to each property; the Inspection Price and Report Fee for each property are listed above. Each property is billed separately.')
                 + '</w:t></w:r></w:p>';
             console.log('Proposal: schedule of ' + rows.length + ' properties placed');
             return doc.slice(0, at) + heading + tbl + note + doc.slice(at);
