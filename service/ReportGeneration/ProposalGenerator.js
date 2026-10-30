@@ -548,6 +548,15 @@ class ProposalGenerator {
         return rows;
     }
 
+    // "1650" -> "$1,650.00"; words ("Included") are left as written.
+    moneyText(v) {
+        const t = String(v == null ? '' : v).trim();
+        if (!/^\$?\s*-?[\d,]*\.?\d+$/.test(t) || !/\d/.test(t)) return v == null ? '' : v;
+        const n = Number(t.replace(/[$,\s]/g, ''));
+        if (!isFinite(n)) return v;
+        return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
     parseMoney(s) {
         const m = String(s == null ? '' : s).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
         return m ? Number(m[0]) : null;
@@ -636,18 +645,18 @@ class ProposalGenerator {
             head.push(cell(cols[5], 'Inspection Price', { b: 1, shade: 1, jc: 'right' }));
             head.push(cell(cols[6], 'Report Fee', { b: 1, shade: 1, jc: 'right' }));
             const body = [tr(head, true)];
-            let total = 0, allPriced = true, rTotal = 0, allR = true;
+            let total = 0, allPriced = false, rTotal = 0, allR = false;   // true once any number is found
             rows.forEach((r, i) => {
                 const c = [cell(cols[0], String(i + 1), { jc: 'center' }), cell(cols[1], '', { run: photoRun(i) }),
                            cell(cols[2], r.property, { b: 1 }), cell(cols[3], r.address)];
                 if (showUnits) c.push(cell(cols[4], r.units, { jc: 'center' }));
-                c.push(cell(cols[5], r.price, { b: 1, red: 1, jc: 'right' }));
-                c.push(cell(cols[6], r.reportFee, { b: 1, red: 1, jc: 'right' }));
+                c.push(cell(cols[5], this.moneyText(r.price), { b: 1, red: 1, jc: 'right' }));
+                c.push(cell(cols[6], this.moneyText(r.reportFee), { b: 1, red: 1, jc: 'right' }));
                 body.push(tr(c));
                 const n = this.parseMoney(r.price);
-                if (n == null) allPriced = false; else total += n;
+                if (n != null) { total += n; allPriced = true; }   // NA / blank / words = $0
                 const rf = this.parseMoney(r.reportFee);
-                if (rf == null) allR = false; else rTotal += rf;
+                if (rf != null) { rTotal += rf; allR = true; }
             });
             const money = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             const span = useCols.length - 2;
@@ -656,7 +665,7 @@ class ProposalGenerator {
                           cell(cols[5], allPriced ? money(total) : '', { b: 1, red: 1, shade: 1, jc: 'right' }),
                           cell(cols[6], allR ? money(rTotal) : '', { b: 1, red: 1, shade: 1, jc: 'right' })]));
             body.push(tr([cell(spanW + cols[5], 'Total (Inspection Prices + Report Fees)', { b: 1, shade: 1, jc: 'right', span: span + 1 }),
-                          cell(cols[6], (allPriced && allR) ? money(total + rTotal) : '', { b: 1, red: 1, shade: 1, jc: 'right' })]));
+                          cell(cols[6], (allPriced || allR) ? money(total + rTotal) : '', { b: 1, red: 1, shade: 1, jc: 'right' })]));
             const tbl = '<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:jc w:val="center"/><w:tblLayout w:type="fixed"/>'
                 + '<w:tblCellMar><w:left w:w="90" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'
                 + useCols.map(w => '<w:gridCol w:w="' + w + '"/>').join('') + '</w:tblGrid>' + body.join('') + '</w:tbl>';
