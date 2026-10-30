@@ -1291,7 +1291,7 @@ input,select{font-family:inherit;font-size:16px}
             <h4>Additional Properties</h4>
             <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Add more properties to this proposal. Each one becomes its own project when the proposal is accepted. The owner, manager and contact above apply to all of them.</div>
             <template v-if="propExtras().length">
-              <div style="display:flex;gap:8px"><div style="flex:1"><label>Units (this property)</label><input v-model.trim="prop.form.units" placeholder="e.g. 24"></div><div style="flex:1.2"><label>Inspection Price (this property)</label><input :value="prop.form.values[10]" disabled title="Set in the Inspection Price field under Document selections"></div></div>
+              <div style="display:flex;gap:8px"><div style="flex:1"><label>Units (this property)</label><input v-model.trim="prop.form.units" placeholder="e.g. 24"></div><div style="flex:1.2"><label>Inspection Price (this property)</label><input v-model.trim="prop.form.values[10]" placeholder="$0.00" title="Price for this property only (same as the Inspection Price under Document selections)"></div></div>
               <div class="xprop" v-for="(x, i) in prop.form.extraProperties" :key="x.key" :class="{done: propExtraProject(x)}">
                 <div class="xprop-head">
                   <span>Property {{ i + 2 }}<span class="ok" v-if="propExtraProject(x)"> &#10003; project created</span></span>
