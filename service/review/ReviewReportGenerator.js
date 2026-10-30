@@ -269,10 +269,51 @@ function stripVisualCover(buf) {
     if (img !== -1) cutTo = paraEnd(doc, img);
   }
   if (cutTo === -1) { console.log('ReviewReport: Visual cover end not found - kept as is'); return buf; }
+  // Never cut in the middle of a table or content control (7144 Clarendon West HOA,
+  // Oct 30 2026: the cover photo sits inside the cover table, the cut ended inside it
+  // and left stray </w:tc></w:tr></w:tbl> tags - Word would not open the file).
+  // Cut through the end of the whole top-level block that holds the cut point.
+  const blocks = bodyBlocks(doc, bodyStart);
+  const holder = blocks.find(b => b.start < cutTo && cutTo < b.end);
+  if (holder) cutTo = holder.end;
+  // Nothing after the cover (the project has no E3 inspection locations yet):
+  // there is no inspection report to include.
+  const after = blocks.filter(b => b.start >= cutTo && b.tag !== 'w:sectPr');
+  if (!after.some(b => /<w:t[ >]|<w:drawing|<w:pict/.test(doc.slice(b.start, b.end)))) {
+    console.log('ReviewReport: the E3 Visual report has only its cover page (no inspection locations) - not included');
+    return null;
+  }
   doc = doc.slice(0, bodyStart) + doc.slice(cutTo);
   doc = dropTrailingSpacerRows(doc);
   zip.file('word/document.xml', doc);
   return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+// Top-level children of <w:body> as {tag, start, end} (end = just past the closing tag).
+function bodyBlocks(doc, bodyStart) {
+  const out = []; const re = /<(\/?)(w:[A-Za-z]+)\b[^>]*?(\/?)>/g; re.lastIndex = bodyStart;
+  let depth = 0, cur = null, m;
+  while ((m = re.exec(doc))) {
+    if (m[3] === '/') { if (depth === 0) out.push({ tag: m[2], start: m.index, end: re.lastIndex }); continue; }
+    if (m[1]) {
+      if (depth === 0) break;                          // </w:body>
+      depth--; if (depth === 0 && cur) { cur.end = re.lastIndex; out.push(cur); cur = null; }
+    } else { if (depth === 0) cur = { tag: m[2], start: m.index, end: -1 }; depth++; }
+  }
+  return out;
+}
+
+// Word refuses a document.xml whose w: tags do not nest properly. Check before upload
+// so a bad merge shows as FAILED in the list instead of a file Word cannot open.
+function xmlTagProblem(xml) {
+  const st = []; const re = /<(\/?)(w:[A-Za-z]+)\b[^>]*?(\/?)>/g; let m;
+  while ((m = re.exec(xml))) {
+    if (m[3] === '/') continue;
+    if (!m[1]) { st.push(m[2]); continue; }
+    const top = st.pop();
+    if (top !== m[2]) return `</${m[2]}> where </${top || '(nothing)'}> was expected (at ${m.index})`;
+  }
+  return st.length ? `unclosed <${st[st.length - 1]}>` : '';
 }
 
 // Each section table ends with an empty spacer row. When the photos fill the page
@@ -302,7 +343,7 @@ async function buildVisualBody(projectId) {
   const parts = String(url).split('/');
   const buf = await uploadBlob.getBlobBuffer(decodeURIComponent(parts[parts.length - 1]), parts[parts.length - 2]);
   if (!buf || !buf.length) throw new Error('the E3 Visual Inspection Report file was empty');
-  return stripVisualCover(RGU.sanitizeDocxBuffer(buf));
+  return stripVisualCover(RGU.sanitizeDocxBuffer(buf));   // null = cover only, nothing to include
 }
 
 // Split the filled review into [letter .. Section E] and [Summary of Prior Report .. end],
@@ -391,20 +432,23 @@ async function generate({ projectId, companyName, fields, uploader }) {
   // Our E3 inspection report goes between Section E and the prior-report summary.
   const visual = await buildVisualBody(projectId);
   const [head, tail] = splitReview(review);
-  let out = RGU.mergeViaPython([head, visual, tail], `${projectId}_review`);
+  const parts = visual ? [head, visual, tail] : [head, tail];
+  let out = RGU.mergeViaPython(parts, `${projectId}_review`);
   if (!out) {
     // Same fallback the Visual/Final reports use: the report must still print
     // even when the python (docxcompose) merge is unavailable on the server.
     console.warn('ReviewReport: python merge failed - using Node DocxMerger fallback');
     try {
       const DocxMerger = require('docx-merger');
-      const merged = await RGU.saveDocxMerger(new DocxMerger({}, [head, visual, tail]), 'nodebuffer');
+      const merged = await RGU.saveDocxMerger(new DocxMerger({}, parts), 'nodebuffer');
       out = RGU.sanitizeDocxBuffer(merged);
     } catch (e) {
       console.error('ReviewReport: Node merge fallback failed', e);
     }
   }
   if (!out) throw new Error('combining the review with the E3 inspection report failed');
+  const problem = xmlTagProblem(new PizZip(out).file('word/document.xml').asText());
+  if (problem) throw new Error('the combined Word file is damaged (' + problem + ') - it was not saved');
 
   const tmp = path.join(os.tmpdir(), `${projectId}_ReviewReport.docx`);
   fs.writeFileSync(tmp, out);
@@ -417,4 +461,4 @@ async function generate({ projectId, companyName, fields, uploader }) {
   return { url: parsed.url, bytes: out.length };
 }
 
-module.exports = { generate, collectE3, fillReview, removeAnnex, placePriorSummary, keepSignatureTogether, stripVisualCover, splitReview, getMaster, capHeaderLogos, keepCertTogether, MASTER_FILE };
+module.exports = { generate, collectE3, bodyBlocks, xmlTagProblem, fillReview, removeAnnex, placePriorSummary, keepSignatureTogether, stripVisualCover, splitReview, getMaster, capHeaderLogos, keepCertTogether, MASTER_FILE };
