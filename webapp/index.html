@@ -1368,7 +1368,7 @@ input,select{font-family:inherit;font-size:16px}
                 <tr class="tot"><td :colspan="propRowsUnits() ? 5 : 4" style="text-align:right">Totals &mdash; {{ propRows().length }} properties</td><td class="amt">{{ propTotalText('price') }}</td><td class="amt">{{ propTotalText('reportFee') }}</td></tr>
                 <tr class="tot"><td :colspan="propRowsUnits() ? 6 : 5" style="text-align:right">Total (Inspection Prices + Report Fees)</td><td class="amt">{{ propTotalText() }}</td></tr>
               </table>
-              <div class="pp-sched-note">Each property is inspected and reported separately. The pricing terms below apply to each property; the Inspection Price and Report Fee for each property are listed above. Each property is billed separately.</div>
+              <div class="pp-sched-note">Each property is inspected, reported and billed separately. The Inspection Price and Report Fee in the Pricing section below are the totals for all properties listed above.</div>
             </template>
             <div class="pp-sec">INSPECTIONS PARAMETERS:</div>
             <p><b>{{ coName }},</b> a Certified E3 Inspector, will conduct an onsite inspection located at the address above. The complete inspection is conducted in multiple sections by State Licensed Architects, Engineers, ICC Inspectors or Contractors as required by City or State Civil Code, starting with a Visual Inspection of the Exterior Elevated Elements (EEE). The visual inspection looks at all decks, stairs, railing, and wooden structures (including metal structures and attachments where 604 Affidavits are required) supporting or attached to any structure which extends beyond the exterior walls where people may walk, stand, or sit (load or static). This inspection follows the guidelines as defined by the California Health and Safety Code &sect;17973 (SB721) or California Civil Code &sect;5551/ 2026 Updated Inspection Reporting Requirements (SB326) or Section 604 of The San Francisco Housing Code.</p>
@@ -8086,6 +8086,12 @@ createApp({
 
     /* ---------- proposals (pre-project) ---------- */
     pv(i) {
+      // Multi-property proposal (David, Oct 29 2026): the PRICING section's
+      // Inspection Price and Report Fee show the totals for ALL properties.
+      if ((i === 10 || i === 21) && this.prop && this.propRows().length > 1) {
+        const t = this.propTotalText(i === 10 ? 'price' : 'reportFee');
+        if (t) return t;
+      }
       return (this.prop && this.prop.form && this.prop.form.values && this.prop.form.values[i]) || '';
     },
     openProposals() {

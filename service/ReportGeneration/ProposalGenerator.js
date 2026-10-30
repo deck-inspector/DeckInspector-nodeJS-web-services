@@ -535,6 +535,7 @@ class ProposalGenerator {
     // first (its price = the Inspection Price field), then form.extraProperties.
     propertyRows(form) {
         const f = form || {};
+        if (Array.isArray(f._scheduleRows)) return f._scheduleRows;
         const extras = Array.isArray(f.extraProperties) ? f.extraProperties : [];
         const addr = (o) => [o.addressStreet, o.addressCity, o.addressStateZip].map(x => String(x || '').trim()).filter(Boolean).join(', ');
         const vv = (i) => f.values ? (f.values[i] != null ? f.values[i] : f.values[String(i)]) : '';
@@ -673,7 +674,7 @@ class ProposalGenerator {
                 + '<w:r><w:rPr>' + font + '<w:b/><w:bCs/><w:caps/><w:color w:val="C00000"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>Schedule of Properties</w:t></w:r></w:p>';
             const note = '<w:p><w:pPr><w:spacing w:before="40" w:after="160"/><w:jc w:val="center"/></w:pPr>'
                 + '<w:r><w:rPr>' + font + '<w:i/><w:color w:val="595959"/><w:sz w:val="17"/><w:szCs w:val="17"/></w:rPr><w:t xml:space="preserve">'
-                + this.xmlEscape('Each property is inspected and reported separately. The pricing terms below apply to each property; the Inspection Price and Report Fee for each property are listed above. Each property is billed separately.')
+                + this.xmlEscape('Each property is inspected, reported and billed separately. The Inspection Price and Report Fee in the Pricing section below are the totals for all properties listed above.')
                 + '</w:t></w:r></w:p>';
             console.log('Proposal: schedule of ' + rows.length + ' properties placed');
             return doc.slice(0, at) + heading + tbl + note + doc.slice(at);
@@ -685,6 +686,22 @@ class ProposalGenerator {
 
     // form = { property, address, ownerMgr, contact, values: { "<sdtIndex>": "text", ... } }
     async fillProposal(templateBuffer, companyIdentifier, form) {
+        // Multi-property proposal (David, Oct 29 2026): the PRICING section's
+        // Inspection Price and Report Fee print the totals for ALL properties.
+        // The schedule keeps each property's own amounts (rows taken first).
+        const schedRows = this.propertyRows(form);
+        if (schedRows.length > 1) {
+            const sum = (k) => {
+                let t = 0, any = false;
+                for (const r of schedRows) { const n = this.parseMoney(r[k]); if (n != null) { t += n; any = true; } }
+                return any ? '$' + t.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
+            };
+            const ins = sum('price'), rep = sum('reportFee');
+            const vals = Object.assign({}, (form && form.values) || {});
+            if (ins) vals[10] = ins;
+            if (rep) vals[21] = rep;
+            form = Object.assign({}, form, { values: vals, _scheduleRows: schedRows });
+        }
         const zip = new PizZip(templateBuffer);
         let doc = zip.file('word/document.xml').asText();
 
