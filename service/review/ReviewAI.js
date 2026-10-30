@@ -16,7 +16,7 @@ const MAX_PAGES = 100;
 function isConfigured() { return !!process.env.ANTHROPIC_API_KEY; }
 function modelName() { return (process.env.ANTHROPIC_MODEL || DEFAULT_MODEL).trim(); }
 
-function systemPrompt(reviewerCompany) {
+function systemPrompt(reviewerCompany, rules) {
   const A = schema.A_ITEMS.map(a => `A${a.n}. ${a.title} ${a.cite}`).join('\n');
   const B = schema.B_ITEMS.map(b => `B${b.n}. ${b.text}`).join('\n');
   const C = schema.C_ITEMS.map(c => `C${c.n}. ${c.text}`).join('\n');
@@ -48,12 +48,20 @@ RULES:
 - Do not speculate about motives, and do not say WHO installed barricades or opened surfaces unless a document says so; use neutral wording ("were installed", "were found").
 - If information is missing, say "Not Determinable from Prior Report" / "Not Determinable" rather than guessing.
 - Plain, professional English; short sentences; no markdown, no bullet characters. Comments 1-4 sentences each.
-- Use only the exact option strings allowed by the tool schema for dropdown fields.`;
+- Use only the exact option strings allowed by the tool schema for dropdown fields.${rulesBlock(rules)}`;
+}
+
+// COMPANY AI RULES (David, Oct 30 2026: "I have added rules to AI and its not following the rules"):
+// the rules saved with the AI Rules pill were only sent to the Visual Report draft, never to this one.
+function rulesBlock(rules) {
+  const t = String(rules || '').trim();
+  if (!t) return '';
+  return '\n\nCOMPANY AI RULES (written by the reviewing company in the E3 App). Follow every one of them in every field you fill. Where they conflict with the RULES above, these win; they never override the definitions or the law:\n' + t.slice(0, 6000);
 }
 
 // pages: [{ n, buffer (jpeg) }], e3: plain object (project + locations + sections)
 // onProgress(p) is called often with { phase: 'reading'|'thinking'|'writing', section, sections, label, chars }.
-async function analyze({ pages, e3, reviewerCompany, today, onProgress, signal }) {
+async function analyze({ pages, e3, reviewerCompany, rules, today, onProgress, signal }) {
   if (!isConfigured()) throw new Error('ANTHROPIC_API_KEY is not set on the server.');
   const use = pages.slice(0, MAX_PAGES);
   const content = [];
@@ -64,13 +72,13 @@ async function analyze({ pages, e3, reviewerCompany, today, onProgress, signal }
     content.push({ type: 'text', text: `Prior Report page ${p.n}:` });
     content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: p.buffer.toString('base64') } });
   }
-  content.push({ type: 'text', text: 'Now call fill_review_report with every field of the Review Report.' });
+  content.push({ type: 'text', text: 'Now call fill_review_report with every field of the Review Report.' + (String(rules || '').trim() ? ' Apply every one of the COMPANY AI RULES in the system prompt.' : '') });
 
   const body = {
     model: modelName(),
     max_tokens: 20000,
     stream: true,
-    system: systemPrompt(reviewerCompany),
+    system: systemPrompt(reviewerCompany, rules),
     tools: [{ name: 'fill_review_report', description: 'Return every field of the Review Report.', input_schema: schema.toolInputSchema() }],
     // claude-opus-5-5 rejects a forced tool_choice ('tool'/'any'), so let the model choose;
     // the prompt tells it to call fill_review_report, and a missing call is reported below.

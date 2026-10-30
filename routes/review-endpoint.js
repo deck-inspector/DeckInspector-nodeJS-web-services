@@ -23,6 +23,7 @@ const tenantsDAO = require('../model/tenantsDAO');
 const schema = require('../service/review/reviewSchema');
 const ReviewAI = require('../service/review/ReviewAI');
 const Gen = require('../service/review/ReviewReportGenerator');
+const { readRules } = require('./visualai-endpoint'); // company AI Rules (same ones the Visual draft uses)
 
 const CONTAINER = 'priorreports';
 const pageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
@@ -231,8 +232,10 @@ router.post('/:projectId/analyze', async (req, res) => {
       prog.set({ phase: 'e3' });
       const e3 = await Gen.collectE3(ctx.pid);
       if (controller.signal.aborted || !(await stillMine(ctx.pid, run))) throw stoppedError();
+      const rules = ((await readRules(req.user.company)) || {}).text || '';
+      const ruleLines = rules.split('\n').filter(l => l.trim()).length;
       const now = new Date();
-      const r = await ReviewAI.analyze({ pages, e3, reviewerCompany: (tenant && tenant.name) || req.user.company,
+      const r = await ReviewAI.analyze({ pages, e3, reviewerCompany: (tenant && tenant.name) || req.user.company, rules,
                                          today: `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}`,
                                          onProgress: p => prog.set(Object.assign({ total: Math.min(total, ReviewAI.MAX_PAGES) }, p)),
                                          signal: controller.signal });
@@ -240,7 +243,7 @@ router.post('/:projectId/analyze', async (req, res) => {
       const m2 = await readManifest(ctx.pid);
       if (m2.status !== 'analyzing' || m2.statusAt !== run) { console.log('Review AI result discarded (stopped or replaced)', ctx.pid); return; }
       m2.fields = r.fields; m2.aiDraft = r.fields;
-      m2.ai = { model: r.model, usage: r.usage, pagesSent: r.pagesSent, at: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000) };
+      m2.ai = { model: r.model, usage: r.usage, pagesSent: r.pagesSent, rules: ruleLines, at: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000) };
       m2.status = ''; m2.error = '';
       await writeManifest(ctx.pid, m2);
       console.log('Review AI done', ctx.pid, JSON.stringify(m2.ai));

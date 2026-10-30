@@ -493,3 +493,4 @@ async function appliedSummary(projectId) {
 module.exports = router;
 module.exports.appliedSummary = appliedSummary;
 module.exports.masterOptions = masterOptions;
+module.exports.readRules = readRules; // the Review of Prior Report draft follows the same company AI Rules

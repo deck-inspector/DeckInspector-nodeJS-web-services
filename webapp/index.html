@@ -1513,7 +1513,7 @@ input,select{font-family:inherit;font-size:16px}
           </div>
           <div v-if="va.rulesOpen" id="airules-box" class="airules-box">
             <div class="rvh" style="margin-top:0">&#129302; AI Rules &mdash; your company's writing rules for Claude</div>
-            <div class="hint">Tell Claude how to write, in plain words. These rules are saved for your whole company (not just this project) and are used on every Claude draft &mdash; the Visual Report sections and the Final Report summary. Edit them any time; the next draft follows them.</div>
+            <div class="hint">Tell Claude how to write, in plain words. These rules are saved for your whole company (not just this project) and are used on every Claude draft &mdash; the Visual Report sections, the Final Report summary and the Review of Prior Report. Edit them any time; the next draft follows them.</div>
             <div v-if="!va.rulesLoaded" class="hint">Loading the rules&hellip;</div>
             <textarea v-else class="rvta" style="min-height:170px" v-model="va.rules.text" @input="va.rulesDirty=true" placeholder="Examples:&#10;- Only comment when there is a concern; never describe good conditions.&#10;- Use: &quot;Repairs are necessary. Maintenance is recommended.&quot;&#10;- Do not mention soiling, debris or furniture.&#10;- Stairs with metal stringers: always comment on rust at the base.&#10;- Final Report summary: no more than 3 sentences."></textarea>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
@@ -1558,7 +1558,7 @@ input,select{font-family:inherit;font-size:16px}
                 <div v-if="rv.data.stopped && rv.data.status!=='analyzing'" class="hint" style="color:#8A5A00;font-weight:600">&#9632; Review stopped{{ rv.data.stopped.by ? ' by ' + rv.data.stopped.by : '' }} at {{ rvTime(rv.data.stopped.at) }} &mdash; the answers below were not changed.</div>
                 <div class="hint">Claude reads every page of the prior report and your E3 inspection of this property, then fills in every answer below as a draft. Nothing is final until you generate the report.</div>
                 <div v-if="!rv.data.aiConfigured" class="hint" style="color:#B00020;font-weight:600">The AI key has not been added to the server yet (App Service setting ANTHROPIC_API_KEY). You can still fill in the answers by hand.</div>
-                <div v-if="rv.data.ai" class="hint">Last draft {{ shortDate(rv.data.ai.at) }} &middot; {{ rv.data.ai.model }} &middot; {{ rv.data.ai.pagesSent }} pages &middot; {{ rvMinSec(rv.data.ai.seconds) }}<template v-if="rv.data.ai.usage"> &middot; {{ rvTok(rv.data.ai.usage) }}</template></div>
+                <div v-if="rv.data.ai" class="hint">Last draft {{ shortDate(rv.data.ai.at) }} &middot; {{ rv.data.ai.model }} &middot; {{ rv.data.ai.pagesSent }} pages &middot; <b>{{ rv.data.ai.rules ? 'followed ' + rv.data.ai.rules + ' AI Rule lines' : 'no AI Rules used' }}</b> &middot; {{ rvMinSec(rv.data.ai.seconds) }}<template v-if="rv.data.ai.usage"> &middot; {{ rvTok(rv.data.ai.usage) }}</template></div>
               </div>
               <div v-if="rv.data.error" style="color:#B00020;font-weight:700;margin:6px 0">{{ rv.data.error }}</div>
               <div class="rvstep">
