@@ -426,13 +426,14 @@ input,select{font-family:inherit;font-size:16px}
 .ppdoc table.pp-sched{margin:4px 0 4px;font-size:10pt}
 .ppdoc .pp-sched td{vertical-align:middle;padding:3px 6px}
 .ppdoc .pp-sched tr.hd td,.ppdoc .pp-sched tr.tot td{background:#E7E6E6;font-weight:700}
+.ppdoc .pp-sched tr.hd td.amt{white-space:normal}
 .ppdoc .pp-sched td.n,.ppdoc .pp-sched td.u{text-align:center;width:36px}
-.ppdoc .pp-sched td.u{width:56px}
-.ppdoc .pp-sched td.ph{width:1.3in;text-align:center;padding:4px}
+.ppdoc .pp-sched td.u{width:44px}
+.ppdoc .pp-sched td.ph{width:1.25in;text-align:center;padding:4px}
 .ppdoc .pp-sched td.ph img{max-width:1.15in;max-height:.8in;object-fit:contain;display:inline-block;vertical-align:middle}
 .ppdoc .pp-sched td.ph i{color:#808080;font-size:8pt}
 .xprop-nophoto{margin-top:6px;font-size:12px;color:#b45309;font-weight:600}
-.ppdoc .pp-sched td.amt{text-align:right;width:110px;font-weight:700;color:#C00000}
+.ppdoc .pp-sched td.amt{text-align:right;width:88px;font-weight:700;color:#C00000;white-space:nowrap}
 .ppdoc .pp-sched-note{text-align:center;font-size:8.5pt;font-style:italic;color:#595959;margin:0 0 12px}
 .xprop{border:1.5px solid var(--line);border-radius:10px;padding:8px 10px 10px;margin:8px 0;background:#fafafa}
 .xprop.done{border-color:#7cc59a;background:#f3faf6}
@@ -1291,8 +1292,8 @@ input,select{font-family:inherit;font-size:16px}
             <h4>Additional Properties</h4>
             <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:4px">Add more properties to this proposal. Each one becomes its own project when the proposal is accepted. The owner, manager and contact above apply to all of them.</div>
             <template v-if="propExtras().length">
-              <div style="display:flex;gap:8px"><div style="flex:1"><label>Units (this property)</label><input v-model.trim="prop.form.units" placeholder="e.g. 24"></div><div style="flex:1.2"><label>Inspection Price (this property)</label><input v-model.trim="prop.form.values[10]" placeholder="$0.00" title="Price for this property only (same as the Inspection Price under Document selections)"></div></div>
-              <label>Report Fee (this property)</label><input v-model.trim="prop.form.values[21]" placeholder="$0.00" title="Report fee for this property only (same as the Report Fee under Document selections)">
+              <div style="display:flex;gap:8px"><div style="flex:1"><label>Units (this property)</label><input v-model.trim="prop.form.units" placeholder="e.g. 24"></div><div style="flex:1.2"><label>Inspection Price (this property)</label><input v-model.trim="prop.form.values[10]" @blur="propMoneyFix(prop.form.values, 10)" placeholder="$0.00" title="Price for this property only (same as the Inspection Price under Document selections)"></div></div>
+              <label>Report Fee (this property)</label><input v-model.trim="prop.form.values[21]" @blur="propMoneyFix(prop.form.values, 21)" placeholder="$0.00" title="Report fee for this property only (same as the Report Fee under Document selections)">
               <div class="xprop" v-for="(x, i) in prop.form.extraProperties" :key="x.key" :class="{done: propExtraProject(x)}">
                 <div class="xprop-head">
                   <span>Property {{ i + 2 }}<span class="ok" v-if="propExtraProject(x)"> &#10003; project created</span></span>
@@ -1301,7 +1302,7 @@ input,select{font-family:inherit;font-size:16px}
                 <label>Property</label><input v-model.trim="x.property" :disabled="!!propExtraProject(x)" placeholder="e.g. 410 Palm Canyon Apartments">
                 <label>Street Address</label><input v-model.trim="x.addressStreet" :disabled="!!propExtraProject(x)" placeholder="Street">
                 <div style="display:flex;gap:8px"><div style="flex:1.4"><label>City</label><input v-model.trim="x.addressCity" :disabled="!!propExtraProject(x)" placeholder="City"></div><div style="flex:1"><label>State &amp; Zip</label><input v-model.trim="x.addressStateZip" :disabled="!!propExtraProject(x)" placeholder="CA 92262"></div></div>
-                <div style="display:flex;gap:8px"><div style="flex:1"><label>Units</label><input v-model.trim="x.units" placeholder="e.g. 12"></div><div style="flex:1.2"><label>Inspection Price</label><input v-model.trim="x.price" :disabled="!!propExtraProject(x)" placeholder="$0.00"></div><div style="flex:1.2"><label>Report Fee</label><input v-model.trim="x.reportFee" :disabled="!!propExtraProject(x)" :placeholder="(prop.form.values[21] || '$0.00') + ' (same as first)'"></div></div>
+                <div style="display:flex;gap:8px"><div style="flex:1"><label>Units</label><input v-model.trim="x.units" placeholder="e.g. 12"></div><div style="flex:1.2"><label>Inspection Price</label><input v-model.trim="x.price" @blur="propMoneyFix(x, 'price')" :disabled="!!propExtraProject(x)" placeholder="$0.00"></div><div style="flex:1.2"><label>Report Fee</label><input v-model.trim="x.reportFee" @blur="propMoneyFix(x, 'reportFee')" :disabled="!!propExtraProject(x)" :placeholder="(prop.form.values[21] || '$0.00') + ' (same as first)'"></div></div>
                 <label>Property Photo</label>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                   <button type="button" class="btn-dl" :disabled="photoBusy || !propExtraAddress(x)" @click="propExtraSatPhoto(x)">&#128225; Satellite</button>
@@ -8348,6 +8349,10 @@ createApp({
     },
     async saveProposal(silent) {
       if (!this.prop) return null;
+      if (this.propExtras().length) {
+        this.propMoneyFix(this.prop.form.values, 10); this.propMoneyFix(this.prop.form.values, 21);
+        for (const x of this.propExtras()) { this.propMoneyFix(x, 'price'); this.propMoneyFix(x, 'reportFee'); }
+      }
       this.propBusy = true;
       try {
         const res = await this.api('/project/proposals/save', {
@@ -8578,13 +8583,30 @@ createApp({
       return rows;
     },
     propRowsUnits() { return this.propRows().some(r => String(r.units || '').trim()); },
+    // A plain number typed in a price box becomes "$1,650.00" (David, Oct 29
+    // 2026: only the template's own price came with the $ sign). Words such
+    // as "Included" are left exactly as typed.
+    propMoneyText(v) {
+      const t = String(v == null ? '' : v).trim();
+      if (!/^\$?\s*-?[\d,]*\.?\d+$/.test(t) || !/\d/.test(t)) return v;
+      const n = Number(t.replace(/[$,\s]/g, ''));
+      if (!isFinite(n)) return v;
+      return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    },
+    propMoneyFix(obj, key) {
+      if (!obj) return;
+      const v = this.propMoneyText(obj[key]);
+      if (v !== obj[key]) obj[key] = v;
+    },
     propMoney(s) { const m = String(s == null ? '' : s).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : null; },
     // key: 'price' | 'reportFee' | omitted = both added together
     propTotalText(key) {
-      let t = 0;
+      // blanks and words ("NA", "Included") count as $0 so the total always shows
+      let t = 0, any = false;
       for (const r of this.propRows()) {
-        for (const k of (key ? [key] : ['price', 'reportFee'])) { const n = this.propMoney(r[k]); if (n == null) return ''; t += n; }
+        for (const k of (key ? [key] : ['price', 'reportFee'])) { const n = this.propMoney(r[k]); if (n != null) { t += n; any = true; } }
       }
+      if (!any) return '';
       return '$' + t.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
     // The proposal to SHOW for a project: an extra property's own record shows
@@ -8633,6 +8655,7 @@ createApp({
         x.projectId = this.projectId(created);
         // the property's own proposal record: the shared proposal with THIS
         // property in the Prepared-for box and its price as the Inspection Price
+        this.propMoneyFix(x, 'price'); this.propMoneyFix(x, 'reportFee');
         const cf = JSON.parse(JSON.stringify(this.prop.form));
         cf.property = name; cf.address = '';
         cf.addressStreet = x.addressStreet || ''; cf.addressCity = x.addressCity || ''; cf.addressStateZip = x.addressStateZip || '';
