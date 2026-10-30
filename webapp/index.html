@@ -155,6 +155,13 @@ input,select{font-family:inherit;font-size:16px}
 .newflag{font-size:11px;font-weight:800;background:var(--ok);color:#fff;border-radius:99px;padding:2px 8px;margin-left:8px;vertical-align:2px}
 
 .kindrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+/* AI RULES PILL (David, Oct 30 2026: "I cannot locate the AI rules ... make the rules pill stand out") */
+.airules-pill{margin-left:auto;display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:99px;font-weight:800;font-size:15px;color:#fff;background:linear-gradient(135deg,#6A1B9A,#AD1457);border:2px solid #FFC107;box-shadow:0 2px 10px rgba(106,27,154,.35);cursor:pointer}
+.airules-pill:hover{filter:brightness(1.08)}
+.airules-pill.on{background:#4A148C}
+.airules-pill .cnt{background:#FFC107;color:#3E1A00;border-radius:99px;padding:1px 9px;font-size:13px}
+.airules-box{border:2px solid #6A1B9A;border-radius:12px;padding:12px 14px;margin:0 0 14px;background:rgba(106,27,154,.06)}
+@media (max-width:560px){ .airules-pill{margin-left:0;width:100%;justify-content:center} }
 .kind{padding:11px 20px;border-radius:99px;font-weight:700;font-size:15px;background:var(--bg);color:var(--ink-soft);border:1.5px solid var(--line)}
 .kind.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 /* Review of Prior Inspection Report (Oct 2026) */
@@ -1502,6 +1509,18 @@ input,select{font-family:inherit;font-size:16px}
             <button class="kind" :class="{on: reportKind==='InvasiveOnly'}" @click="reportKind='InvasiveOnly'">Invasive Only</button>
             <button class="kind" :class="{on: reportKind==='UnsafeConditions'}" :style="reportKind==='UnsafeConditions' ? 'background:#C62828;color:#fff;border-color:#C62828' : ''" @click="reportKind='UnsafeConditions'">Unsafe Conditions</button>
             <button class="kind" :class="{on: reportKind==='Review'}" title="Review another company's inspection report" @click="reportKind='Review'; rvLoad()">Review of Prior Report</button>
+            <button class="airules-pill" :class="{on: va.rulesOpen}" title="Your company's writing rules for Claude - used on every Claude draft" @click="vaRulesToggle()">&#129302; AI Rules <span class="cnt">{{ vaRulesCount() }}</span></button>
+          </div>
+          <div v-if="va.rulesOpen" id="airules-box" class="airules-box">
+            <div class="rvh" style="margin-top:0">&#129302; AI Rules &mdash; your company's writing rules for Claude</div>
+            <div class="hint">Tell Claude how to write, in plain words. These rules are saved for your whole company (not just this project) and are used on every Claude draft &mdash; the Visual Report sections and the Final Report summary. Edit them any time; the next draft follows them.</div>
+            <div v-if="!va.rulesLoaded" class="hint">Loading the rules&hellip;</div>
+            <textarea v-else class="rvta" style="min-height:170px" v-model="va.rules.text" @input="va.rulesDirty=true" placeholder="Examples:&#10;- Only comment when there is a concern; never describe good conditions.&#10;- Use: &quot;Repairs are necessary. Maintenance is recommended.&quot;&#10;- Do not mention soiling, debris or furniture.&#10;- Stairs with metal stringers: always comment on rust at the base.&#10;- Final Report summary: no more than 3 sentences."></textarea>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+              <button class="btn-dl" :disabled="!va.rulesDirty || va.busy==='rules'" @click="vaRulesSave">&#128190; {{ va.busy==='rules' ? 'Saving…' : 'Save AI Rules' }}</button>
+              <button class="btn-dl" @click="va.rulesOpen=false">Close</button>
+              <span class="hint" style="margin:0" v-if="va.rules.at">Last saved {{ shortDate(va.rules.at) }}{{ va.rules.by ? ' by ' + va.rules.by : '' }}</span>
+            </div>
           </div>
           <!-- REVIEW OF PRIOR INSPECTION REPORT (David, Oct 6 2026): instead of the
                Visual Report, the E3 Inspection Report incorporates a review of ANOTHER
@@ -1643,15 +1662,7 @@ input,select{font-family:inherit;font-size:16px}
               <div class="hint"><b>{{ va.data.inspection.length }}</b> sections &middot; <b>{{ vaPhotoCount() }}</b> photos to read<template v-if="va.data.counts && va.data.counts.unavailable"> &middot; {{ va.data.counts.unavailable }} unit(s) unavailable (skipped)</template> &middot; estimated cost about <b>${{ vaEstimate() }}</b>, roughly {{ vaMinutes() }} min</div>
               <!-- COMPANY WRITING RULES (David, Oct 6 2026: "I need to be able to direct Claude on
                    its summation or comments"): saved for the whole company, used on every draft. -->
-              <details class="rvsec" style="margin:8px 0" @toggle="$event.target.open && vaRulesLoad()">
-                <summary>&#9998; Your company's writing rules for Claude <span style="font-weight:400;font-size:13px;color:var(--ink-soft)">{{ va.rules.text ? '(' + va.rules.text.split('\n').filter(Boolean).length + ' rule lines saved)' : '(none yet - click to add)' }}</span></summary>
-                <div class="hint">Tell Claude how to write, in plain words. These rules are saved for your whole company and used on every Claude draft (sections and the Final Report summary). Edit them any time; the next draft follows them.</div>
-                <textarea class="rvta" style="min-height:150px" v-model="va.rules.text" @input="va.rulesDirty=true" placeholder="Examples:&#10;- Only comment when there is a concern; never describe good conditions.&#10;- Use: &quot;Repairs are necessary. Maintenance is recommended.&quot;&#10;- Do not mention soiling, debris or furniture.&#10;- Stairs with metal stringers: always comment on rust at the base.&#10;- Final Report summary: no more than 3 sentences."></textarea>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
-                  <button class="btn-dl" :disabled="!va.rulesDirty || va.busy==='rules'" @click="vaRulesSave">&#128190; {{ va.busy==='rules' ? 'Saving…' : 'Save Writing Rules' }}</button>
-                  <span class="hint" style="margin:0" v-if="va.rules.at">Last saved {{ shortDate(va.rules.at) }}{{ va.rules.by ? ' by ' + va.rules.by : '' }}</span>
-                </div>
-              </details>
+              <div style="margin:8px 0"><button class="airules-pill" style="margin-left:0" @click="vaRulesToggle(true)">&#129302; AI Rules <span class="cnt">{{ vaRulesCount() }}</span></button> <span class="hint" style="margin-left:6px">Claude follows these on every draft &mdash; click to view or edit (opens above).</span></div>
               <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin:6px 0;color:var(--ink)"><input type="checkbox" v-model="va.auto" :disabled="!!va.data.status"> <b>One click:</b> create the report automatically as soon as Claude finishes (skip Step 2)</label>
               <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0">
                 <button class="btn-dl" :disabled="!!va.data.status || !!va.busy || !va.data.aiConfigured || !va.data.inspection.length" @click="vaAnalyze(false)">&#129302; {{ va.data.status==='analyzing' ? 'Claude is drafting…' : (va.auto ? (vaDraftedCount() ? 'Draft Again and Create Report' : 'Draft and Create Report') : (vaDraftedCount() ? 'Start a New Draft with Claude' : 'Start Draft with Claude')) }}</button>
@@ -3077,7 +3088,7 @@ createApp({
       view: 'projects', projects: [], loadingProjects: false, query: '',
       current: null, reports: [], loadingReports: false,
       generating: false, generateStartedAt: null, pollTimer: null, reportKind: 'Visual', repScope: 'all', repPick: {},
-      va: { rules: { text: '', by: '', at: '' }, rulesDirty: false, rulesLoaded: false, auto: true, autoDone: '', open: false, loading: false, busy: '', data: {}, f: null, schema: null, dirty: false, timer: null, tick: null, now: Date.now(), pick: {} },
+      va: { rules: { text: '', by: '', at: '' }, rulesDirty: false, rulesLoaded: false, rulesOpen: false, auto: true, autoDone: '', open: false, loading: false, busy: '', data: {}, f: null, schema: null, dirty: false, timer: null, tick: null, now: Date.now(), pick: {} },
       vaSelectFields: [{ k: 'visualreview', label: 'Visual review', opts: 'review' }, { k: 'visualsignsofleak', label: 'Visual signs of leaks', opts: 'yn' },
         { k: 'furtherinvasivereviewrequired', label: 'Further invasive review', opts: 'yn' }, { k: 'unsafecondition', label: 'Unsafe condition', opts: 'yn' },
         { k: 'conditionalassessment', label: 'Condition assessment', opts: 'assess' }, { k: 'eee', label: 'Life expectancy (EEE)', opts: 'life' },
@@ -4075,6 +4086,18 @@ createApp({
       return { pct: Math.min(99, Math.round(pct)), label, steps: names.map((name, i) => ({ name, cls: i < at ? 'ok' : (i === at ? 'on' : '') })) };
     },
     vaRows() { return this.va.data.inspection || []; },
+    vaRulesCount() {
+      if (!this.va.rulesLoaded) return '…';
+      const n = String(this.va.rules.text || '').split('\n').filter(l => l.trim()).length;
+      return n ? n + (n === 1 ? ' rule' : ' rules') : 'none yet';
+    },
+    vaRulesToggle(forceOpen) {
+      this.va.rulesOpen = forceOpen ? true : !this.va.rulesOpen;
+      if (this.va.rulesOpen) {
+        this.vaRulesLoad();
+        this.$nextTick(() => { const el = document.getElementById('airules-box'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+      }
+    },
     async vaRulesLoad(force) {
       if (this.va.rulesLoaded && !force) return;
       try {
@@ -4539,6 +4562,7 @@ createApp({
     openReports(p) {
       history.pushState({ v: 'reports', pid: this.projectId(p) }, '');
       this.current = p; this.view = 'reports'; this.reports = [];
+      this.vaRulesLoad(); // AI Rules pill shows the saved count right away
       this.generating = false; this.generateStartedAt = null;
       if (this.rv.timer) clearInterval(this.rv.timer);
       this.rv = Object.assign({}, this.rv, { busy: '', progress: '', data: {}, f: null, dirty: false, timer: null, pid: '' });
