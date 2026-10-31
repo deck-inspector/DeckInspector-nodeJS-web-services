@@ -172,10 +172,12 @@ memberRouter.post("/clients/:id/:inviteId/resend", async (req, res) => {
     if (inv.status === "accepted") return res.status(409).json({ message: "This invitation was already accepted." });
     if (!(await membershipOk(me, res))) return;
     const companyName = await tenantName(company(req));
-    const code = await portal.reissueInvitation(inv.id, false);
-    const fresh = await portal.getInvitationById(inv.id);
-    const out = await buildAndSend(fresh, code, me, companyName);
-    if (out.emailed) await portal.setInvitation(inv.id, { emailed: true });
+    // a resend is a NEW invitation document (new code = new key); the old one is marked replaced
+    const re = await portal.reissueInvitation(inv.id);
+    if (!re) return res.status(404).json({ message: "Invitation not found." });
+    const fresh = re.doc;
+    const out = await buildAndSend(fresh, re.code, me, companyName);
+    if (out.emailed) await portal.setInvitation(fresh.id, { emailed: true });
     res.status(200).json(Object.assign({ ok: 1, invitation: publicInvite(Object.assign({}, fresh, { emailed: out.emailed })) }, out));
   } catch (e) {
     console.error("portal invite resend:", e && e.message);
@@ -208,6 +210,7 @@ function inviteProblem(inv) {
   if (!inv) return "This invitation link is not valid. Ask your inspector to send a new one.";
   if (s === "accepted") return "This invitation has already been used. Sign in with your email and password.";
   if (s === "revoked") return "This invitation was withdrawn. Ask your inspector to send a new one.";
+  if (s === "replaced") return "A newer invitation was sent to you - please use the link in the latest email.";
   if (s === "expired") return "This invitation has expired. Ask your inspector to send a new one.";
   return "";
 }
