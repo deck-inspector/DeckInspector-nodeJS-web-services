@@ -24,6 +24,9 @@ const jwt = require("jsonwebtoken");
 const couchbase = require("../database/couchbase");
 // Oct 27 2026: photo links, rate limits, activity log, terms of use (portal logins only)
 const shield = require("./portalShield");
+// Nov 1 2026 (client portal PR 2): one client login can be linked to several
+// inspectors; the token names the inspector currently being viewed.
+const links = require("../model/portalLinks");
 
 const USER_TTL_MS = 60 * 1000;
 const MAX_IDS = 500;
@@ -234,6 +237,45 @@ async function acceptTerms(req, res, client) {
   return res.status(200).json({ success: true, version: shield.TERMS_VERSION });
 }
 
+// ---------------------------------------------------------------- inspectors (PR 2)
+// The inspectors this login is linked to, with names for the header switcher.
+async function describeLinks(rec) {
+  const Tenants = require("./tenantService");
+  const clients = require("../model/clients");
+  const out = [];
+  for (const l of links.linksOf(rec)) {
+    let inspector = "", clientName = "";
+    try { const t = await Tenants.getTenantByCompanyIdentifier(l.companyIdentifier); inspector = (t && t.Tenant && t.Tenant.name) || ""; } catch (e) { /* name only */ }
+    try { const c = await clients.getClientById(l.clientId); clientName = (c && c.name) || ""; } catch (e) { /* name only */ }
+    out.push({ companyIdentifier: l.companyIdentifier, clientId: l.clientId, inspector: inspector || l.companyIdentifier, client: clientName, primary: !!l.primary, active: !!l.active });
+  }
+  return out;
+}
+
+async function listLinks(req, res, client) {
+  const rec = await lookupUser(client.username);
+  const list = await describeLinks(rec);
+  return res.status(200).json({ success: true, current: client.company, links: list });
+}
+
+// POST /api/portal/switch { companyIdentifier } -> a fresh token for that inspector
+async function switchLink(req, res, client) {
+  const want = String((req.body && req.body.companyIdentifier) || "").trim();
+  const wantClient = String((req.body && req.body.clientId) || "").trim();
+  const rec = await lookupUser(client.username);
+  const link = want ? links.linkFor(rec, want, wantClient || undefined) : null;
+  if (!link) return deny(res, 404, "That inspector is not linked to your login.");
+  const Tenants = require("./tenantService");
+  const t = await Tenants.isTenantActive(link.companyIdentifier).catch(() => ({ success: false }));
+  if (!t || !t.success || !t.allowLogin) return deny(res, 409, "That inspector's E3 account is not active right now.");
+  const token = jwt.sign(
+    { user_id: rec.id, username: rec.username, company: link.companyIdentifier, role: "client", clientId: link.clientId },
+    process.env.TOKEN_KEY, { expiresIn: "1d" }
+  );
+  shield.note(client, "api", { req });
+  return res.status(200).json({ success: true, token, companyIdentifier: link.companyIdentifier, clientId: link.clientId });
+}
+
 async function handleClient(req, res, next, client) {
   // match case-insensitively (as Express routes do) but keep the original
   // spelling so ids taken from the path are exact
@@ -248,6 +290,10 @@ async function handleClient(req, res, next, client) {
   if (client.termsVersion !== shield.TERMS_VERSION && !TERMS_FREE.some((r) => r.method === method && r.re.test(path))) {
     return res.status(428).json({ success: false, needTerms: true, message: "Please accept the portal terms of use to continue." });
   }
+
+  // several inspectors on one login (PR 2): list them / switch the token to one
+  if (client.role === "client" && method === "GET" && /^\/portal\/links$/i.test(path)) return listLinks(req, res, client);
+  if (client.role === "client" && method === "POST" && /^\/portal\/switch$/i.test(path)) return switchLink(req, res, client);
 
   // bulk pulling is stopped and recorded; normal browsing never gets near this
   if (!shield.allow(client.username, "api")) {
@@ -325,10 +371,18 @@ function clientGuard(req, res, next) {
       return next(); // staff
     }
     if (rec.isActive === false) return deny(res, 401, "This login has been turned off.");
-    if (!rec.clientId || rec.companyIdentifier !== payload.company) return deny(res, 403, "This login is not linked to a client.");
+    // The token names the inspector being viewed: the login's own (primary)
+    // inspector, or - client logins only (PR 2) - one of its active links.
+    let company = rec.companyIdentifier, clientId = rec.clientId;
+    if (isClientRecord(rec) && (payload.company !== rec.companyIdentifier || (payload.clientId && payload.clientId !== rec.clientId))) {
+      const link = links.linkFor(rec, payload.company, payload.clientId || undefined);
+      if (!link) return deny(res, 403, "This inspector is no longer linked to your login. Sign in again.");
+      company = link.companyIdentifier; clientId = link.clientId;
+    }
+    if (!clientId || company !== payload.company) return deny(res, 403, "This login is not linked to a client.");
     req.clientViewer = {
       userId: rec.id, termsVersion: rec.termsVersion || "",
-      username: rec.username, company: rec.companyIdentifier, clientId: rec.clientId,
+      username: rec.username, company, clientId,
       role: isContractorRecord(rec) ? "contractor" : "client",
       contractorProjects: Array.isArray(rec.contractorProjects) ? rec.contractorProjects.map(String) : [],
       name: [rec.first_name, rec.last_name].filter(Boolean).join(" ") || rec.username,

@@ -94,11 +94,6 @@ router.route("/login").post(async function (req, res) {
       return res.status(401).send("Invalid Credentials");
     }
 
-    const loginAllowed = await Tenants.isTenantActive(record.companyIdentifier);
-    if (!loginAllowed.success || !loginAllowed.allowLogin) {
-      return res.status(401).send("Invalid Credentials,company is inactive.");
-    }
-
     // CLIENT PORTAL (Oct 23 2026): owner / property-manager logins are
     // view-only and web-only for now. The phone app syncs every property of the
     // tenant and is an editing tool, so a client login is refused there until
@@ -106,6 +101,22 @@ router.route("/login").post(async function (req, res) {
     // contractors (repairs portal, Oct 23 2026) are portal logins too
     const portalRole = String(record.role || "").toLowerCase();
     const isClientLogin = portalRole === "client" || portalRole === "contractor";
+
+    // A client login linked to several inspectors (PR 2, Nov 1 2026) signs in
+    // through its first inspector; when that inspector's E3 account is inactive
+    // the session starts on the first active linked inspector instead.
+    let loginCompany = record.companyIdentifier, loginClientId = record.clientId || null;
+    let loginAllowed = await Tenants.isTenantActive(record.companyIdentifier);
+    if ((!loginAllowed.success || !loginAllowed.allowLogin) && portalRole === "client") {
+      const links = require("../model/portalLinks");
+      for (const l of links.linksOf(record).filter((x) => !x.primary && x.active)) {
+        const t = await Tenants.isTenantActive(l.companyIdentifier).catch(() => ({ success: false }));
+        if (t && t.success && t.allowLogin) { loginAllowed = t; loginCompany = l.companyIdentifier; loginClientId = l.clientId; break; }
+      }
+    }
+    if (!loginAllowed.success || !loginAllowed.allowLogin) {
+      return res.status(401).send("Invalid Credentials,company is inactive.");
+    }
     if (isClientLogin && isMobile) {
       return res
         .status(403)
@@ -157,13 +168,16 @@ router.route("/login").post(async function (req, res) {
     const claims = {
       user_id: record.id || record._id,
       username,
-      company: record.companyIdentifier,
+      company: loginCompany,
     };
     // Client logins carry their role + client in the token (the server lock in
     // service/clientAccess.js also re-reads the user record on every request).
     if (isClientLogin) {
       claims.role = portalRole;
-      claims.clientId = record.clientId || null;
+      claims.clientId = loginClientId;
+      // the web app reads these two to know which inspector it is showing
+      user.companyIdentifier = loginCompany;
+      user.clientId = loginClientId;
     }
     const token = jwt.sign(
       claims,

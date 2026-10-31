@@ -615,7 +615,16 @@ input,select{font-family:inherit;font-size:16px}
             <p><b>{{ invite.data.member }}</b><span v-if="invite.data.company"> ({{ invite.data.company }})</span>, your E3 Certified Inspector, has invited <b>{{ invite.data.client }}</b> to follow the inspections of {{ invite.data.properties.length === 1 ? 'its property' : invite.data.properties.length + ' properties' }} &mdash; photos, notes and ratings &mdash; as they are entered.</p>
             <ul v-if="invite.data.properties.length" style="margin:0 0 14px;padding-left:20px;font-size:14px;color:var(--ink-soft)"><li v-for="(p, i) in invite.data.properties.slice(0, 8)" :key="i">{{ p.name || p.address }}</li><li v-if="invite.data.properties.length > 8">&hellip; and {{ invite.data.properties.length - 8 }} more</li></ul>
             <p v-if="invite.data.note" class="hint" style="margin:0 0 14px"><b>Note from {{ invite.data.member }}:</b> {{ invite.data.note }}</p>
-            <form @submit.prevent="inviteAccept">
+            <form @submit.prevent="inviteAccept" v-if="invite.data.existingLogin">
+              <!-- PR 2: this email already has a portal login (another inspector) - link, don't duplicate -->
+              <div class="hint" style="margin:0 0 12px;background:var(--bg-soft,#f2f5f8);border-radius:10px;padding:10px 12px"><b>You already have an E3 Property Owner Portal login</b> for {{ invite.data.email }}. Enter its password and {{ invite.data.member }}'s properties are added to it &mdash; one login, every inspector you work with.</div>
+              <div class="field"><label>Email (your username)</label><input :value="invite.data.email" disabled></div>
+              <div class="field"><label>Your portal password</label><input v-model="invite.form.password" type="password" autocomplete="current-password" required minlength="8"></div>
+              <p class="hint" style="margin:0 0 14px">{{ invite.data.priceLine }}</p>
+              <button class="btn btn-primary btn-block" :disabled="invite.busy || invite.form.password.length < 8"><span v-if="!invite.busy">Add to my portal</span><span v-else>Adding&hellip;</span></button>
+              <p class="hint" style="text-align:center;margin:10px 0 0">Forgot it? Ask the inspector who first set up your portal login to reset it.</p>
+            </form>
+            <form @submit.prevent="inviteAccept" v-else>
               <div class="field"><label>Email (your username)</label><input :value="invite.data.email" disabled></div>
               <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>First name</label><input v-model.trim="invite.form.first_name" autocomplete="given-name"></div><div class="field" style="flex:1"><label>Last name</label><input v-model.trim="invite.form.last_name" autocomplete="family-name"></div></div>
               <div class="field"><label>Choose a password (8+ characters)</label><input v-model="invite.form.password" type="password" autocomplete="new-password" required minlength="8"></div>
@@ -723,6 +732,12 @@ input,select{font-family:inherit;font-size:16px}
         <button class="btn-ghost" :class="{navon: cv.view==='repairs'}" @click="cvRepairs()">&#128295; Repairs</button>
         <button class="btn-ghost" :class="{navon: cv.view==='contractors'}" @click="cvContractors()">&#128119; My Contractors</button>
       </nav>
+      <!-- PR 2: one login, several inspectors -->
+      <label v-if="links.list.length > 1" style="display:flex;align-items:center;gap:6px;margin-left:14px;font-size:13px;color:var(--ink-soft)">Inspector
+        <select :value="user.companyIdentifier + '|' + user.clientId" :disabled="links.busy" @change="linkSwitch($event.target.value)" style="font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)">
+          <option v-for="l in links.list" :key="l.companyIdentifier + '|' + l.clientId" :value="l.companyIdentifier + '|' + l.clientId" :disabled="!l.active">{{ l.inspector }}{{ l.active ? '' : ' (access turned off)' }}</option>
+        </select>
+      </label>
       <div class="spacer"></div>
       <img v-if="logo" :src="logo" alt="Company logo" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
       <div class="userchip">
@@ -1168,11 +1183,19 @@ input,select{font-family:inherit;font-size:16px}
               <div class="empty" v-if="portal.loading" style="padding:8px 0">Loading&hellip;</div>
               <div class="hint" v-else-if="!portal.list.length" style="margin:0 0 6px">No logins yet.</div>
               <div class="pa-row" v-for="l in portal.list" :key="l.username">
-                <div class="nm"><b>{{ [l.first_name, l.last_name].filter(Boolean).join(' ') || l.username }}</b><small>{{ l.isActive===false && l.formerUsername ? l.formerUsername : l.username }}<span v-if="l.email"> &middot; {{ l.email }}</span></small></div>
-                <span class="tag bad" v-if="l.isActive===false">Turned off</span>
-                <span class="tag good" v-else>Active</span>
-                <button class="btn-dl" :disabled="portal.busy" @click="portalToggle(l)">{{ l.isActive===false ? 'Turn on' : 'Turn off' }}</button>
-                <button class="btn-dl" :disabled="portal.busy" @click="portalResetOpen(l)">Reset password</button>
+                <div class="nm"><b>{{ [l.first_name, l.last_name].filter(Boolean).join(' ') || l.username }}</b><small>{{ l.isActive===false && l.formerUsername ? l.formerUsername : l.username }}<span v-if="l.email"> &middot; {{ l.email }}</span><span v-if="l.linked"> &middot; shared login - set up by another inspector</span></small></div>
+                <template v-if="l.linked">
+                  <span class="tag bad" v-if="l.isActive===false">Login turned off</span>
+                  <span class="tag bad" v-else-if="!l.linkActive">Access off</span>
+                  <span class="tag good" v-else>Active</span>
+                  <button class="btn-dl" :disabled="portal.busy || l.isActive===false" @click="portalToggle(l)">{{ l.linkActive ? 'Turn off' : 'Turn on' }}</button>
+                </template>
+                <template v-else>
+                  <span class="tag bad" v-if="l.isActive===false">Turned off</span>
+                  <span class="tag good" v-else>Active</span>
+                  <button class="btn-dl" :disabled="portal.busy" @click="portalToggle(l)">{{ l.isActive===false ? 'Turn on' : 'Turn off' }}</button>
+                  <button class="btn-dl" :disabled="portal.busy" @click="portalResetOpen(l)">Reset password</button>
+                </template>
               </div>
               <div class="pa-msg" v-if="portal.msg">{{ portal.msg }}</div>
               <div style="margin-top:6px" v-if="portal.msg"><button class="btn-dl" @click="portalCopy()">Copy sign-in instructions</button> <button class="btn-cancel" @click="portal.msg=''">Done</button></div>
@@ -1217,6 +1240,7 @@ input,select{font-family:inherit;font-size:16px}
             <h3>{{ pinv.result.emailed ? 'Invitation emailed' : 'Invitation ready to send' }}</h3>
             <div class="hint" style="margin:0 0 10px" v-if="pinv.result.emailed">We emailed {{ pinv.result.invitation.email }} the code and the link below. You can also send the link yourself.</div>
             <div class="hint" style="margin:0 0 10px" v-else>Email is not set up on the server yet, so send the link to {{ pinv.result.invitation.email }} yourself - the button opens a ready-made email in your mail program.</div>
+            <div class="hint" style="margin:0 0 10px" v-if="pinv.result.willLink"><b>This person already has a portal login</b> (set up by another inspector). When they accept, your properties are added to that login &mdash; no new password.</div>
             <div class="cl-form"><label>Invitation link</label><input :value="pinv.result.acceptUrl" readonly @focus="$event.target.select()"></div>
             <div class="mrow" style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
               <button class="btn-dl" @click="pinvCopy(pinv.result.acceptUrl)">Copy link</button>
@@ -3076,7 +3100,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-31.2';
+const APP_BUILD = '2026-11-01.1';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3159,6 +3183,8 @@ createApp({
       pinv: { list: [], account: null, form: null, result: null, busy: false, err: '', mailConfigured: false, membership: null },
       // the accept page (/invite/CODE), shown in place of the sign-in card
       invite: { code: '', loading: false, data: null, err: '', busy: false, form: { first_name: '', last_name: '', password: '', password2: '' } },
+      // PR 2 (Nov 1 2026): the inspectors linked to this client login (header switcher)
+      links: { list: [], loading: false, busy: false },
       // Portal activity (admins, client page) + portal terms of use (Oct 27 2026)
       act: { open: false, loading: false, days: 30, rows: [], clientId: '', err: '' },
       terms: { open: false, data: null, agree: false, busy: false, err: '' },
@@ -3484,9 +3510,40 @@ createApp({
        else for them (service/clientAccess.js). */
     cvStart() {
       this.loadBranding();
+      this.linksLoad();
       this.cv.view = 'list';
       history.replaceState({ v: 'cv-list' }, '');
       this.cvLoadProps();
+    },
+    // ---- PR 2: inspectors linked to this login ----
+    async linksLoad() {
+      if (!this.isClient || this.portalAs) { this.links.list = []; return; }
+      this.links.loading = true;
+      try {
+        const res = await this.api('/portal/links');
+        if (!res.ok) { this.links.list = []; return; }
+        const j = await res.json();
+        this.links.list = Array.isArray(j.links) ? j.links : [];
+      } catch (e) { this.links.list = []; }
+      finally { this.links.loading = false; }
+    },
+    async linkSwitch(value) {
+      const [companyIdentifier, clientId] = String(value || '').split('|');
+      if (!companyIdentifier || (companyIdentifier === this.user.companyIdentifier && clientId === this.user.clientId)) return;
+      this.links.busy = true;
+      try {
+        const res = await this.api('/portal/switch', { method: 'POST', json: { companyIdentifier, clientId } });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast(j.message || 'Could not switch inspector.', 'err'); return; }
+        this.user = Object.assign({}, this.user, { token: j.token, companyIdentifier: j.companyIdentifier, clientId: j.clientId });
+        localStorage.setItem('e3v2_user', JSON.stringify(this.user));
+        this.cv.props = []; this.cv.prop = null; this.cv.unit = null;
+        const l = this.links.list.find((x) => x.companyIdentifier === j.companyIdentifier && x.clientId === j.clientId);
+        this.toast('Now showing ' + ((l && l.inspector) || 'this inspector') + "'s inspections.", 'ok');
+        this.loadBranding();
+        this.cvHome();
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not reach the server.', 'err'); }
+      finally { this.links.busy = false; }
     },
     async cvLoadProps() {
       this.cv.loading = !this.cv.props.length;
@@ -3985,7 +4042,7 @@ createApp({
     },
     async portalToggle(l) {
       const c = this.clientOpen; if (!c) return;
-      const on = l.isActive === false;
+      const on = l.linked ? !l.linkActive : l.isActive === false; // shared login: only our access flips
       this.portal.busy = true;
       try {
         let res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins/status', { method: 'POST', json: { username: l.username, active: on } });
@@ -3997,7 +4054,7 @@ createApp({
           j = await res.json().catch(() => ({}));
         }
         if (!res.ok) { this.toast(j.message || 'Could not update the login.', 'err'); return; }
-        l.isActive = on;
+        if (l.linked) l.linkActive = on; else l.isActive = on;
         this.portalLoad();
         this.toast(on ? 'Login turned on.' : 'Login turned off - it stops working within a minute, and its username and email are free to reuse.');
       } catch (e) {
@@ -4535,7 +4592,8 @@ createApp({
     },
     async inviteAccept() {
       const f = this.invite.form;
-      if (f.password.length < 8 || f.password !== f.password2) return;
+      const linking = !!(this.invite.data && this.invite.data.existingLogin);
+      if (f.password.length < 8 || (!linking && f.password !== f.password2)) return;
       this.invite.busy = true;
       try {
         const res = await fetch(API + '/invite/' + encodeURIComponent(this.invite.code) + '/accept', {
@@ -4548,7 +4606,7 @@ createApp({
         localStorage.setItem('e3v2_user', JSON.stringify(this.user));
         this.invite = { code: '', loading: false, data: null, err: '', busy: false, form: { first_name: '', last_name: '', password: '', password2: '' } };
         history.replaceState({ v: 'projects' }, '', '/');
-        this.toast('Welcome - your portal login is ready.', 'ok');
+        this.toast(j.linked ? 'Added to your portal login - you are now viewing this inspector\'s properties.' : 'Welcome - your portal login is ready.', 'ok');
         this.portalEnter();
       } catch (e) { this.toast('Could not reach the server. Check your connection.', 'err'); }
       finally { this.invite.busy = false; }
