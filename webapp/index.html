@@ -738,6 +738,7 @@ input,select{font-family:inherit;font-size:16px}
           <option v-for="l in links.list" :key="l.companyIdentifier + '|' + l.clientId" :value="l.companyIdentifier + '|' + l.clientId" :disabled="!l.active">{{ l.inspector }}{{ l.active ? '' : ' (access turned off)' }}</option>
         </select>
       </label>
+      <button class="btn-ghost" v-if="bill.data && bill.data.canManage && !bill.locked" @click="billingManage()" title="Update your card, see invoices, cancel">Billing</button>
       <div class="spacer"></div>
       <img v-if="logo" :src="logo" alt="Company logo" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
       <div class="userchip">
@@ -747,7 +748,27 @@ input,select{font-family:inherit;font-size:16px}
       <button class="btn-ghost" @click="portalAs ? mvExit() : logout()">{{ portalAs ? 'Exit' : 'Sign out' }}</button>
     </div>
 
-    <div class="main">
+    <!-- PR 3: trial over / payment failed - nothing else is reachable until subscribed -->
+    <div class="main" v-if="bill.locked">
+      <div class="panel" style="max-width:600px;margin:36px auto;text-align:center">
+        <h2 style="margin-bottom:8px">{{ bill.data && bill.data.reason === 'payment' ? 'Payment needed' : 'Your free trial has ended' }}</h2>
+        <p style="color:var(--ink-soft);margin-bottom:16px">{{ bill.msg || 'Subscribe to keep viewing your properties.' }}</p>
+        <template v-if="bill.data && bill.data.pricing">
+          <p style="font-size:15px;margin-bottom:6px"><b>{{ bill.data.properties }}</b> propert{{ bill.data.properties === 1 ? 'y' : 'ies' }} &times; {{ billMoney(bill.data.pricing.monthlyCents) }} per month = <b>{{ billMoney(bill.data.pricing.monthlyCents * Math.max(1, bill.data.properties)) }} per month</b></p>
+          <p v-if="bill.data.pricing.introMonthlyCents" style="font-size:13px;color:var(--ink-soft);margin-bottom:6px">Introductory rate applied at checkout: {{ billMoney(bill.data.pricing.introMonthlyCents) }} per property per month for your first {{ bill.data.pricing.introMonths }} months.</p>
+          <div style="display:flex;flex-direction:column;gap:10px;align-items:center;margin:18px 0 8px">
+            <button class="btn btn-primary" :disabled="bill.busy || !bill.data.properties" @click="billingCheckout('month')">{{ bill.busy ? 'Opening checkout&hellip;' : 'Subscribe monthly' }}</button>
+            <button class="btn-ghost" :disabled="bill.busy || !bill.data.properties" @click="billingCheckout('year')" style="border:1px solid var(--line)">Or pay yearly: {{ billMoney(bill.data.pricing.annualCents * Math.max(1, bill.data.properties)) }} per year (save {{ billMoney(Math.max(0, (bill.data.pricing.monthlyCents * 12 - bill.data.pricing.annualCents) * Math.max(1, bill.data.properties))) }})</button>
+            <button class="btn-ghost" v-if="bill.data.canManage" :disabled="bill.busy" @click="billingManage()">Update my payment method</button>
+          </div>
+          <p style="font-size:12px;color:var(--ink-soft)">Secure checkout by Stripe. Cancel any time from the Billing button. Charges follow the number of properties on your login across all of your inspectors.</p>
+        </template>
+        <div style="margin-top:14px"><button class="btn-ghost" @click="logout()">Sign out</button></div>
+      </div>
+    </div>
+    <div class="main" v-else>
+      <div class="cv-banner" v-if="bill.data && bill.data.enabled && bill.data.state === 'trial'">Free trial: <b>{{ bill.data.daysLeft }} day{{ bill.data.daysLeft === 1 ? '' : 's' }} left</b>. <a href="#" @click.prevent="billingCheckout('month')" style="font-weight:700">Subscribe now</a> &mdash; your first charge is when the free days end.</div>
+      <div class="cv-banner" v-if="bill.data && bill.data.enabled && bill.data.state === 'past_due'" style="background:#fff3e0;color:#8a4b00">Your last payment did not go through. <a href="#" @click.prevent="billingManage()" style="font-weight:700">Update your payment method</a> to keep your access.</div>
       <!-- Repairs: every property's repair status -->
       <template v-if="cv.view==='repairs'">
         <div class="page-head"><h2>Repairs <span class="count" v-if="!rp.loading">({{ rp.list.length }})</span></h2></div>
@@ -3100,7 +3121,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.1';
+const APP_BUILD = '2026-11-01.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3185,6 +3206,8 @@ createApp({
       invite: { code: '', loading: false, data: null, err: '', busy: false, form: { first_name: '', last_name: '', password: '', password2: '' } },
       // PR 2 (Nov 1 2026): the inspectors linked to this client login (header switcher)
       links: { list: [], loading: false, busy: false },
+      // PR 3: billing - { data: server status, locked: trial over / unpaid, msg, busy }
+      bill: { data: null, locked: false, msg: '', busy: false },
       // Portal activity (admins, client page) + portal terms of use (Oct 27 2026)
       act: { open: false, loading: false, days: 30, rows: [], clientId: '', err: '' },
       terms: { open: false, data: null, agree: false, busy: false, err: '' },
@@ -3511,9 +3534,51 @@ createApp({
     cvStart() {
       this.loadBranding();
       this.linksLoad();
+      this.billingLoad().then(() => this.billingReturn());
       this.cv.view = 'list';
       history.replaceState({ v: 'cv-list' }, '');
       this.cvLoadProps();
+    },
+    // ---- PR 3: client billing (Stripe) - prices and trial length come from the server settings ----
+    billMoney(c) { return '$' + (Number(c || 0) / 100).toFixed(2).replace(/\.00$/, ''); },
+    async billingLoad() {
+      if (!this.isClient || this.portalAs) return;
+      try {
+        const res = await this.api('/portal/billing');
+        if (!res.ok) return;
+        const j = await res.json();
+        this.bill.data = j;
+        if (j.enabled && j.allowed === false) { this.bill.locked = true; this.bill.msg = j.message || ''; }
+        else this.bill.locked = false;
+      } catch (e) { /* the banner just stays hidden */ }
+    },
+    async billingGo(path, body) {
+      if (this.bill.busy) return;
+      this.bill.busy = true;
+      try {
+        const res = await this.api(path, { method: 'POST', json: body || {} });
+        const j = await res.json().catch(() => ({}));
+        if (res.ok && j.url) { window.location.href = j.url; return; }
+        this.toast(j.message || 'Could not open billing. Please try again.', 'err');
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not reach the server.', 'err'); }
+      finally { this.bill.busy = false; }
+    },
+    billingCheckout(interval) { return this.billingGo('/portal/billing/checkout', { interval }); },
+    billingManage() { return this.billingGo('/portal/billing/manage'); },
+    // back from Stripe Checkout (/?billing=success|cancel): the webhook may take a few seconds
+    async billingReturn() {
+      let q = '';
+      try { q = new URLSearchParams(window.location.search).get('billing') || ''; } catch (e) { q = ''; }
+      if (!q) return;
+      try { history.replaceState({ v: 'cv-list' }, '', window.location.pathname); } catch (e) { /* cosmetic */ }
+      if (q === 'cancel') { this.toast('Checkout cancelled - nothing was charged.', 'ok'); return; }
+      this.toast('Thank you! Activating your subscription...', 'ok');
+      for (let i = 0; i < 8; i++) {
+        if (this.bill.data && this.bill.data.subscription && ['active', 'trialing'].includes(this.bill.data.subscription.status)) break;
+        await new Promise((r) => setTimeout(r, 3000));
+        await this.billingLoad();
+      }
+      if (this.bill.data && this.bill.data.subscription) this.toast('Your subscription is active.', 'ok');
     },
     // ---- PR 2: inspectors linked to this login ----
     async linksLoad() {
@@ -4103,6 +4168,13 @@ createApp({
       }
       // portal logins: terms of use not accepted yet (or updated) / too many requests
       if (res.status === 428 && this.user && !this.portalAs && pathname !== '/portal/terms') { this.portalEnter(); throw new Error('terms'); }
+      // client logins: trial over / payment failed -> the lock screen (service/clientAccess.js answers 402)
+      if (res.status === 402 && this.user && this.isClient && !this.portalAs) {
+        const j = await res.clone().json().catch(() => ({}));
+        this.bill.locked = true; this.bill.msg = j.message || '';
+        this.billingLoad();
+        throw new Error('auth'); // callers treat this as "already handled, stay quiet"
+      }
       if (res.status === 429) this.toast('Too many requests — please slow down and try again in a few minutes.', 'err');
       return res;
     },
