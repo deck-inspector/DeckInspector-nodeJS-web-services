@@ -140,6 +140,11 @@ memberRouter.post("/clients/:id", async (req, res) => {
     if (account && account.state === "locked") {
       return res.status(409).json({ message: "This client has an unpaid portal account. Access resumes when they pay." });
     }
+    // tell the member NOW if that email already has a login, not the client at accept time
+    const probe = await users.claimIdentity("zz-probe-" + portal.newCode().slice(0, 6).toLowerCase(), email).catch(() => ({ ok: true }));
+    if (!probe.ok && probe.field === "email") {
+      return res.status(409).json({ message: "A login with this email already exists in E3 Web, so it cannot accept an invitation. Invite a different email address, or use \"Add login\" to attach that person to this client." });
+    }
     // one pending invitation per email: an older one is replaced
     const pending = (await portal.listInvitations(company(req), cur.id))
       .filter((i) => i.status === "sent" && i.email === email);
@@ -253,16 +258,17 @@ publicRouter.post("/:code/accept", async (req, res) => {
     const tenant = await Tenants.isTenantActive(inv.companyIdentifier).catch(() => ({ success: false }));
     if (!tenant || !tenant.success || !tenant.allowLogin) return res.status(409).json({ message: "Your inspector's E3 account is not active. Please contact them." });
 
-    // username = the email when it fits the login rules, else a safe form of it
-    let username = inv.email;
-    if (!/^[A-Za-z0-9._@-]{3,60}$/.test(username)) {
-      username = inv.email.split("@")[0].replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "client";
-      username += "-" + portal.newCode().slice(0, 5).toLowerCase();
-    }
-    const free = await users.claimIdentity(username, inv.email);
+    // username = the email when it fits the login rules and is free; otherwise a
+    // safe form of it with a short suffix (the email itself must still be unused -
+    // one login per email, see PR 2 for linking several inspectors to it).
+    const altUsername = () => (inv.email.split("@")[0].replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "client")
+      + "-" + portal.newCode().slice(0, 5).toLowerCase();
+    let username = /^[A-Za-z0-9._@-]{3,60}$/.test(inv.email) ? inv.email : altUsername();
+    let free = await users.claimIdentity(username, inv.email);
+    if (!free.ok && free.field !== "email") { username = altUsername(); free = await users.claimIdentity(username, inv.email); }
     if (!free.ok) {
       return res.status(409).json({ message: free.field === "email"
-        ? "A login with this email already exists. Sign in with your email and password, or use Forgot password."
+        ? "A login with this email already exists in E3 Web. Sign in with it (or use Forgot password), or ask your inspector to invite a different email address."
         : free.message });
     }
     const created = await users.addClientUser({
