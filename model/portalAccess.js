@@ -14,9 +14,12 @@
 // proposals, so nothing has to be provisioned in Couchbase and nothing reaches
 // the phones (they sync the Project collection only).
 //
-// EVERY read here is a KEY lookup (USE KEYS), never a WHERE on a new field: the
-// collection has no index for those and the first live test answered
-// "index failure" (dev slot, Oct 31 2026). So the keys carry the meaning:
+// EVERY read and write here is a plain key-value operation on the collection
+// (database/couchbase.js exports it as ProjectReports) - never a N1QL query.
+// The first live test (dev slot, Oct 31 2026) answered "index failure" for
+// both a WHERE on a new field and a USE KEYS select (the query wrapper forces
+// request_plus consistency on a collection without an index). KV needs no
+// index and no query service at all. So the keys carry the meaning:
 //   pinv_<sha256(code)>                    one invitation; the code IS the key
 //   pinvlist_<company>_<clientId>          the ids of a client's invitations
 //   pacct_<company>_<clientId>             the client's portal account
@@ -31,29 +34,42 @@ const CODE_LEN = 12;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I - typed by people
 const STATES = ["invited", "trial", "active", "past_due", "locked", "complimentary"];
 
-async function q(statement, parameters = []) {
-  const cluster = couchbase.cluster;
-  if (!cluster) throw new Error("Cluster connection not initialized.");
-  const result = await cluster.query(statement, { parameters });
-  return result.rows || [];
+// The collection is created by connectToDatabase(), so it is looked up per call.
+function coll() {
+  const c = couchbase.ProjectReports;
+  if (!c) throw new Error("Database connection not initialized (ProjectReports).");
+  return c;
 }
-function ks() {
-  return `\`${couchbase.DB_BUCKET_NAME}\`.\`${couchbase.DB_SCOPE_NAME}\`.ProjectReports`;
+function isNotFound(e) {
+  const name = (e && e.constructor && e.constructor.name) || "";
+  return name === "DocumentNotFoundError" || (e && e.code === 101) || /document not found/i.test((e && e.message) || "");
 }
 function now() { return new Date().toISOString(); }
 function clean(s, max = 200) { return String(s == null ? "" : s).trim().slice(0, max); }
 function safeKeyPart(s) { return String(s == null ? "" : s).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80); }
 
 async function getByKey(id) {
-  const rows = await q(`SELECT r.* FROM ${ks()} r USE KEYS $1`, [id]);
-  return rows.length ? rows[0] : null;
+  try {
+    const r = await coll().get(String(id));
+    return r && r.content != null ? r.content : null;
+  } catch (e) {
+    if (isNotFound(e)) return null;
+    console.error("portalAccess get failed:", id, "-", e && e.message, e && e.context ? JSON.stringify(e.context) : "");
+    throw e;
+  }
 }
 async function getByKeys(ids) {
   if (!ids.length) return [];
-  return q(`SELECT r.* FROM ${ks()} r USE KEYS $1`, [ids]);
+  const rows = await Promise.all(ids.map((id) => getByKey(id)));
+  return rows.filter(Boolean);
 }
 async function put(id, doc) {
-  await q(`UPSERT INTO ${ks()} (KEY, VALUE) VALUES ($1, $2)`, [id, doc]);
+  try {
+    await coll().upsert(String(id), doc);
+  } catch (e) {
+    console.error("portalAccess upsert failed:", id, "-", e && e.message, e && e.context ? JSON.stringify(e.context) : "");
+    throw e;
+  }
   return doc;
 }
 
