@@ -604,7 +604,29 @@ input,select{font-family:inherit;font-size:16px}
 
   <!-- ============ LOGIN ============ -->
   <div class="login-wrap" v-if="!user">
-    <div class="login-card">
+        <!-- PORTAL INVITATION (Oct 31 2026): accept page for /invite/CODE - routes/invite-endpoint.js -->
+        <div class="login-card" v-if="invite.code" style="max-width:560px">
+          <img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="width:200px;max-width:100%;margin:0 auto 10px;display:block">
+          <h1 style="text-align:center;margin-bottom:6px;font-size:22px">E3 Property Owner Portal</h1>
+          <p class="hint" style="text-align:center;margin:0 0 18px">A service of the <a :href="(invite.data && invite.data.associationUrl) || 'https://www.e3-inspection-association.com/about-us/'" target="_blank" rel="noopener">E3 Inspection Association</a></p>
+          <div class="empty" v-if="invite.loading">Opening your invitation&hellip;</div>
+          <div class="login-err" v-else-if="invite.err">{{ invite.err }}<div style="margin-top:8px"><a href="/" style="font-weight:600">Go to sign in</a></div></div>
+          <template v-else-if="invite.data">
+            <p><b>{{ invite.data.member }}</b><span v-if="invite.data.company"> ({{ invite.data.company }})</span>, your E3 Certified Inspector, has invited <b>{{ invite.data.client }}</b> to follow the inspections of {{ invite.data.properties.length === 1 ? 'its property' : invite.data.properties.length + ' properties' }} &mdash; photos, notes and ratings &mdash; as they are entered.</p>
+            <ul v-if="invite.data.properties.length" style="margin:0 0 14px;padding-left:20px;font-size:14px;color:var(--ink-soft)"><li v-for="(p, i) in invite.data.properties.slice(0, 8)" :key="i">{{ p.name || p.address }}</li><li v-if="invite.data.properties.length > 8">&hellip; and {{ invite.data.properties.length - 8 }} more</li></ul>
+            <p v-if="invite.data.note" class="hint" style="margin:0 0 14px"><b>Note from {{ invite.data.member }}:</b> {{ invite.data.note }}</p>
+            <form @submit.prevent="inviteAccept">
+              <div class="field"><label>Email (your username)</label><input :value="invite.data.email" disabled></div>
+              <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>First name</label><input v-model.trim="invite.form.first_name" autocomplete="given-name"></div><div class="field" style="flex:1"><label>Last name</label><input v-model.trim="invite.form.last_name" autocomplete="family-name"></div></div>
+              <div class="field"><label>Choose a password (8+ characters)</label><input v-model="invite.form.password" type="password" autocomplete="new-password" required minlength="8"></div>
+              <div class="field"><label>Repeat the password</label><input v-model="invite.form.password2" type="password" autocomplete="new-password" required></div>
+              <p class="hint" style="margin:0 0 14px">{{ invite.data.priceLine }} You will be asked to accept the portal terms of use after you sign in.</p>
+              <button class="btn btn-primary btn-block" :disabled="invite.busy || invite.form.password.length < 8 || invite.form.password !== invite.form.password2"><span v-if="!invite.busy">Create my login</span><span v-else>Creating&hellip;</span></button>
+            </form>
+            <p class="hint" style="text-align:center;margin:14px 0 0">Invitation code {{ invite.code }} &middot; valid until {{ new Date(invite.data.expiresAt).toLocaleDateString() }} &middot; Questions? <a :href="'mailto:' + invite.data.supportEmail">{{ invite.data.supportEmail }}</a></p>
+          </template>
+        </div>
+        <div class="login-card" v-if="!invite.code">
       <img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="width:240px;max-width:100%;margin:0 auto 14px;display:block">
       <h1 style="text-align:center;margin-bottom:28px">Inspection Reporting Solutions</h1>
       <div class="login-err" v-if="loginError">{{ loginError }}</div>
@@ -1125,9 +1147,22 @@ input,select{font-family:inherit;font-size:16px}
             <h2 style="font-size:19px">Portal access <span class="count" v-if="user && user.role==='admin'">({{ portal.list.length }})</span></h2>
             <div class="spacer" style="flex:1"></div>
             <button class="btn-dl" v-if="user && user.role==='admin'" :disabled="portal.busy" @click="portalNew()">&#65291; Add login</button>
+              <button class="btn-dl" v-if="user && user.role==='admin'" :disabled="pinv.busy" @click="pinvNew()" title="Email the client a one-time code; they create their own login">&#9993; Invite to portal</button>
           </div>
           <div style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:10px 18px;margin-bottom:14px">
             <div class="hint" style="margin:4px 0 8px">People at {{ clientOpen.name }} can sign in at www.e3-web.com and <b>view</b> the inspections of the properties below &mdash; photos, notes and ratings &mdash; as they are entered. They cannot change anything, and they never see reports, proposals, inspectors or other clients. Logins do not use any of your user seats.</div>
+              <!-- PORTAL INVITATIONS (Oct 31 2026): the client creates its own login from an emailed code (routes/invite-endpoint.js) -->
+              <template v-if="user && user.role==='admin' && (pinv.list.length || pinv.account)">
+                <div class="hint" v-if="pinv.account" style="margin:0 0 6px"><b>Portal account:</b> {{ pinvState(pinv.account.state) }}<span v-if="pinv.account.email"> &middot; {{ pinv.account.email }}</span></div>
+                <div class="pa-row" v-for="i in pinv.list" :key="i.id">
+                  <div class="nm"><b>{{ [i.first_name, i.last_name].filter(Boolean).join(' ') || i.email }}</b><small>{{ i.email }} &middot; invited {{ new Date(i.createdAt).toLocaleDateString() }}<span v-if="i.status==='sent'"> &middot; expires {{ new Date(i.expiresAt).toLocaleDateString() }}</span><span v-if="i.status==='sent' && !i.emailed"> &middot; not emailed - send the link</span></small></div>
+                  <span class="tag good" v-if="i.status==='accepted'">Accepted</span>
+                  <span class="tag" v-else-if="i.status==='sent'">Invitation sent</span>
+                  <span class="tag bad" v-else>{{ pinvLabel(i.status) }}</span>
+                  <button class="btn-dl" v-if="i.status!=='accepted'" :disabled="pinv.busy" @click="pinvResend(i)">Resend</button>
+                  <button class="btn-dl" v-if="i.status==='sent'" :disabled="pinv.busy" @click="pinvRevoke(i)">Withdraw</button>
+                </div>
+              </template>
             <div class="hint" v-if="!(user && user.role==='admin')" style="margin:0 0 6px">Only an admin can add or change client logins.</div>
             <template v-else>
               <div class="empty" v-if="portal.loading" style="padding:8px 0">Loading&hellip;</div>
@@ -1161,7 +1196,37 @@ input,select{font-family:inherit;font-size:16px}
               </div>
             </template>
           </div>
-          <div class="overlay" v-if="portal.form" @click.self="portal.form=null">
+          <!-- PORTAL INVITATION modal (Oct 31 2026) -->
+      <div class="overlay" v-if="pinv.form || pinv.result" @click.self="pinv.form=null; pinv.result=null">
+        <div class="modal" style="max-width:560px">
+          <template v-if="pinv.form">
+            <h3>Invite {{ clientOpen && clientOpen.name }} to the portal</h3>
+            <div class="hint" style="margin:0 0 10px">The client gets an email with a one-time code and a link to create their own login (valid 14 days). Their first 15 days are free; after that the portal is $5 per property per month, billed yearly by the E3 Inspection Association.</div>
+            <div class="login-err" v-if="pinv.err">{{ pinv.err }}<div v-if="pinv.membership && pinv.membership.renewUrl" style="margin-top:6px"><a :href="pinv.membership.renewUrl" target="_blank" rel="noopener" style="font-weight:600">Renew your Association membership</a></div></div>
+            <div class="cl-form">
+              <label>Client email *</label><input v-model.trim="pinv.form.email" type="email" placeholder="name@company.com">
+              <div class="two"><div><label>First name</label><input v-model.trim="pinv.form.first_name"></div><div><label>Last name</label><input v-model.trim="pinv.form.last_name"></div></div>
+              <label>Note to the client (optional)</label><input v-model.trim="pinv.form.note" maxlength="600" placeholder="e.g. Your spring inspection photos are now online">
+              <div class="mrow" style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+                <button class="btn-dl" @click="pinv.form=null" :disabled="pinv.busy">Cancel</button>
+                <button class="btn btn-primary" @click="pinvSend()" :disabled="pinv.busy || !pinv.form.email">{{ pinv.busy ? 'Sending…' : 'Send invitation' }}</button>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="pinv.result">
+            <h3>{{ pinv.result.emailed ? 'Invitation emailed' : 'Invitation ready to send' }}</h3>
+            <div class="hint" style="margin:0 0 10px" v-if="pinv.result.emailed">We emailed {{ pinv.result.invitation.email }} the code and the link below. You can also send the link yourself.</div>
+            <div class="hint" style="margin:0 0 10px" v-else>Email is not set up on the server yet, so send the link to {{ pinv.result.invitation.email }} yourself - the button opens a ready-made email in your mail program.</div>
+            <div class="cl-form"><label>Invitation link</label><input :value="pinv.result.acceptUrl" readonly @focus="$event.target.select()"></div>
+            <div class="mrow" style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+              <button class="btn-dl" @click="pinvCopy(pinv.result.acceptUrl)">Copy link</button>
+              <a class="btn btn-primary" :href="pinv.result.mailto" style="text-decoration:none">Send from my email</a>
+              <button class="btn-dl" @click="pinv.result=null">Done</button>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="overlay" v-if="portal.form" @click.self="portal.form=null">
             <div class="modal" style="max-width:520px">
               <h3>{{ portal.form.mode==='reset' ? 'Reset password for ' + portal.form.username : 'New login for ' + clientOpen.name }}</h3>
               <div class="cl-form">
@@ -3011,7 +3076,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-10-31.1';
+const APP_BUILD = '2026-10-31.2';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3089,6 +3154,11 @@ createApp({
       addPropQ: '',
       // Portal access on the staff client page
       portal: { list: [], loading: false, form: null, busy: false, msg: '', clientId: '' },
+      // PORTAL INVITATIONS (Oct 31 2026): a client is invited by email + one-time code and creates
+      // its own login (routes/invite-endpoint.js). Admins only; needs an active Association membership.
+      pinv: { list: [], account: null, form: null, result: null, busy: false, err: '', mailConfigured: false, membership: null },
+      // the accept page (/invite/CODE), shown in place of the sign-in card
+      invite: { code: '', loading: false, data: null, err: '', busy: false, form: { first_name: '', last_name: '', password: '', password2: '' } },
       // Portal activity (admins, client page) + portal terms of use (Oct 27 2026)
       act: { open: false, loading: false, days: 30, rows: [], clientId: '', err: '' },
       terms: { open: false, data: null, agree: false, busy: false, err: '' },
@@ -3384,8 +3454,13 @@ createApp({
   },
   created() {
     try {
+      // PORTAL INVITATION (Oct 31 2026): /invite/CODE shows the accept page instead of sign-in
+      try {
+        const im = /^\/invite\/([A-Za-z0-9-]+)/.exec(location.pathname);
+        if (im) { this.invite.code = im[1].toUpperCase(); this.inviteLoad(); }
+      } catch (e) { /* ignore */ }
       const saved = localStorage.getItem('e3v2_user');
-      if (saved) { this.user = JSON.parse(saved); if (this.isContractor || this.isClient) this.portalEnter(); else { this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); this.rpLoadQueueQuiet(); } }
+      if (saved && !this.invite.code) { this.user = JSON.parse(saved); if (this.isContractor || this.isClient) this.portalEnter(); else { this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); this.rpLoadQueueQuiet(); } }
     } catch (e) { /* ignore */ }
     history.replaceState({ v: 'projects' }, '');
     window.addEventListener('popstate', (e) => this.onPop(e));
@@ -3853,6 +3928,7 @@ createApp({
       if (!c || !(this.user && this.user.role === 'admin')) { this.portal.list = []; return; }
       if (this.portal.clientId !== c.id) this.portal.list = [];
       this.portal.clientId = c.id;
+      this.pinvLoad(c);
       this.portal.loading = !this.portal.list.length;
       try {
         const res = await this.api('/clients/' + encodeURIComponent(c.id) + '/logins');
@@ -4444,6 +4520,99 @@ createApp({
     },
 
     /* ---------- auth ---------- */
+        // ---- PORTAL INVITATION accept page (Oct 31 2026) - routes/invite-endpoint.js ----
+    async inviteLoad() {
+      this.invite.loading = true; this.invite.err = ''; this.invite.data = null;
+      try {
+        const res = await fetch(API + '/invite/' + encodeURIComponent(this.invite.code));
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.invite.err = j.message || 'This invitation could not be opened.'; return; }
+        this.invite.data = j;
+        this.invite.form.first_name = j.first_name || '';
+        this.invite.form.last_name = j.last_name || '';
+      } catch (e) { this.invite.err = 'Could not reach the server. Check your connection and reload.'; }
+      finally { this.invite.loading = false; }
+    },
+    async inviteAccept() {
+      const f = this.invite.form;
+      if (f.password.length < 8 || f.password !== f.password2) return;
+      this.invite.busy = true;
+      try {
+        const res = await fetch(API + '/invite/' + encodeURIComponent(this.invite.code) + '/accept', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: f.password, first_name: f.first_name, last_name: f.last_name }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast(j.message || 'Could not create your login.', 'err'); return; }
+        this.user = j;
+        localStorage.setItem('e3v2_user', JSON.stringify(this.user));
+        this.invite = { code: '', loading: false, data: null, err: '', busy: false, form: { first_name: '', last_name: '', password: '', password2: '' } };
+        history.replaceState({ v: 'projects' }, '', '/');
+        this.toast('Welcome - your portal login is ready.', 'ok');
+        this.portalEnter();
+      } catch (e) { this.toast('Could not reach the server. Check your connection.', 'err'); }
+      finally { this.invite.busy = false; }
+    },
+    // ---- PORTAL INVITATIONS, member side (Oct 31 2026): admins invite a client by email ----
+    async pinvLoad(c) {
+      c = c || this.clientOpen;
+      if (!c || !(this.user && this.user.role === 'admin')) { this.pinv.list = []; this.pinv.account = null; return; }
+      try {
+        const res = await this.api('/portalinvite/clients/' + encodeURIComponent(c.id));
+        if (!res.ok) return;
+        const j = await res.json();
+        if (this.clientOpen && this.clientOpen.id === c.id) { this.pinv.list = j.invitations || []; this.pinv.account = j.account || null; this.pinv.mailConfigured = !!j.mailConfigured; }
+      } catch (e) { /* keep what we had */ }
+    },
+    pinvNew() {
+      const c = this.clientOpen || {};
+      const who = String(c.contactName || '').trim().split(/\s+/);
+      this.pinv.err = ''; this.pinv.result = null; this.pinv.membership = null;
+      this.pinv.form = { email: c.email || '', first_name: who[0] || '', last_name: who.slice(1).join(' '), note: '' };
+    },
+    async pinvSend() {
+      const c = this.clientOpen; if (!c || !this.pinv.form) return;
+      this.pinv.busy = true; this.pinv.err = '';
+      try {
+        const res = await this.api('/portalinvite/clients/' + encodeURIComponent(c.id), { method: 'POST', json: this.pinv.form });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.pinv.err = j.message || 'Could not send the invitation.'; this.pinv.membership = j.membership || null; return; }
+        this.pinv.result = j; this.pinv.form = null;
+        this.toast(j.emailed ? 'Invitation emailed to ' + j.invitation.email : 'Invitation created - send the link to the client.', 'ok');
+        this.pinvLoad(c);
+      } catch (e) { if (e.message !== 'auth') this.pinv.err = 'Could not reach the server.'; }
+      finally { this.pinv.busy = false; }
+    },
+    async pinvResend(i) {
+      const c = this.clientOpen; if (!c) return;
+      this.pinv.busy = true; this.pinv.err = '';
+      try {
+        const res = await this.api('/portalinvite/clients/' + encodeURIComponent(c.id) + '/' + encodeURIComponent(i.id) + '/resend', { method: 'POST', json: {} });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast(j.message || 'Could not resend.', 'err'); this.pinv.membership = j.membership || null; return; }
+        this.pinv.result = j;
+        this.toast(j.emailed ? 'Invitation emailed again to ' + i.email : 'New link ready - send it to the client.', 'ok');
+        this.pinvLoad(c);
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not reach the server.', 'err'); }
+      finally { this.pinv.busy = false; }
+    },
+    async pinvRevoke(i) {
+      const c = this.clientOpen; if (!c) return;
+      if (!confirm('Withdraw the invitation sent to ' + i.email + '?')) return;
+      this.pinv.busy = true;
+      try {
+        const res = await this.api('/portalinvite/clients/' + encodeURIComponent(c.id) + '/' + encodeURIComponent(i.id) + '/revoke', { method: 'POST', json: {} });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast(j.message || 'Could not withdraw.', 'err'); return; }
+        this.pinvLoad(c);
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not reach the server.', 'err'); }
+      finally { this.pinv.busy = false; }
+    },
+    pinvCopy(url) {
+      try { navigator.clipboard.writeText(url).then(() => this.toast('Link copied.', 'ok')); } catch (e) { this.toast('Copy the link from the box.', 'err'); }
+    },
+    pinvLabel(s) { return { sent: 'Invitation sent', accepted: 'Accepted', expired: 'Expired', revoked: 'Withdrawn' }[s] || s; },
+    pinvState(s) { return { trial: 'Trial (free)', active: 'Active', past_due: 'Past due', locked: 'Locked - payment required', complimentary: 'Complimentary', invited: 'Invited' }[s] || s; },
     async doLogin() {
       this.loggingIn = true; this.loginError = '';
       try {
