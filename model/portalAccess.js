@@ -13,9 +13,17 @@
 // docType 'PortalInvitation' / 'PortalAccount' - the same trick as Clients and
 // proposals, so nothing has to be provisioned in Couchbase and nothing reaches
 // the phones (they sync the Project collection only).
+//
+// EVERY read here is a KEY lookup (USE KEYS), never a WHERE on a new field: the
+// collection has no index for those and the first live test answered
+// "index failure" (dev slot, Oct 31 2026). So the keys carry the meaning:
+//   pinv_<sha256(code)>                    one invitation; the code IS the key
+//   pinvlist_<company>_<clientId>          the ids of a client's invitations
+//   pacct_<company>_<clientId>             the client's portal account
+// A resend therefore creates a NEW invitation document (new code = new key) and
+// marks the old one 'replaced'.
 
 const crypto = require("crypto");
-const { v4: uuidv4 } = require("uuid");
 const couchbase = require("../database/couchbase");
 
 const INVITE_DAYS = 14;
@@ -34,6 +42,20 @@ function ks() {
 }
 function now() { return new Date().toISOString(); }
 function clean(s, max = 200) { return String(s == null ? "" : s).trim().slice(0, max); }
+function safeKeyPart(s) { return String(s == null ? "" : s).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80); }
+
+async function getByKey(id) {
+  const rows = await q(`SELECT r.* FROM ${ks()} r USE KEYS $1`, [id]);
+  return rows.length ? rows[0] : null;
+}
+async function getByKeys(ids) {
+  if (!ids.length) return [];
+  return q(`SELECT r.* FROM ${ks()} r USE KEYS $1`, [ids]);
+}
+async function put(id, doc) {
+  await q(`UPSERT INTO ${ks()} (KEY, VALUE) VALUES ($1, $2)`, [id, doc]);
+  return doc;
+}
 
 // ------------------------------------------------------------------- codes
 function newCode() {
@@ -45,21 +67,31 @@ function newCode() {
 function normCode(code) {
   return String(code || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 40);
 }
-// Only the hash is stored; the code itself goes to the client once (email / link).
+// Only the hash is stored (as the document key); the code itself goes to the client once.
 function hashCode(code) {
   return crypto.createHash("sha256").update(normCode(code)).digest("hex");
 }
+function inviteKey(code) { return "pinv_" + hashCode(code); }
+function listKey(companyIdentifier, clientId) { return `pinvlist_${safeKeyPart(companyIdentifier)}_${safeKeyPart(clientId)}`; }
+function accountKey(companyIdentifier, clientId) { return `pacct_${safeKeyPart(companyIdentifier)}_${safeKeyPart(clientId)}`; }
 
 // ------------------------------------------------------------- invitations
-// status: sent -> accepted | revoked | expired
+// status: sent -> accepted | revoked | replaced | expired (expired is computed)
+async function addToList(companyIdentifier, clientId, inviteId) {
+  const key = listKey(companyIdentifier, clientId);
+  const cur = (await getByKey(key)) || { docType: "PortalInvitationList", id: key, companyIdentifier, clientId, ids: [] };
+  if (!cur.ids.includes(inviteId)) cur.ids = cur.ids.concat([inviteId]).slice(-200);
+  cur.updatedAt = now();
+  await put(key, cur);
+}
+
 async function createInvitation(inv) {
   const code = newCode();
-  const id = `pinv_${uuidv4()}`;
+  const id = inviteKey(code);
   const created = now();
   const doc = {
     docType: "PortalInvitation",
     id,
-    codeHash: hashCode(code),
     companyIdentifier: inv.companyIdentifier,
     clientId: inv.clientId,
     clientName: clean(inv.clientName),
@@ -73,35 +105,37 @@ async function createInvitation(inv) {
     companyName: clean(inv.companyName, 160),
     status: "sent",
     emailed: !!inv.emailed,
-    createdAt: created,
+    createdAt: inv.createdAt || created,
+    issuedAt: created,
     expiresAt: new Date(Date.now() + INVITE_DAYS * 864e5).toISOString(),
     acceptedAt: null,
     acceptedUserId: null,
+    replaces: inv.replaces || null,
   };
-  await q(`UPSERT INTO ${ks()} (KEY, VALUE) VALUES ($1, $2)`, [id, doc]);
+  await put(id, doc);
+  await addToList(doc.companyIdentifier, doc.clientId, id);
   return { doc, code };
 }
 
 async function getInvitationById(id) {
-  const rows = await q(`SELECT r.* FROM ${ks()} r WHERE r.docType = 'PortalInvitation' AND META(r).id = $1 LIMIT 1`, [id]);
-  return rows.length ? rows[0] : null;
+  const d = id && String(id).startsWith("pinv_") ? await getByKey(id) : null;
+  return d && d.docType === "PortalInvitation" ? d : null;
 }
 
 async function getInvitationByCode(code) {
-  const h = hashCode(code);
-  const rows = await q(`SELECT r.* FROM ${ks()} r WHERE r.docType = 'PortalInvitation' AND r.codeHash = $1 LIMIT 1`, [h]);
-  return rows.length ? rows[0] : null;
+  const c = normCode(code);
+  if (c.length < 8) return null;
+  return getInvitationById(inviteKey(c));
 }
 
-// Newest first; the hash never leaves the server.
+// Newest first.
 async function listInvitations(companyIdentifier, clientId) {
-  const rows = await q(
-    `SELECT r.* FROM ${ks()} r WHERE r.docType = 'PortalInvitation' AND r.companyIdentifier = $1 AND r.clientId = $2`,
-    [companyIdentifier, clientId]
-  );
+  const list = await getByKey(listKey(companyIdentifier, clientId));
+  const rows = list && Array.isArray(list.ids) && list.ids.length ? await getByKeys(list.ids) : [];
   return rows
-    .map((r) => { const o = Object.assign({}, r); delete o.codeHash; o.status = effectiveStatus(o); return o; })
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    .filter((r) => r && r.docType === "PortalInvitation")
+    .map((r) => Object.assign({}, r, { status: effectiveStatus(r) }))
+    .sort((a, b) => String(b.issuedAt || b.createdAt).localeCompare(String(a.issuedAt || a.createdAt)));
 }
 
 function effectiveStatus(inv) {
@@ -114,39 +148,39 @@ async function setInvitation(id, patch) {
   const cur = await getInvitationById(id);
   if (!cur) return null;
   const doc = Object.assign({}, cur, patch, { updatedAt: now() });
-  await q(`UPSERT INTO ${ks()} (KEY, VALUE) VALUES ($1, $2)`, [id, doc]);
+  await put(id, doc);
   return doc;
 }
 
-// Give a pending invitation a fresh code + expiry (resend). Returns the new code.
-async function reissueInvitation(id, emailed) {
-  const code = newCode();
-  await setInvitation(id, {
-    codeHash: hashCode(code), status: "sent", emailed: !!emailed,
-    expiresAt: new Date(Date.now() + INVITE_DAYS * 864e5).toISOString(), reissuedAt: now(),
-  });
-  return code;
+// Resend: a NEW invitation (fresh code, fresh 14 days) carrying the same details;
+// the old one is marked 'replaced'. Returns { doc, code } of the new one.
+async function reissueInvitation(id) {
+  const old = await getInvitationById(id);
+  if (!old) return null;
+  const fresh = await createInvitation(Object.assign({}, old, {
+    memberUsername: old.member && old.member.username, memberName: old.member && old.member.name, memberEmail: old.member && old.member.email,
+    emailed: false, replaces: old.id, createdAt: old.createdAt,
+  }));
+  await setInvitation(old.id, { status: "replaced", replacedAt: now(), replacedBy: fresh.doc.id });
+  return fresh;
 }
 
 // ---------------------------------------------------------------- accounts
-// One per client (per inspection company for now; the cross-company link for
-// clients with several inspectors is PR 2). state: see STATES.
+// One per client per inspection company (the cross-company link for clients with
+// several inspectors is PR 2). state: see STATES.
 async function getAccount(companyIdentifier, clientId) {
-  const rows = await q(
-    `SELECT r.* FROM ${ks()} r WHERE r.docType = 'PortalAccount' AND r.companyIdentifier = $1 AND r.clientId = $2 LIMIT 1`,
-    [companyIdentifier, clientId]
-  );
-  return rows.length ? rows[0] : null;
+  const d = await getByKey(accountKey(companyIdentifier, clientId));
+  return d && d.docType === "PortalAccount" ? d : null;
 }
 
 async function getAccountById(id) {
-  const rows = await q(`SELECT r.* FROM ${ks()} r WHERE r.docType = 'PortalAccount' AND META(r).id = $1 LIMIT 1`, [id]);
-  return rows.length ? rows[0] : null;
+  const d = id && String(id).startsWith("pacct_") ? await getByKey(id) : null;
+  return d && d.docType === "PortalAccount" ? d : null;
 }
 
 async function upsertAccount(acct) {
-  const id = acct.id || `pacct_${uuidv4()}`;
-  const existing = acct.id ? await getAccountById(id) : null;
+  const id = acct.id || accountKey(acct.companyIdentifier, acct.clientId);
+  const existing = await getAccountById(id);
   const t = now();
   const doc = Object.assign({}, existing || {}, acct, {
     docType: "PortalAccount",
@@ -156,7 +190,7 @@ async function upsertAccount(acct) {
     createdAt: (existing && existing.createdAt) || t,
     updatedAt: t,
   });
-  await q(`UPSERT INTO ${ks()} (KEY, VALUE) VALUES ($1, $2)`, [id, doc]);
+  await put(id, doc);
   return doc;
 }
 
@@ -167,7 +201,7 @@ async function logAccount(acct, event, by, note) {
 
 module.exports = {
   INVITE_DAYS, STATES,
-  newCode, normCode, hashCode,
+  newCode, normCode, hashCode, inviteKey, accountKey,
   createInvitation, getInvitationById, getInvitationByCode, listInvitations, effectiveStatus, setInvitation, reissueInvitation,
   getAccount, getAccountById, upsertAccount, logAccount,
 };
