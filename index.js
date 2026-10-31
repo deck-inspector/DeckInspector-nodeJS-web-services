@@ -33,6 +33,13 @@ app.use("/app", express.static(path.join(__dirname, "webapp"), staticOpts));
 // Launch: serve the web app at the root as well (e3-web.com cutover)
 app.use(express.static(path.join(__dirname, "webapp"), staticOpts));
 
+// PORTAL INVITATION (Oct 31 2026): /invite/CODE opens the web app, which shows the accept
+// page for that code (the API side is routes/invite-endpoint.js). Served no-cache like index.html.
+app.get("/invite/:code", (req, res) => {
+  res.setHeader("Cache-Control", "no-cache, must-revalidate");
+  res.sendFile(path.join(__dirname, "webapp", "index.html"));
+});
+
 require("./routes")(app);
 app.get("/", (req, res) => {
   res.send("Hello from Express!");
