@@ -43,9 +43,9 @@ function linksOf(rec) {
   return out;
 }
 
-// The link that a token for `companyIdentifier` resolves to, or null.
-function linkFor(rec, companyIdentifier) {
-  return linksOf(rec).find((l) => l.companyIdentifier === companyIdentifier && l.active) || null;
+// The link that a token for `companyIdentifier` (+ clientId when given) resolves to, or null.
+function linkFor(rec, companyIdentifier, clientId) {
+  return linksOf(rec).find((l) => l.companyIdentifier === companyIdentifier && (!clientId || l.clientId === clientId) && l.active) || null;
 }
 
 function hasLink(rec, companyIdentifier, clientId) {
