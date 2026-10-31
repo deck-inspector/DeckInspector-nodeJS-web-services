@@ -1,16 +1,24 @@
 "use strict";
 // PORTAL EMAIL (David, Oct 31 2026): the client-portal invitation and, later,
-// the billing reminders. Sent over SMTP with nodemailer when these App Service
-// settings exist; otherwise send() answers { sent:false } and the web app shows
-// the member the invitation link + a ready-made mailto so nothing is blocked.
+// the billing reminders. Two ways to send, tried in this order:
 //
-//   PORTAL_SMTP_HOST   e.g. mail.smtp2go.com (the Association site already uses SMTP2GO)
-//   PORTAL_SMTP_PORT   587 (STARTTLS) or 465 (TLS); default 587
-//   PORTAL_SMTP_USER / PORTAL_SMTP_PASS
-//   PORTAL_MAIL_FROM   default "E3 Inspection Association <admin@e3-inspection-association.com>"
-//   PORTAL_MAIL_BCC    optional copy of every invitation (e.g. admin@e3-inspection-association.com)
+//  1. The Association site's mail bridge (preferred - every portal email then
+//     leaves from the Association's own WP Mail SMTP / SMTP2GO setup):
+//       ASSOC_MAIL_KEY   the key shown at Settings → E3 Portal Mail on the
+//                        Association site (plugin "E3 Portal Mail Bridge")
+//       ASSOC_SITE_URL   default https://www.e3-inspection-association.com
+//  2. Direct SMTP with nodemailer:
+//       PORTAL_SMTP_HOST / PORTAL_SMTP_PORT (587 or 465) / PORTAL_SMTP_USER / PORTAL_SMTP_PASS
+//       PORTAL_MAIL_FROM default "E3 Inspection Association <admin@e3-inspection-association.com>"
+//
+// With neither configured send() answers { sent:false } and the web app shows the
+// member the invitation link + a ready-made mailto so nothing is blocked.
+//   PORTAL_MAIL_BCC    optional copy of every message (e.g. admin@e3-inspection-association.com)
+
+const axios = require("axios");
 
 const ASSOC = String(process.env.ASSOC_SITE_URL || "https://www.e3-inspection-association.com").replace(/\/+$/, "");
+const BRIDGE_KEY = String(process.env.ASSOC_MAIL_KEY || "").trim();
 const APP = String(process.env.PORTAL_APP_URL || "https://www.e3-web.com").replace(/\/+$/, "");
 const FROM = process.env.PORTAL_MAIL_FROM || "E3 Inspection Association <admin@e3-inspection-association.com>";
 const SUPPORT = process.env.PORTAL_SUPPORT_EMAIL || "Admin@e3-inspection-association.com";
@@ -31,11 +39,32 @@ function getTransport() {
   return transport;
 }
 
-function configured() { return !!getTransport(); }
+function configured() { return !!BRIDGE_KEY || !!getTransport(); }
+
+// Through the Association site (plugin E3 Portal Mail Bridge).
+async function sendViaBridge(msg) {
+  try {
+    const r = await axios.post(ASSOC + "/wp-json/e3portal/v1/send", {
+      to: msg.to, subject: msg.subject, text: msg.text, html: msg.html,
+      replyTo: msg.replyTo || "", bcc: process.env.PORTAL_MAIL_BCC || "", kind: msg.kind || "invitation",
+    }, { headers: { "X-E3-Portal-Key": BRIDGE_KEY, "Content-Type": "application/json", Accept: "application/json" }, timeout: 20000 });
+    if (r.data && r.data.sent) return { sent: true, via: "association" };
+    return { sent: false, reason: "Association mail bridge answered without sending." };
+  } catch (e) {
+    const d = e && e.response && e.response.data;
+    const why = (d && (d.message || d.code)) || (e && e.message) || "bridge failed";
+    console.error("portalMail: Association bridge failed -", why);
+    return { sent: false, reason: "Association mail bridge: " + why };
+  }
+}
 
 async function send(msg) {
+  if (BRIDGE_KEY) {
+    const viaBridge = await sendViaBridge(msg);
+    if (viaBridge.sent || !getTransport()) return viaBridge;
+  }
   const t = getTransport();
-  if (!t) return { sent: false, reason: "SMTP not configured (PORTAL_SMTP_HOST / USER / PASS)." };
+  if (!t) return { sent: false, reason: "Email not configured (ASSOC_MAIL_KEY, or PORTAL_SMTP_HOST / USER / PASS)." };
   try {
     const info = await t.sendMail({
       from: FROM, to: msg.to, bcc: process.env.PORTAL_MAIL_BCC || undefined,
