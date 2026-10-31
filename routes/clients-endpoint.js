@@ -99,23 +99,30 @@ async function clientOf(req, res) {
   return cur;
 }
 
-// The target login must be a client login of THIS client in THIS tenant.
+// The target login must be a client login of THIS client in THIS tenant - either
+// its own (primary) login or one linked to it from another inspector (PR 2).
+// Returns the record with `linked: true` when it reaches this client through a link.
+const portalLinks = require("../model/portalLinks");
 async function loginOf(req, res, client, username) {
   const rec = username ? await users.getUserbyUsername(String(username)) : null;
-  if (!rec || String(rec.role || "").toLowerCase() !== "client" ||
-      rec.companyIdentifier !== company(req) || rec.clientId !== client.id) {
-    res.status(404).json({ message: "Login not found for this client." });
-    return null;
+  if (rec && String(rec.role || "").toLowerCase() === "client") {
+    if (rec.companyIdentifier === company(req) && rec.clientId === client.id) return rec;
+    if (portalLinks.hasLink(rec, company(req), client.id)) return Object.assign({}, rec, { linked: true });
   }
-  return rec;
+  res.status(404).json({ message: "Login not found for this client." });
+  return null;
 }
 
-// GET /api/clients/:id/logins
+// GET /api/clients/:id/logins - this client's own logins + logins shared from
+// another inspector (one person, several inspectors - PR 2)
 router.get("/:id/logins", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
     const cur = await clientOf(req, res); if (!cur) return;
-    res.status(200).json(await users.getClientUsers(company(req), cur.id));
+    const own = await users.getClientUsers(company(req), cur.id);
+    let linked = [];
+    try { linked = await portalLinks.linkedUsers(company(req), cur.id); } catch (e) { console.error("linked logins:", e && e.message); }
+    res.status(200).json(own.concat(linked));
   } catch (e) {
     console.error("client logins list:", e && e.message);
     res.status(500).json({ message: "Could not list the logins." });
@@ -158,7 +165,14 @@ router.post("/:id/logins/status", async (req, res) => {
     if (!(await requireAdmin(req, res))) return;
     const cur = await clientOf(req, res); if (!cur) return;
     const rec = await loginOf(req, res, cur, req.body && req.body.username); if (!rec) return;
-    const r = await users.setActive(rec, req.body.active !== false, req.body.newUsername);
+    const active = req.body.active !== false;
+    if (rec.linked) {
+      // a shared login: only THIS inspector's access is switched, the login itself stays
+      await portalLinks.setLinkActive(rec.id, company(req), cur.id, active);
+      forgetUser(rec.username);
+      return res.status(200).json({ ok: 1, message: active ? "Access to your properties turned on." : "Access to your properties turned off. The login itself still works for their other inspectors.", username: rec.username });
+    }
+    const r = await users.setActive(rec, active, req.body.newUsername);
     forgetUser(rec.username); // takes effect on the client's next request
     if (r.status !== 201) return res.status(r.status).json(r);
     res.status(200).json({ ok: 1, message: r.message, username: r.username || "" });
@@ -174,6 +188,7 @@ router.post("/:id/logins/password", async (req, res) => {
     if (!(await requireAdmin(req, res))) return;
     const cur = await clientOf(req, res); if (!cur) return;
     const rec = await loginOf(req, res, cur, req.body && req.body.username); if (!rec) return;
+    if (rec.linked) return res.status(409).json({ message: "This login was created by another inspector and is shared with you; only that inspector can reset its password." });
     const password = String((req.body && req.body.password) || "");
     if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters." });
     await users.resetUserPassword(rec.username, company(req), password);
