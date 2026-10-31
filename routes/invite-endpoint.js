@@ -23,6 +23,7 @@ const portal = require("../model/portalAccess");
 const assoc = require("../service/associationMembership");
 const mail = require("../service/portalMail");
 const { forgetUser } = require("../service/clientAccess");
+const links = require("../model/portalLinks"); // PR 2: one login, several inspectors
 
 const memberRouter = express.Router();
 const publicRouter = express.Router();
@@ -140,10 +141,18 @@ memberRouter.post("/clients/:id", async (req, res) => {
     if (account && account.state === "locked") {
       return res.status(409).json({ message: "This client has an unpaid portal account. Access resumes when they pay." });
     }
-    // tell the member NOW if that email already has a login, not the client at accept time
-    const probe = await users.claimIdentity("zz-probe-" + portal.newCode().slice(0, 6).toLowerCase(), email).catch(() => ({ ok: true }));
-    if (!probe.ok && probe.field === "email") {
-      return res.status(409).json({ message: "A login with this email already exists in E3 Web, so it cannot accept an invitation. Invite a different email address, or use \"Add login\" to attach that person to this client." });
+    // An email that already has a PORTAL login (with you or another inspector) is
+    // fine: accepting adds your properties to that login (PR 2). A staff login's
+    // email cannot be invited.
+    let existing = await links.activeClientByEmail(email).catch(() => null);
+    if (existing && links.hasLink(existing, company(req), cur.id)) {
+      return res.status(409).json({ message: `${existing.username} already has portal access to this client. Use "Turn on" / "Reset password" in the logins list instead.` });
+    }
+    if (!existing) {
+      const probe = await users.claimIdentity("zz-probe-" + portal.newCode().slice(0, 6).toLowerCase(), email).catch(() => ({ ok: true }));
+      if (!probe.ok && probe.field === "email") {
+        return res.status(409).json({ message: "This email belongs to an E3 Web staff login, so it cannot be invited to the portal. Invite a different email address." });
+      }
     }
     // one pending invitation per email: an older one is replaced
     const pending = (await portal.listInvitations(company(req), cur.id))
@@ -160,7 +169,7 @@ memberRouter.post("/clients/:id", async (req, res) => {
     });
     const out = await buildAndSend(doc, code, me, companyName);
     if (out.emailed !== doc.emailed) await portal.setInvitation(doc.id, { emailed: out.emailed });
-    res.status(201).json(Object.assign({ ok: 1, invitation: publicInvite(Object.assign({}, doc, { emailed: out.emailed })) }, out));
+    res.status(201).json(Object.assign({ ok: 1, willLink: !!existing, invitation: publicInvite(Object.assign({}, doc, { emailed: out.emailed })) }, out));
   } catch (e) {
     console.error("portal invite create:", e && e.message);
     res.status(500).json({ message: "Could not create the invitation." });
@@ -236,6 +245,8 @@ publicRouter.get("/:code", async (req, res) => {
       member: (inv.member && inv.member.name) || "", company: inv.companyName || "", note: inv.note || "",
       properties, expiresAt: inv.expiresAt,
       priceLine: mail.PRICE_LINE, associationUrl: assoc.SITE + "/about-us/", supportEmail: mail.SUPPORT,
+      // PR 2: this email already has a portal login -> the page asks for its password instead of a new one
+      existingLogin: !!(await links.activeClientByEmail(inv.email).catch(() => null)),
     });
   } catch (e) {
     console.error("invite lookup:", e && e.message);
@@ -252,15 +263,51 @@ publicRouter.post("/:code/accept", async (req, res) => {
     if (problem) return res.status(inv ? 410 : 404).json({ message: problem });
     const b = req.body || {};
     const password = String(b.password || "");
-    if (password.length < 8) return res.status(400).json({ message: "Choose a password of at least 8 characters." });
+    if (password.length < 8) return res.status(400).json({ message: "Enter a password of at least 8 characters." });
     const first_name = str(b.first_name || inv.first_name, 80), last_name = str(b.last_name || inv.last_name, 80);
 
     const tenant = await Tenants.isTenantActive(inv.companyIdentifier).catch(() => ({ success: false }));
     if (!tenant || !tenant.success || !tenant.allowLogin) return res.status(409).json({ message: "Your inspector's E3 account is not active. Please contact them." });
 
+    // ONE LOGIN, SEVERAL INSPECTORS (PR 2): the email already has a portal login
+    // -> the password typed is that login's password, and this inspector's client
+    // is LINKED to it. No second login, no second password.
+    const existing = await links.activeClientByEmail(inv.email).catch(() => null);
+    if (existing) {
+      if (!(await bcrypt.compare(password, existing.password || ""))) {
+        return res.status(401).json({ message: "That is not the password of your existing portal login. Try again, or ask your inspector to reset it." });
+      }
+      if (!links.hasLink(existing, inv.companyIdentifier, inv.clientId)) {
+        await links.addLink(existing.id, { companyIdentifier: inv.companyIdentifier, clientId: inv.clientId, memberUsername: inv.member && inv.member.username, invitationId: inv.id });
+      }
+      const name = [existing.first_name, existing.last_name].filter(Boolean).join(" ") || existing.username;
+      const owner = { userId: existing.id, username: existing.username, email: existing.email, name };
+      let account = await portal.getAccount(inv.companyIdentifier, inv.clientId);
+      if (!account) {
+        account = await portal.upsertAccount({
+          companyIdentifier: inv.companyIdentifier, clientId: inv.clientId, clientName: inv.clientName,
+          state: "trial", trialEndsAt: null, billing: { enabled: false },
+          owner, originMember: inv.member || {}, invitationId: inv.id,
+          log: [{ at: new Date().toISOString(), event: "accepted-linked", by: existing.username, note: "invitation " + inv.id + " (existing login, primary inspector " + existing.companyIdentifier + ")" }],
+        });
+      } else {
+        account = await portal.logAccount(Object.assign({}, account, { owner: account.owner || owner }), "login-linked", existing.username, "invitation " + inv.id);
+      }
+      await portal.setInvitation(inv.id, { status: "accepted", acceptedAt: new Date().toISOString(), acceptedUserId: existing.id, accountId: account.id, linkedExisting: true });
+      forgetUser(existing.username);
+      const { password: pwd0, ...user0 } = existing;
+      user0.companyIdentifier = inv.companyIdentifier; user0.clientId = inv.clientId; // the inspector being shown
+      user0.token = jwt.sign(
+        { user_id: existing.id, username: existing.username, company: inv.companyIdentifier, role: "client", clientId: inv.clientId },
+        process.env.TOKEN_KEY, { expiresIn: "1d" }
+      );
+      user0.linked = true;
+      return res.status(200).json(user0);
+    }
+
     // username = the email when it fits the login rules and is free; otherwise a
     // safe form of it with a short suffix (the email itself must still be unused -
-    // one login per email, see PR 2 for linking several inspectors to it).
+    // one login per email; a second inspector links to it, see above).
     const altUsername = () => (inv.email.split("@")[0].replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "client")
       + "-" + portal.newCode().slice(0, 5).toLowerCase();
     let username = /^[A-Za-z0-9._@-]{3,60}$/.test(inv.email) ? inv.email : altUsername();
