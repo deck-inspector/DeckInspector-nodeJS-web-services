@@ -7,8 +7,6 @@ on:
   push:
     branches:
       - dbmigration
-      # TEMP (Nov 1 2026): deploy the client-portal PR 2 branch to the dev slot for testing - remove before merge
-      - client-portal-pr2
   workflow_dispatch:
 
 jobs:
