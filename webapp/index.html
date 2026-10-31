@@ -734,8 +734,8 @@ input,select{font-family:inherit;font-size:16px}
       </nav>
       <!-- PR 2: one login, several inspectors -->
       <label v-if="links.list.length > 1" style="display:flex;align-items:center;gap:6px;margin-left:14px;font-size:13px;color:var(--ink-soft)">Inspector
-        <select :value="user.companyIdentifier" :disabled="links.busy" @change="linkSwitch($event.target.value)" style="font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)">
-          <option v-for="l in links.list" :key="l.companyIdentifier" :value="l.companyIdentifier" :disabled="!l.active">{{ l.inspector }}{{ l.active ? '' : ' (access turned off)' }}</option>
+        <select :value="user.companyIdentifier + '|' + user.clientId" :disabled="links.busy" @change="linkSwitch($event.target.value)" style="font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)">
+          <option v-for="l in links.list" :key="l.companyIdentifier + '|' + l.clientId" :value="l.companyIdentifier + '|' + l.clientId" :disabled="!l.active">{{ l.inspector }}{{ l.active ? '' : ' (access turned off)' }}</option>
         </select>
       </label>
       <div class="spacer"></div>
@@ -3527,17 +3527,18 @@ createApp({
       } catch (e) { this.links.list = []; }
       finally { this.links.loading = false; }
     },
-    async linkSwitch(companyIdentifier) {
-      if (!companyIdentifier || companyIdentifier === this.user.companyIdentifier) return;
+    async linkSwitch(value) {
+      const [companyIdentifier, clientId] = String(value || '').split('|');
+      if (!companyIdentifier || (companyIdentifier === this.user.companyIdentifier && clientId === this.user.clientId)) return;
       this.links.busy = true;
       try {
-        const res = await this.api('/portal/switch', { method: 'POST', json: { companyIdentifier } });
+        const res = await this.api('/portal/switch', { method: 'POST', json: { companyIdentifier, clientId } });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) { this.toast(j.message || 'Could not switch inspector.', 'err'); return; }
         this.user = Object.assign({}, this.user, { token: j.token, companyIdentifier: j.companyIdentifier, clientId: j.clientId });
         localStorage.setItem('e3v2_user', JSON.stringify(this.user));
         this.cv.props = []; this.cv.prop = null; this.cv.unit = null;
-        const l = this.links.list.find((x) => x.companyIdentifier === j.companyIdentifier);
+        const l = this.links.list.find((x) => x.companyIdentifier === j.companyIdentifier && x.clientId === j.clientId);
         this.toast('Now showing ' + ((l && l.inspector) || 'this inspector') + "'s inspections.", 'ok');
         this.loadBranding();
         this.cvHome();
