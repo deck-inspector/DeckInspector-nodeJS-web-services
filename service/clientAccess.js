@@ -261,8 +261,9 @@ async function listLinks(req, res, client) {
 // POST /api/portal/switch { companyIdentifier } -> a fresh token for that inspector
 async function switchLink(req, res, client) {
   const want = String((req.body && req.body.companyIdentifier) || "").trim();
+  const wantClient = String((req.body && req.body.clientId) || "").trim();
   const rec = await lookupUser(client.username);
-  const link = want ? links.linkFor(rec, want) : null;
+  const link = want ? links.linkFor(rec, want, wantClient || undefined) : null;
   if (!link) return deny(res, 404, "That inspector is not linked to your login.");
   const Tenants = require("./tenantService");
   const t = await Tenants.isTenantActive(link.companyIdentifier).catch(() => ({ success: false }));
@@ -373,8 +374,8 @@ function clientGuard(req, res, next) {
     // The token names the inspector being viewed: the login's own (primary)
     // inspector, or - client logins only (PR 2) - one of its active links.
     let company = rec.companyIdentifier, clientId = rec.clientId;
-    if (isClientRecord(rec) && payload.company !== rec.companyIdentifier) {
-      const link = links.linkFor(rec, payload.company);
+    if (isClientRecord(rec) && (payload.company !== rec.companyIdentifier || (payload.clientId && payload.clientId !== rec.clientId))) {
+      const link = links.linkFor(rec, payload.company, payload.clientId || undefined);
       if (!link) return deny(res, 403, "This inspector is no longer linked to your login. Sign in again.");
       company = link.companyIdentifier; clientId = link.clientId;
     }
