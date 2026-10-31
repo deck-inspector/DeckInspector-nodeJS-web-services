@@ -23,6 +23,8 @@ var reviewRouter = require("./routes/review-endpoint");
 var visualAiRouter = require("./routes/visualai-endpoint");
 // Repairs portal - contractor photos, supervisor sign-off, inspector review (routes/repairs-endpoint.js)
 var repairsRouter = require("./routes/repairs-endpoint");
+// Client portal invitations (Oct 31 2026): member side + public accept page (routes/invite-endpoint.js)
+const inviteRoutes = require("./routes/invite-endpoint");
 // Client portal (Oct 23 2026): read-only owner / property-manager logins.
 const { clientGuard, portalPhoto } = require("./service/clientAccess");
 const portalShield = require("./service/portalShield");
@@ -66,6 +68,10 @@ module.exports = function (app) {
   app.use("/api/review", authenticateToken, reviewRouter);
   app.use("/api/visualai", authenticateToken, visualAiRouter);
   app.use("/api/repairs", authenticateToken, repairsRouter);
+// CLIENT PORTAL INVITATIONS (Oct 31 2026): admins invite a client by email + one-time code
+app.use("/api/portalinvite", authenticateToken, inviteRoutes.memberRouter);
+// PUBLIC: the client opens the invitation link and creates its own login - no token yet
+app.use("/api/invite", inviteRoutes.publicRouter);
   app.use("/api/login", loginRouter);
   app.use("/api/locationforms", authenticateToken, locationFormRouter);
   app.use("/api/migrate", migrateRouter);
