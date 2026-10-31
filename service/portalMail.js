@@ -81,7 +81,9 @@ function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-const PRICE_LINE = "Your first 15 days are free. After that the portal is $5 per property per month, billed yearly.";
+// The sentence comes from the billing settings (E3 Admin can change price / trial days), never hard-coded.
+const billing = require("./portalBilling");
+const priceLine = () => billing.priceLine();
 
 // The invitation. Carries the code, the accept link and - David's requirement -
 // a link to the E3 Inspection Association.
@@ -105,7 +107,7 @@ function invitationMessage(o) {
     props.length ? `Properties in your portfolio (${props.length}):` : "",
     ...propLines,
     props.length ? "" : "",
-    PRICE_LINE,
+    priceLine(),
     "",
     "The portal is a service of the E3 Inspection Association, the professional association of E3 Certified Inspectors:",
     `${ASSOC}/about-us/`,
@@ -124,7 +126,7 @@ function invitationMessage(o) {
 <p>Your invitation code: <b style="font-size:18px;letter-spacing:.08em">${esc(o.code)}</b> <span style="color:#51616f">(valid for ${o.days || 14} days)</span><br>
 <span style="color:#51616f;font-size:13px">If the button does not work, open ${esc(acceptUrl)}</span></p>
 ${props.length ? `<p><b>Properties in your portfolio (${props.length}):</b></p><ul style="margin:0 0 16px;padding-left:20px">${props.slice(0, 25).map((p) => `<li>${esc(p.name || p.address || p.id)}${p.address && p.name ? ` <span style="color:#51616f">&middot; ${esc(p.address)}</span>` : ""}</li>`).join("")}${props.length > 25 ? `<li>&hellip; and ${props.length - 25} more</li>` : ""}</ul>` : ""}
-<p style="background:#f2f5f8;border-radius:10px;padding:12px 16px">${esc(PRICE_LINE)}</p>
+<p style="background:#f2f5f8;border-radius:10px;padding:12px 16px">${esc(priceLine())}</p>
 ${o.note ? `<p><b>Note from ${esc(member)}:</b> ${esc(o.note)}</p>` : ""}
 <p>The portal is a service of the <a href="${ASSOC}/about-us/" style="color:#292c74">E3 Inspection Association</a>, the professional association of E3 Certified Inspectors.</p>
 <p style="color:#51616f;font-size:13px">Questions? <a href="mailto:${esc(SUPPORT)}" style="color:#292c74">${esc(SUPPORT)}</a></p>
@@ -138,4 +140,4 @@ function mailtoFor(to, msg) {
   return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(msg.subject)}&body=${encodeURIComponent(msg.text)}`;
 }
 
-module.exports = { configured, send, invitationMessage, mailtoFor, PRICE_LINE, ASSOC, APP, SUPPORT };
+module.exports = { configured, send, invitationMessage, mailtoFor, priceLine, ASSOC, APP, SUPPORT };

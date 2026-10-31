@@ -27,6 +27,7 @@ const shield = require("./portalShield");
 // Nov 1 2026 (client portal PR 2): one client login can be linked to several
 // inspectors; the token names the inspector currently being viewed.
 const links = require("../model/portalLinks");
+const billing = require("./portalBilling");
 
 const USER_TTL_MS = 60 * 1000;
 const MAX_IDS = 500;
@@ -237,6 +238,26 @@ async function acceptTerms(req, res, client) {
   return res.status(200).json({ success: true, version: shield.TERMS_VERSION });
 }
 
+// ---------------------------------------------------------------- billing (PR 3)
+// What a locked client may still reach: its own billing, the inspector list / switch
+// (answered before the gate), the inspector's logo for the lock screen, sign-in / out.
+const BILLING_FREE = [
+  { method: "POST", re: /^\/login\/(login|logout)$/i },
+  { method: "GET", re: /^\/tenants\/identifier\/([^/]+)$/i },
+];
+async function billingCall(req, res, client, path, method) {
+  const rec = await lookupUser(client.username);
+  try {
+    if (method === "GET" && /^\/portal\/billing$/i.test(path)) return res.status(200).json(await billing.clientStatus(rec));
+    if (method === "POST" && /^\/portal\/billing\/checkout$/i.test(path)) return res.status(200).json(await billing.startCheckout(rec, req.body && req.body.interval === "year" ? "year" : "month"));
+    if (method === "POST" && /^\/portal\/billing\/manage$/i.test(path)) return res.status(200).json(await billing.openPortal(rec));
+  } catch (e) {
+    console.error("portal billing:", e && e.message);
+    return res.status((e && e.status) || 502).json({ success: false, message: (e && e.status && e.message) || "Billing is not available right now. Please try again in a moment." });
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- inspectors (PR 2)
 // The inspectors this login is linked to, with names for the header switcher.
 async function describeLinks(rec) {
@@ -294,6 +315,20 @@ async function handleClient(req, res, next, client) {
   // several inspectors on one login (PR 2): list them / switch the token to one
   if (client.role === "client" && method === "GET" && /^\/portal\/links$/i.test(path)) return listLinks(req, res, client);
   if (client.role === "client" && method === "POST" && /^\/portal\/switch$/i.test(path)) return switchLink(req, res, client);
+
+  // client billing (PR 3): status / Stripe Checkout / manage billing - always reachable, even when locked
+  if (client.role === "client" && /^\/portal\/billing(\/|$)/i.test(path)) {
+    const done = await billingCall(req, res, client, path, method);
+    if (done) return done;
+  }
+  // LOCKOUT (PR 3): trial over and not paid (or payment failed for good). Property owners
+  // only - contractor logins are never billed. Fails open if billing cannot be evaluated.
+  if (client.role === "client" && !BILLING_FREE.some((r) => r.method === method && r.re.test(path))) {
+    const st = await billing.standing(await lookupUser(client.username));
+    if (!st.allowed) {
+      return res.status(402).json({ success: false, billingRequired: true, state: st.state, reason: st.reason, message: st.message });
+    }
+  }
 
   // bulk pulling is stopped and recorded; normal browsing never gets near this
   if (!shield.allow(client.username, "api")) {

@@ -25,6 +25,8 @@ var visualAiRouter = require("./routes/visualai-endpoint");
 var repairsRouter = require("./routes/repairs-endpoint");
 // Client portal invitations (Oct 31 2026): member side + public accept page (routes/invite-endpoint.js)
 const inviteRoutes = require("./routes/invite-endpoint");
+// Client portal billing (Nov 1 2026): Stripe webhook + E3 Admin fee controls (routes/billing-endpoint.js)
+const billingRoutes = require("./routes/billing-endpoint");
 // Client portal (Oct 23 2026): read-only owner / property-manager logins.
 const { clientGuard, portalPhoto } = require("./service/clientAccess");
 const portalShield = require("./service/portalShield");
@@ -32,7 +34,8 @@ const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
 
 module.exports = function (app) {
-  app.use(express.json());
+  // the Stripe webhook is signature-checked against the EXACT bytes Stripe sent, so keep them
+  app.use(express.json({ verify: (req, res, buf) => { if (String(req.originalUrl || req.url || "").startsWith("/api/portalbilling/webhook")) req.rawBody = buf; } }));
   // CLIENT PORTAL LOCK (Oct 23 2026): runs before every router. Staff and
   // token-less requests pass through untouched; a client (owner / property
   // manager) token may only READ its own portfolio's inspection - see
@@ -72,6 +75,8 @@ module.exports = function (app) {
 app.use("/api/portalinvite", authenticateToken, inviteRoutes.memberRouter);
 // PUBLIC: the client opens the invitation link and creates its own login - no token yet
 app.use("/api/invite", inviteRoutes.publicRouter);
+// CLIENT PORTAL BILLING (Nov 1 2026): PUBLIC Stripe webhook (signature-checked) + E3 Admin-only routes (own check)
+app.use("/api/portalbilling", billingRoutes);
   app.use("/api/login", loginRouter);
   app.use("/api/locationforms", authenticateToken, locationFormRouter);
   app.use("/api/migrate", migrateRouter);

@@ -75,6 +75,7 @@ async function membershipOk(me, res) {
 }
 
 async function buildAndSend(inv, code, me, companyName) {
+  await require("../service/portalBilling").getConfig().catch(() => null); // price sentence comes from the billing settings
   let properties = [];
   try { properties = await clients.getPortfolio(inv.companyIdentifier, inv.clientId); } catch (e) { properties = []; }
   const msg = mail.invitationMessage({
@@ -237,6 +238,7 @@ publicRouter.get("/:code", async (req, res) => {
     const inv = await openInvitation(code);
     const problem = inviteProblem(inv);
     if (problem) return res.status(inv ? 410 : 404).json({ message: problem, status: inv ? portal.effectiveStatus(inv) : "invalid" });
+    await require("../service/portalBilling").getConfig().catch(() => null);
     let properties = [];
     try { properties = (await clients.getPortfolio(inv.companyIdentifier, inv.clientId)).map((p) => ({ name: p.name || "", address: p.address || "" })); } catch (e) { properties = []; }
     res.status(200).json({
@@ -244,7 +246,7 @@ publicRouter.get("/:code", async (req, res) => {
       client: inv.clientName, email: inv.email, first_name: inv.first_name, last_name: inv.last_name,
       member: (inv.member && inv.member.name) || "", company: inv.companyName || "", note: inv.note || "",
       properties, expiresAt: inv.expiresAt,
-      priceLine: mail.PRICE_LINE, associationUrl: assoc.SITE + "/about-us/", supportEmail: mail.SUPPORT,
+      priceLine: mail.priceLine(), associationUrl: assoc.SITE + "/about-us/", supportEmail: mail.SUPPORT,
       // PR 2: this email already has a portal login -> the page asks for its password instead of a new one
       existingLogin: !!(await links.activeClientByEmail(inv.email).catch(() => null)),
     });
