@@ -205,7 +205,7 @@ router.get("/jobs", async (req, res) => {
     return res.status(200).json(projects.map((p) => ({
       projectId: p.id, name: p.name, address: p.address || "", url: p.url || "",
       job: jobs.get(p.id) ? { status: jobs.get(p.id).status, itemsTotal: jobs.get(p.id).itemsTotal, submittedAt: jobs.get(p.id).submittedAt || "", reviewedAt: jobs.get(p.id).reviewedAt || "",
-        issuedAt: jobs.get(p.id).issuedAt || "", finalReportId: jobs.get(p.id).finalReportId || "" } : { status: "open" },
+        issuedAt: jobs.get(p.id).issuedAt || "", finalReportId: jobs.get(p.id).finalReportId || "", method: jobs.get(p.id).method || "" } : { status: "open" },
       counts: counts[p.id] || { withPhotos: 0, byStatus: {} },
     })));
   } catch (e) {
@@ -227,7 +227,8 @@ router.get("/job/:projectId", async (req, res) => {
       project: { id: p.id, name: p.name, address: p.address || "", url: p.url || "" },
       job: { status: job.status, round: job.round || 1, submittedBy: job.submittedBy || "", submittedAt: job.submittedAt || "",
         reviewedBy: job.reviewedBy || "", reviewedAt: job.reviewedAt || "", reviewNote: job.reviewNote || "", history: job.history || [],
-        issuedAt: job.issuedAt || "", issuedBy: job.issuedBy || "", finalReport: await finalReportOf(job) },
+        issuedAt: job.issuedAt || "", issuedBy: job.issuedBy || "", finalReport: await finalReportOf(job),
+        method: job.method || "", methodReason: job.methodReason || "", unsafeItems: items.filter((i) => i.finding && i.finding.unsafe).length },
       items, summary: summarize(items), you: { kind: actor.kind, username: actor.username },
     });
   } catch (e) {
@@ -372,12 +373,24 @@ router.post("/job/submit", async (req, res) => {
     if (!items.length) return fail(res, 400, "This property has no repair items.");
     const notReady = items.filter((i) => i.status !== "accepted" && i.status !== "approved");
     if (notReady.length) return fail(res, 409, `${notReady.length} item${notReady.length === 1 ? " is" : "s are"} not accepted yet.`);
+    // HOW THE FINAL IS DONE (David, Nov 1 2026): owner-supplied photos (Final Report Upon
+    // Completion - usual for apartments / portfolio managers; the inspector signs off for the
+    // building department) or a physical on-site Final Inspection (what mortgage lenders require).
+    // EMERGENCY: repairs of an element reported as an immediate threat (unsafe) must be inspected
+    // by the inspector and reported to the local enforcement agency (H&S Code 17973(h)(1)) - those
+    // always need the on-site Final.
+    const unsafeItems = items.filter((i) => i.finding && i.finding.unsafe).length;
+    let method = b.method === "onsite" ? "onsite" : (b.method === "photos" ? "photos" : "");
+    if (!method) return fail(res, 400, "Choose how the Final is done: owner-supplied photos or an on-site Final Inspection.");
+    if (method === "photos" && unsafeItems) return fail(res, 409, "Unsafe conditions were reported at this property - those repairs must be inspected on site by the inspector. Choose the on-site Final Inspection.");
+    job.method = method; job.methodReason = unsafeItems ? "unsafe" : String(b.methodReason || "").slice(0, 40);
+    job.unsafeItems = unsafeItems;
     job.status = "submitted"; job.itemsTotal = items.length;
     job.submittedBy = actor.name; job.submittedByUser = actor.username; job.submittedAt = new Date().toISOString();
     job.reviewedBy = ""; job.reviewedAt = ""; job.reviewNote = "";
     job.note = String(b.note || "").slice(0, 1000);
     job.finalReportId = ""; job.issuedAt = ""; job.issuedBy = "";
-    logTo(job, actor, "submitted", b.note);
+    logTo(job, actor, method === "onsite" ? "Final requested - on-site Final Inspection" : "Final requested - owner-supplied photos", b.note);
     await repairs.saveJob(job);
     // Nov 1 2026: tell the inspection company (its admins) - the request used to show only as a badge
     let emailed = null;
@@ -411,6 +424,10 @@ router.post("/job/decide", async (req, res) => {
     for (const it of items) {
       let d = allOnsite ? "onsite" : ((decisions[it.sectionId] && decisions[it.sectionId].decision) || (it.status === "approved" ? "approve" : ""));
       if (!["approve", "rephoto", "onsite"].includes(d)) return fail(res, 400, `Choose approve, new photos or on site for "${it.locationName} - ${it.name}".`);
+      // Nov 1 2026: an on-site Final was requested (lender), or the item was an immediate threat
+      // (must be inspected by the inspector) - it cannot be approved from photos.
+      if (d === "approve" && job.method === "onsite") return fail(res, 409, "The client requested an on-site Final Inspection - choose On-site Final for everything.");
+      if (d === "approve" && it.finding && it.finding.unsafe) return fail(res, 409, `"${it.locationName} - ${it.name}" was an unsafe condition - it must be inspected on site.`);
       it.status = d === "approve" ? "approved" : d;
       it.reviewNote = String((decisions[it.sectionId] && decisions[it.sectionId].note) || "").slice(0, 1000);
       if (d === "approve") nApprove++; else if (d === "rephoto") nRephoto++; else nOnsite++;
@@ -457,7 +474,7 @@ router.post("/job/issue", async (req, res) => {
     const rec = await reports.getRecord(String(b.reportId || ""));
     if (!rec || String(rec.project_id) !== String(p.id)) return fail(res, 404, "Choose a report file of this property.");
     let kind = FINAL_KINDS.includes(b.kind) ? b.kind : reports.guessKind(rec.name);
-    if (!FINAL_KINDS.includes(kind)) kind = job.status === "onsite" ? "finalrepairs" : "finalcompletion";
+    if (!FINAL_KINDS.includes(kind)) kind = (job.status === "onsite" || job.method === "onsite") ? "finalrepairs" : "finalcompletion";
     const out = await reports.release(actor, { id: rec.id, kind, title: b.title, notify: false });
     const prevId = job.finalReportId || "";
     job.status = "issued"; job.finalReportId = rec.id;

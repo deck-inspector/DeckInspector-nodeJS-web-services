@@ -498,6 +498,10 @@ input,select{font-family:inherit;font-size:16px}
 .rp-head{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:10px clamp(16px,4vw,40px);display:flex;align-items:center;gap:12px;z-index:2}
 .rp-body{max-width:980px;margin:0 auto;padding:16px clamp(16px,4vw,40px) 120px}
 .rp-banner{border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:14px;background:var(--brand-soft);color:var(--brand)}
+.rp-meth{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 10px;cursor:pointer;background:var(--card)}
+.rp-meth.on{border-color:var(--brand);background:var(--brand-soft)}.rp-meth.off{opacity:.5;cursor:not-allowed}
+.rp-meth b{display:block;font-size:15px}.rp-meth small{color:var(--ink-soft);display:block;margin-top:2px}
+.rp-meth input{margin:4px 0 0;flex:none;width:18px;height:18px}.rp-meth span{flex:1}
 .rp-banner.ok{background:#e3f4ee;color:#0B7A5C}.rp-banner.warn{background:#FFF4E0;color:#8a5300}.rp-banner.bad{background:#fde8e8;color:#9b1c1c}
 .rp-item{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:14px}
 .rp-item h4{margin:0 0 4px;font-size:16px}
@@ -798,6 +802,7 @@ input,select{font-family:inherit;font-size:16px}
           <div class="rp-card" v-for="j in rpClientFiltered" :key="j.projectId" @click="rpOpen(j.projectId)">
             <b>{{ j.name }}</b><small>{{ j.address }}</small>
             <span class="rp-st" :class="j.job.status">{{ rpJobLabel(j.job.status) }}</span>
+            <span class="rp-st" :class="j.job.method==='onsite' ? 'onsite' : 'done'" v-if="j.job.method && j.job.status!=='open'" style="margin-left:6px">{{ j.job.method==='onsite' ? 'On-site Final' : 'Owner photos' }}</span>
             <button class="btn-dl" v-if="j.job.status==='issued' && j.job.finalReportId" style="margin-left:6px" @click.stop="crpOpen(j.job.finalReportId)">&#128196; Open Final Report</button>
             <span class="rp-st done" v-if="rpReadyCount(j)" style="margin-left:6px">{{ rpReadyCount(j) }} ready for your review</span>
             <div class="hint" style="margin:6px 0 0;font-size:12px">{{ rpCountLine(j) }}</div>
@@ -2401,6 +2406,7 @@ input,select{font-family:inherit;font-size:16px}
           <div class="rp-card" v-for="j in rpQueue" :key="j.projectId" @click="rpOpen(j.projectId)">
             <b>{{ j.name }}</b><small>{{ j.clientName || 'No client' }}<span v-if="j.address"> &middot; {{ j.address }}</span></small>
             <span class="rp-st" :class="j.job.status">{{ rpJobLabel(j.job.status) }}</span>
+            <span class="rp-st" :class="j.job.method==='onsite' ? 'onsite' : 'done'" v-if="j.job.method" style="margin-left:6px">{{ j.job.method==='onsite' ? (j.job.methodReason==='unsafe' ? '&#9888; On-site required (unsafe)' : 'On-site requested') : 'Owner photos' }}</span>
             <div class="hint" style="margin:6px 0 0;font-size:12px" v-if="j.job.submittedAt">Requested {{ niceDate(j.job.submittedAt) }} by {{ j.job.submittedBy }}<span v-if="j.job.itemsTotal"> &middot; {{ j.job.itemsTotal }} items</span><span v-if="j.job.issuedAt"> &middot; Final issued {{ niceDate(j.job.issuedAt) }}</span></div>
           </div>
         </div>
@@ -2474,10 +2480,12 @@ input,select{font-family:inherit;font-size:16px}
       <div class="empty" v-if="!rp.data">Loading the repair items&hellip;</div>
       <template v-else>
         <!-- what to do now -->
+        <div class="rp-banner bad" v-if="rp.data.job.unsafeItems && rp.data.job.status!=='issued'">&#9888; <b>Unsafe conditions</b> were reported for {{ rp.data.job.unsafeItems }} repair item{{ rp.data.job.unsafeItems===1 ? '' : 's' }}. Emergency repairs must be inspected on site by the inspector and reported to the local building department.</div>
+        <div class="rp-banner" v-if="rp.data.job.method && rp.data.job.status!=='open'"><b>{{ rp.data.job.method==='onsite' ? 'On-site Final Inspection requested' : 'Final Report Upon Completion requested (owner-supplied photos)' }}</b><span v-if="rp.data.job.method==='onsite' && rp.data.job.methodReason==='unsafe'"> &mdash; required because of the unsafe conditions</span><span v-else-if="rp.data.job.method==='onsite'"> &mdash; e.g. for a mortgage lender</span>.</div>
         <div class="rp-banner" v-if="rp.data.job.status==='open' && rpKind==='contractor'">Add photos of each completed repair, then tap <b>Done</b> on that item. Items your supervisor or the inspector sent back show the reason in orange.</div>
         <div class="rp-banner" v-else-if="rp.data.job.status==='open' && rpKind==='client'">Review each item: <b>Accept</b> it or <b>Send back</b> to your contractor with a note. When every item is accepted, press <b>Repairs complete</b> at the bottom.</div>
         <div class="rp-banner" v-else-if="rp.data.job.status==='open' && rpKind==='staff'">The client has not submitted these repairs yet.</div>
-        <div class="rp-banner" v-else-if="rp.data.job.status==='submitted'">Submitted to the inspector {{ niceDate(rp.data.job.submittedAt) }} by {{ rp.data.job.submittedBy }}.<span v-if="rpKind==='staff'"> Choose for each item: <b>Approve</b> from the photos, ask for <b>New photos</b>, or check it <b>On site</b>.</span><span v-else> No changes can be made while the inspector reviews them.</span></div>
+        <div class="rp-banner" v-else-if="rp.data.job.status==='submitted'">Submitted to the inspector {{ niceDate(rp.data.job.submittedAt) }} by {{ rp.data.job.submittedBy }}.<span v-if="rpKind==='staff' && rp.data.job.method==='onsite'"> Press <b>On-site Final for everything</b> and schedule the visit; after the inspection, sign the Final and issue it to the client.</span><span v-else-if="rpKind==='staff'"> Choose for each item: <b>Approve</b> from the photos, ask for <b>New photos</b>, or check it <b>On site</b>.</span><span v-else> No changes can be made while the inspector reviews them.</span></div>
         <div class="rp-banner ok" v-else-if="rp.data.job.status==='approved'">Approved by the inspector {{ niceDate(rp.data.job.reviewedAt) }}. <span v-if="rpKind==='staff'">Create the Final Report Upon Completion with these photos (button at the bottom).</span><span v-else>The Final Inspection report will follow.</span></div>
         <div class="rp-banner bad" v-else-if="rp.data.job.status==='onsite'">The inspector will do an on-site Final Inspection.</div>
         <div class="rp-banner ok" v-else-if="rp.data.job.status==='issued'">Final Report signed and issued {{ niceDate(rp.data.job.issuedAt) }}<span v-if="rp.data.job.finalReport && rp.data.job.finalReport.signedBy"> by {{ rp.data.job.finalReport.signedBy }}</span>.<span v-if="rpKind==='client'"> Open it below or under <b>Reports</b>.</span></div>
@@ -2537,7 +2545,7 @@ input,select{font-family:inherit;font-size:16px}
           <!-- inspector decision -->
           <div class="rp-actions" v-if="rpKind==='staff' && rp.data.job.status==='submitted'">
             <div class="rp-dec">
-              <button class="approve" :class="{on: rpDecOf(it)==='approve'}" @click="rpSetDec(it, 'approve')">Approve</button>
+              <button class="approve" :class="{on: rpDecOf(it)==='approve'}" :disabled="rp.data.job.method==='onsite' || it.finding.unsafe" :title="it.finding.unsafe ? 'Unsafe condition - must be inspected on site' : (rp.data.job.method==='onsite' ? 'The client requested an on-site Final Inspection' : '')" @click="rpSetDec(it, 'approve')">Approve</button>
               <button class="rephoto" :class="{on: rpDecOf(it)==='rephoto'}" @click="rpSetDec(it, 'rephoto')">New photos</button>
               <button class="onsite" :class="{on: rpDecOf(it)==='onsite'}" @click="rpSetDec(it, 'onsite')">On site</button>
             </div>
@@ -2554,7 +2562,7 @@ input,select{font-family:inherit;font-size:16px}
     <div class="rp-foot" v-if="rp.data">
       <template v-if="rpKind==='client' && rp.data.job.status==='open' && rp.data.items.length">
         <span class="hint" style="margin:0;flex:1" v-if="rpNotAccepted">{{ rpNotAccepted }} item{{ rpNotAccepted===1 ? '' : 's' }} still to accept.</span>
-        <button class="rp-big" :disabled="!!rpNotAccepted || !!rp.busy" @click="rp.confirm=true">Repairs complete &mdash; request Final Report</button>
+        <button class="rp-big" :disabled="!!rpNotAccepted || !!rp.busy" @click="rp.method = (rp.data.job.unsafeItems ? 'onsite' : ''); rp.confirm=true">Repairs complete &mdash; request Final Report</button>
       </template>
       <template v-if="rp.data.job.status==='issued' && rp.data.job.finalReport && rpKind==='client'">
         <span style="flex:1"></span>
@@ -2562,8 +2570,8 @@ input,select{font-family:inherit;font-size:16px}
         <button class="rp-big" @click="crpOpen(rp.data.job.finalReport.id)">&#128196; Open {{ rp.data.job.finalReport.label || 'Final Report' }}</button>
       </template>
       <template v-if="rpKind==='staff' && rp.data.job.status==='submitted'">
-        <button class="btn-dl" @click="rpDecAll('approve')">Approve all</button>
-        <button class="btn-dl" style="color:#C62828" @click="rpDecAll('onsite')">On-site Final for everything</button>
+        <button class="btn-dl" v-if="rp.data.job.method!=='onsite' && !rp.data.job.unsafeItems" @click="rpDecAll('approve')">Approve all</button>
+        <button :class="rp.data.job.method==='onsite' ? 'rp-big' : 'btn-dl'" :style="rp.data.job.method==='onsite' ? '' : 'color:#C62828'" @click="rpDecAll('onsite')">On-site Final for everything</button>
         <button class="rp-big" :disabled="!!rp.busy || !rpAllDecided" @click="rpSaveDecision()">{{ rp.busy==='decide' ? 'Saving…' : 'Save decision' }}</button>
       </template>
       <template v-if="rpKind==='staff' && rp.data.job.status!=='submitted' && rp.data.job.status!=='open'">
@@ -2574,11 +2582,18 @@ input,select{font-family:inherit;font-size:16px}
       </template>
     </div>
     <div class="overlay" v-if="rp.confirm" @click.self="rp.confirm=false">
-      <div class="modal" style="max-width:520px">
-        <h3>Repairs complete?</h3>
-        <p>You are confirming that the repairs at <b>{{ rp.data && rp.data.project.name }}</b> are complete and that you accept the contractor&rsquo;s work shown in the photos. They go to the inspector, who is notified by email, reviews the photos and prepares the Final Report (or schedules an on-site Final Inspection). Your name and the time are recorded.</p>
-        <div class="field"><label>Note to the inspector (optional)</label><textarea v-model="rp.submitNote" rows="2" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit"></textarea></div>
-        <div class="mrow"><button class="btn-cancel" @click="rp.confirm=false">Cancel</button><button class="rp-big" :disabled="!!rp.busy" @click="rpSubmit()">{{ rp.busy==='submit' ? 'Sending…' : 'Yes, send to the inspector' }}</button></div>
+      <div class="modal" style="max-width:600px">
+        <h3>Repairs complete &mdash; request the Final</h3>
+        <p>You are confirming that the repairs at <b>{{ rp.data && rp.data.project.name }}</b> are complete and that you accept the contractor&rsquo;s work shown in the photos. Choose how the Final is done:</p>
+        <div class="rp-banner bad" v-if="rp.data && rp.data.job.unsafeItems">&#9888; <b>Unsafe conditions were reported at this property.</b> Emergency repairs must be inspected on site by the inspector and reported to the local building department, so an <b>on-site Final Inspection</b> is required.</div>
+        <label class="rp-meth" :class="{on: rp.method==='onsite'}"><input type="radio" value="onsite" v-model="rp.method"><span><b>On-site Final Inspection</b>
+          <small>The inspector visits the property, inspects the repairs and signs the Final. Required by mortgage lenders (refinance or sale) and for any unsafe condition.</small></span></label>
+        <label class="rp-meth" :class="{on: rp.method==='photos', off: rp.data && rp.data.job.unsafeItems}"><input type="radio" value="photos" v-model="rp.method" :disabled="rp.data && rp.data.job.unsafeItems"><span><b>Final Report Upon Completion &mdash; owner-supplied photos</b>
+          <small>The inspector reviews your contractor&rsquo;s repair photos and signs off that the repairs were made, for the building department. Usual for apartments and portfolio managers. Not accepted by mortgage lenders.</small>
+          <small v-if="rp.data && rp.data.job.unsafeItems" style="color:#9b1c1c">Not available &mdash; unsafe conditions must be inspected on site.</small></span></label>
+        <div class="field"><label>Note to the inspector (optional)</label><textarea v-model="rp.submitNote" rows="2" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit" placeholder="e.g. lender name and deadline, best days for the visit"></textarea></div>
+        <p class="hint" style="margin:0 0 6px">The inspector is notified by email. Your name and the time are recorded.</p>
+        <div class="mrow"><button class="btn-cancel" @click="rp.confirm=false">Cancel</button><button class="rp-big" :disabled="!!rp.busy || !rp.method" @click="rpSubmit()">{{ rp.busy==='submit' ? 'Sending…' : (rp.method==='onsite' ? 'Request on-site Final Inspection' : (rp.method==='photos' ? 'Request Final from photos' : 'Choose how the Final is done')) }}</button></div>
       </div>
     </div>
   </div>
@@ -3264,7 +3279,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.8';
+const APP_BUILD = '2026-11-01.9';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3339,7 +3354,7 @@ createApp({
       // Repairs portal (Oct 23 2026)
       crp: { list: [], loading: false, busy: '', at: 0, viewer: null }, // client portal signed reports (Nov 1 2026)
       pr: { files: [], kinds: {}, kind: {}, loading: false, busy: '', confirm: '', pid: '' }, // inspector: release to client (Nov 1 2026)
-      rp: { issue: null, list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
+      rp: { method: '', issue: null, list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
       ct: { list: [], loading: false, form: null, busy: false, msg: '' },
       addPropQ: '',
       // Portal access on the staff client page
@@ -4206,9 +4221,10 @@ createApp({
       if (j) { this.rp.notes[it.sectionId] = ''; await this.rpReload(); this.toast(decision === 'accept' ? 'Accepted.' : 'Sent back to the contractor.'); }
     },
     async rpSubmit() {
-      const j = await this.rpPost('job/submit', { note: this.rp.submitNote || '' }, 'submit');
+      if (!this.rp.method) return;
+      const j = await this.rpPost('job/submit', { note: this.rp.submitNote || '', method: this.rp.method }, 'submit');
       this.rp.confirm = false;
-      if (j) { this.rp.submitNote = ''; await this.rpReload(); this.toast('Sent to the inspector for the Final Inspection.'); }
+      if (j) { this.rp.submitNote = ''; await this.rpReload(); this.toast(this.rp.method === 'onsite' ? 'On-site Final Inspection requested \u2014 the inspector has been notified.' : 'Final requested from your photos \u2014 the inspector has been notified.'); }
     },
     rpDecOf(it) { const d = this.rp.decisions[it.sectionId]; return d || (it.status === 'approved' ? 'approve' : ''); },
     rpSetDec(it, d) { this.rp.decisions = Object.assign({}, this.rp.decisions, { [it.sectionId]: d }); },
