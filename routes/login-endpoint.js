@@ -311,4 +311,43 @@ router.route("/loginSuperUser").post(async function (req, res) {
   }
 });
 
+// E3 Admin: change MY password (David, Nov 1 2026 - the admin site faces the internet).
+// POST /api/login/superUserPassword { currentPassword, newPassword }
+// Needs the E3 Admin's own token (Authorization header, no `company` claim) AND the
+// current password. 5 wrong current passwords lock this for 15 minutes.
+const pwFails = new Map(); // lower(username) -> { n, until }
+router.route("/superUserPassword").post(async function (req, res) {
+  try {
+    let p;
+    try { p = jwt.verify(req.headers.authorization || "", process.env.TOKEN_KEY); } catch (e) { return res.status(401).json({ message: "Please sign in again." }); }
+    if (!p || p.company || !p.username) return res.status(403).json({ message: "E3 Admin only." });
+    const key = String(p.username).toLowerCase();
+    const f = pwFails.get(key);
+    if (f && f.until > Date.now()) return res.status(429).json({ message: "Too many wrong passwords. Try again in 15 minutes." });
+    const { currentPassword, newPassword } = req.body || {};
+    const next = String(newPassword || "");
+    if (!currentPassword || !next) return res.status(400).json({ message: "Enter your current password and a new password." });
+    if (next.length < 12) return res.status(400).json({ message: "The new password must be at least 12 characters." });
+    if (next === String(currentPassword)) return res.status(400).json({ message: "The new password must be different from the current one." });
+    const record = await getCouchbaseSuperUser(p.username);
+    if (!record) return res.status(403).json({ message: "E3 Admin only." });
+    if (!(await bcrypt.compare(String(currentPassword), record.password || ""))) {
+      const n = ((f && f.until <= Date.now()) ? 0 : (f ? f.n : 0)) + 1;
+      pwFails.set(key, { n, until: n >= 5 ? Date.now() + 15 * 60 * 1000 : 0 });
+      return res.status(401).json({ message: "Your current password is not correct." });
+    }
+    pwFails.delete(key);
+    const hash = await bcrypt.hash(next, 10);
+    await couchbaseDb.cluster.query(
+      `UPDATE \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.SuperUsers AS u USE KEYS $1 SET u.password = $2, u.passwordChangedAt = $3`,
+      { parameters: [record.id, hash, new Date().toISOString()] }
+    );
+    console.log("E3 Admin password changed:", record.username);
+    res.status(200).json({ ok: 1, message: "Password changed." });
+  } catch (err) {
+    console.error("Super user password change:", err && err.message);
+    res.status(500).json({ message: "Could not change the password. Nothing was changed." });
+  }
+});
+
 module.exports = router;
