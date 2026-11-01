@@ -1032,7 +1032,7 @@ input,select{font-family:inherit;font-size:16px}
         <button class="btn-ghost" :class="{navon: view==='users'}" @click="openUsers">&#128100; Users</button>
         <button class="btn-ghost" :class="{navon: view==='clients'}" title="Clients — owners and property managers and their property portfolios" @click="openClients()">&#127970; Clients</button>
         <button class="btn-ghost" v-if="user && user.role==='admin'" title="Master view - use the client and contractor screens of any client (set-up, testing, support)" @click="mvOpen()">&#128065; Master view</button>
-        <button class="btn-ghost" :class="{navon: view==='repairs'}" title="Repairs submitted by clients for a Final Inspection" @click="openRepairs()">&#128295; Repairs<span v-if="rpQueueCount" class="rp-st submitted" style="margin-left:6px">{{ rpQueueCount }}</span></button>
+        <button class="btn-ghost" :class="{navon: view==='repairs'}" title="Final Reports requested by clients - review, sign and issue" @click="openRepairs()">&#11088; Final Reports<span v-if="rpQueueCount" class="rp-st submitted" style="margin-left:6px">{{ rpQueueCount }}</span></button>
       </nav>
       <div class="spacer"></div>
       <img v-if="logo" :src="logo" :alt="(user && user.companyIdentifier) || 'Company logo'" :style="{ height: (logoH ? logoH + 'px' : '38px'), width: (logoW ? logoW + 'px' : 'auto'), marginRight: '4px' }">
@@ -2084,6 +2084,44 @@ input,select{font-family:inherit;font-size:16px}
           </div>
         </div>
 
+        <!-- CLIENT PORTAL (Nov 1 2026): a report reaches the client's portal once it is SIGNED.
+             Until the auto-signature exists, the inspector presses "Signed - release to client". -->
+        <div class="panel" v-if="!isClient && !isContractor">
+          <h3>Client Portal &mdash; signed reports</h3>
+          <div class="hint">When a report or uploaded document is <b>signed</b>, press <b>Signed &ndash; release to client</b>. The owner / property manager sees it in their portal as a PDF and is emailed. Nothing here is visible to the client until you release it.</div>
+          <div class="empty" v-if="pr.loading && !pr.files.length">Loading&hellip;</div>
+          <div class="empty" v-else-if="!pr.files.length">No report files yet.</div>
+          <ul class="rlist" v-else>
+            <li v-for="f in pr.files" :key="f.id">
+              <div class="ricon" :class="f.release ? 'final' : 'word'">{{ f.release ? '&#10003;' : (f.suggestedKind==='unsafe' ? '&#9888;' : '&#128196;') }}</div>
+              <div class="rinfo">
+                <div class="rname">{{ f.name }}</div>
+                <div class="rdate">{{ niceDate(f.timestamp) }} &middot; {{ f.source==='document' ? 'Uploaded document' : 'Report file' }}<span v-if="!f.pdf"> &middot; Word (the client gets a PDF)</span></div>
+                <div v-if="f.release" style="margin-top:4px"><span class="rp-st approved">Shared with client &middot; {{ f.release.label }}</span> <span class="hint" style="margin:0;font-size:12px">signed {{ niceDate(f.release.signedAt) }}<span v-if="f.release.signedBy"> by {{ f.release.signedBy }}</span></span></div>
+              </div>
+              <div class="rbtns" style="flex-wrap:wrap">
+                <template v-if="!f.release">
+                  <select v-model="pr.kind[f.id]" style="padding:7px 8px;border:1.5px solid var(--line);border-radius:8px;max-width:230px">
+                    <option v-for="(lab, k) in pr.kinds" :key="k" :value="k">{{ lab }}</option>
+                  </select>
+                  <button class="btn-dl" v-if="pr.confirm!==f.id" :disabled="!!pr.busy" @click="pr.confirm=f.id">Signed &ndash; release to client</button>
+                  <template v-else>
+                    <button class="btn-edit" :disabled="!!pr.busy" @click="prRelease(f, true)">{{ pr.busy===f.id ? 'Releasing&hellip;' : 'Confirm &mdash; client is emailed' }}</button>
+                    <button class="btn-cancel" @click="pr.confirm=''">Cancel</button>
+                  </template>
+                </template>
+                <template v-else>
+                  <button class="btn-del" v-if="pr.confirm!==f.id" :disabled="!!pr.busy" @click="pr.confirm=f.id">Withdraw</button>
+                  <template v-else>
+                    <button class="btn-del" :disabled="!!pr.busy" @click="prRelease(f, false)">{{ pr.busy===f.id ? 'Withdrawing&hellip;' : 'Confirm withdraw' }}</button>
+                    <button class="btn-cancel" @click="pr.confirm=''">Cancel</button>
+                  </template>
+                </template>
+              </div>
+            </li>
+          </ul>
+        </div>
+
         <div class="panel">
           <h3>Report Files</h3>
           <div class="hint" v-if="reports.length">Newest first. Deleting removes the entry from this list.</div>
@@ -2350,19 +2388,20 @@ input,select{font-family:inherit;font-size:16px}
       <!-- ============ REPAIRS QUEUE (Oct 23 2026) ============ -->
       <template v-else-if="view==='repairs'">
         <div class="page-head">
-          <h2>Repairs submitted for a Final <span class="count" v-if="!rp.loading">({{ rp.list.length }})</span></h2>
+          <h2>Final Reports <span class="count" v-if="!rp.loading">({{ rpQueue.length }})</span></h2>
           <div class="spacer" style="flex:1"></div>
           <div class="kindrow" style="margin:0">
-            <button class="kind" v-for="f in [['submitted','Waiting for review'],['onsite','On-site needed'],['approved','Approved'],['all','All']]" :key="f[0]" :class="{on: rp.filter===f[0]}" @click="rp.filter=f[0]">{{ f[1] }}</button>
+            <button class="kind" v-for="f in [['submitted','Requested \u2014 review'],['onsite','On-site needed'],['approved','Ready to sign & issue'],['issued','Issued'],['all','All']]" :key="f[0]" :class="{on: rp.filter===f[0]}" @click="rp.filter=f[0]">{{ f[1] }}</button>
           </div>
         </div>
         <div class="empty" v-if="rp.loading">Loading&hellip;</div>
-        <div class="panel" v-else-if="!rpQueue.length">Nothing here. Clients press <b>Repairs complete</b> in their portal to send repairs to you.</div>
+        <div class="cv-banner" style="margin-top:4px">Clients press <b>Repairs complete &mdash; request Final Report</b> in their portal; you get an email and the request lands under <b>Requested</b>. Review the photos, then sign the Final and press <b>Issue Final to client</b> &mdash; it appears in their portal and they are emailed.</div>
+        <div class="panel" v-else-if="!rpQueue.length">Nothing here.</div>
         <div class="rp-list" v-else>
           <div class="rp-card" v-for="j in rpQueue" :key="j.projectId" @click="rpOpen(j.projectId)">
             <b>{{ j.name }}</b><small>{{ j.clientName || 'No client' }}<span v-if="j.address"> &middot; {{ j.address }}</span></small>
             <span class="rp-st" :class="j.job.status">{{ rpJobLabel(j.job.status) }}</span>
-            <div class="hint" style="margin:6px 0 0;font-size:12px" v-if="j.job.submittedAt">Submitted {{ niceDate(j.job.submittedAt) }} by {{ j.job.submittedBy }}<span v-if="j.job.itemsTotal"> &middot; {{ j.job.itemsTotal }} items</span></div>
+            <div class="hint" style="margin:6px 0 0;font-size:12px" v-if="j.job.submittedAt">Requested {{ niceDate(j.job.submittedAt) }} by {{ j.job.submittedBy }}<span v-if="j.job.itemsTotal"> &middot; {{ j.job.itemsTotal }} items</span><span v-if="j.job.issuedAt"> &middot; Final issued {{ niceDate(j.job.issuedAt) }}</span></div>
           </div>
         </div>
       </template>
@@ -2530,7 +2569,8 @@ input,select{font-family:inherit;font-size:16px}
       <template v-if="rpKind==='staff' && rp.data.job.status!=='submitted' && rp.data.job.status!=='open'">
         <a class="btn-dl" v-if="rp.mailto" :href="rp.mailto" style="text-decoration:none">&#9993; Email the client</a>
         <button class="btn-dl" v-if="rp.data.job.status==='onsite'" @click="rpScheduleOnsite()">Schedule Final Inspection</button>
-        <button class="rp-big" v-if="rp.data.job.status==='approved'" @click="rpOpenReport()">Open Final Report (Owner Supplied Photos)</button>
+        <button class="btn-dl" v-if="rp.data.job.status==='approved'" @click="rpOpenReport()">Open Final Report (Owner Supplied Photos)</button>
+        <button class="rp-big" @click="rpIssueOpen()">{{ rp.data.job.status==='issued' ? 'Re-issue Final to client' : 'Issue Final to client' }}</button>
       </template>
     </div>
     <div class="overlay" v-if="rp.confirm" @click.self="rp.confirm=false">
@@ -2540,6 +2580,30 @@ input,select{font-family:inherit;font-size:16px}
         <div class="field"><label>Note to the inspector (optional)</label><textarea v-model="rp.submitNote" rows="2" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit"></textarea></div>
         <div class="mrow"><button class="btn-cancel" @click="rp.confirm=false">Cancel</button><button class="rp-big" :disabled="!!rp.busy" @click="rpSubmit()">{{ rp.busy==='submit' ? 'Sending…' : 'Yes, send to the inspector' }}</button></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ============ ISSUE FINAL TO CLIENT (Nov 1 2026) ============ -->
+  <div class="overlay" v-if="user && rp.issue" @click.self="rp.issue=null" style="z-index:80">
+    <div class="modal" style="max-width:620px">
+      <h3>Issue the signed Final to the client</h3>
+      <p class="hint" style="margin:0 0 10px">Choose the <b>signed</b> Final for <b>{{ rp.data && rp.data.project.name }}</b> &mdash; the Final Report Upon Completion you built from the photos, the on-site Final Repairs report, or the signed copy you uploaded under Documents. It is released to the client&rsquo;s portal as a PDF, the client is emailed, and this request closes as <b>Final issued</b>.</p>
+      <div class="empty" v-if="rp.issue.loading">Loading the report files&hellip;</div>
+      <div class="panel" v-else-if="!rp.issue.files.length" style="margin:0">No report files on this property yet. Build the Final first (Reports &rarr; Final Report Upon Completion, or the on-site Final Repairs report), sign it, then come back.</div>
+      <div v-else class="mv-list" style="max-height:320px">
+        <label class="mv-row" v-for="f in rp.issue.files" :key="f.id" style="cursor:pointer">
+          <input type="radio" :value="f.id" v-model="rp.issue.pick">
+          <div class="nm"><b>{{ f.name }}</b><small>{{ niceDate(f.timestamp) }} &middot; {{ f.source==='document' ? 'Uploaded document' : 'Report file' }}<span v-if="f.release"> &middot; already shared</span></small></div>
+        </label>
+      </div>
+      <div class="field" v-if="rp.issue.files.length" style="margin-top:10px"><label>This is the</label>
+        <select v-model="rp.issue.kind" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px">
+          <option value="finalcompletion">Final Report Upon Completion (owner-supplied photos)</option>
+          <option value="finalrepairs">Final Repairs Inspection (on-site)</option>
+          <option value="final">Final Report</option>
+        </select></div>
+      <div class="mrow"><button class="btn-cancel" @click="rp.issue=null">Cancel</button>
+        <button class="rp-big" :disabled="!rp.issue.pick || !!rp.busy" @click="rpIssue()">{{ rp.busy==='issue' ? 'Issuing&hellip;' : 'Signed &mdash; issue to client' }}</button></div>
     </div>
   </div>
 
@@ -3185,7 +3249,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.6';
+const APP_BUILD = '2026-11-01.7';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3259,7 +3323,8 @@ createApp({
       mv: { open: false, loading: false, q: '', ctFor: '', ctLoading: false, contractors: [] },
       // Repairs portal (Oct 23 2026)
       crp: { list: [], loading: false, busy: '', at: 0 }, // client portal signed reports (Nov 1 2026)
-      rp: { list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
+      pr: { files: [], kinds: {}, kind: {}, loading: false, busy: '', confirm: '', pid: '' }, // inspector: release to client (Nov 1 2026)
+      rp: { issue: null, list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
       ct: { list: [], loading: false, form: null, busy: false, msg: '' },
       addPropQ: '',
       // Portal access on the staff client page
@@ -3956,6 +4021,66 @@ createApp({
     },
     cvReports() { history.pushState({ v: 'cv-reports' }, ''); this.cv.view = 'reports'; if (!this.cv.props.length) this.cvLoadProps(); this.crpLoad(true); },
     cvOpenPropId(pid) { const p = this.cv.props.find((x) => x.id === pid); if (p) this.cvOpenProp(p); },
+    // ---- inspector: sign + release report files to the client portal (Nov 1 2026) ----
+    async prFetch(pid) {
+      const res = await this.api('/portalreports/project/' + encodeURIComponent(pid));
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.message || 'load');
+      return j;
+    },
+    async prLoad() {
+      if (this.isClient || this.isContractor || !this.current) return;
+      const pid = this.projectId(this.current);
+      if (this.pr.pid !== pid) { this.pr.files = []; this.pr.confirm = ''; }
+      this.pr.pid = pid; this.pr.loading = true;
+      try {
+        const j = await this.prFetch(pid);
+        if (this.pr.pid !== pid) return;
+        this.pr.kinds = j.kinds || {};
+        this.pr.files = j.files || [];
+        const k = {}; for (const f of this.pr.files) k[f.id] = this.pr.kind[f.id] || f.suggestedKind || 'other';
+        this.pr.kind = k;
+      } catch (e) { /* panel shows empty */ }
+      finally { this.pr.loading = false; }
+    },
+    async prRelease(f, released) {
+      this.pr.busy = f.id;
+      try {
+        const res = await this.api('/portalreports/release', { method: 'POST', json: { id: f.id, kind: this.pr.kind[f.id], released } });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast(j.message || 'Could not update the client portal.', 'err'); return; }
+        const sent = j.emailed && j.emailed.sent;
+        this.toast(released ? ('Released to the client portal' + (sent ? ' \u2014 client emailed.' : (j.emailed && j.emailed.recipients === 0 ? ' \u2014 no active portal login to email yet.' : '.'))) : 'Withdrawn from the client portal.');
+        this.pr.confirm = '';
+        await this.prLoad();
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not reach the server.', 'err'); }
+      finally { this.pr.busy = ''; }
+    },
+    async rpIssueOpen() {
+      const pid = this.rp.pid;
+      const st = this.rp.data && this.rp.data.job.status;
+      this.rp.issue = { loading: true, files: [], pick: '', kind: st === 'onsite' ? 'finalrepairs' : 'finalcompletion' };
+      try {
+        const j = await this.prFetch(pid);
+        const files = (j.files || []).filter((f) => ['final', 'finalcompletion', 'finalrepairs'].includes(f.suggestedKind) || (f.release && ['final', 'finalcompletion', 'finalrepairs'].includes(f.release.kind)) || f.source === 'document');
+        const cur = this.rp.data && this.rp.data.job.finalReport;
+        const pre = files.find((f) => cur && f.id === cur.id) || files.find((f) => f.suggestedKind === (st === 'onsite' ? 'finalrepairs' : 'finalcompletion')) || files[0];
+        if (this.rp.issue) Object.assign(this.rp.issue, { loading: false, files, pick: pre ? pre.id : '', kind: pre && ['final', 'finalcompletion', 'finalrepairs'].includes(pre.suggestedKind) ? pre.suggestedKind : this.rp.issue.kind });
+      } catch (e) { if (this.rp.issue) this.rp.issue.loading = false; if (e.message !== 'auth') this.toast('Could not load the report files.', 'err'); }
+    },
+    async rpIssue() {
+      if (!this.rp.issue || !this.rp.issue.pick) return;
+      this.rp.busy = 'issue';
+      try {
+        const res = await this.api('/repairs/job/issue', { method: 'POST', json: { projectId: this.rp.pid, reportId: this.rp.issue.pick, kind: this.rp.issue.kind } });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { this.toast(j.message || 'Could not issue the Final.', 'err'); return; }
+        this.rp.issue = null;
+        this.toast('Final issued to the client' + (j.emailed && j.emailed.sent ? ' \u2014 client emailed.' : '.'));
+        await this.rpReload();
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not reach the server.', 'err'); }
+      finally { this.rp.busy = ''; }
+    },
     rpItemLabel(s) { return ({ open: 'Needs photos', done: 'Done - waiting for supervisor', returned: 'Sent back', accepted: 'Accepted', approved: 'Approved by inspector', rephoto: 'Inspector asked for new photos', onsite: 'On-site check' })[s] || s; },
     rpCountLine(j) {
       const c = (j && j.counts) || {}; const by = c.byStatus || {};
@@ -5129,6 +5254,7 @@ createApp({
         this.defaultEmailReportPick();
       } catch (e) { /* list may just be empty */ }
       finally { this.loadingReports = false; }
+      this.prLoad();
     },
     // Reports offered in the "Email the Client" picker: everything on the
     // project (generated AND uploaded signed/completed reports - David,
@@ -6041,7 +6167,7 @@ createApp({
           // Visual report. Handing back a blob minutes after the click made
           // Chrome treat it as an "automatic download" and block it (David,
           // Aug 22: this was the only report that would not download).
-          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, ownerPhotos: this.fcOwnerPhotos(), origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex, signer: this.formSignerPayload(), deliver: 'url', fileName: wantName },
+          json: { key: this.formEd.key, values: this.formEd.values, photos: this.formEd.photos, ownerPhotos: this.fcOwnerPhotos(), origDate: this.formEd.origDate || '', projectId: this.current ? this.projectId(this.current) : '', includeAnnex: !!this.formEd.annex, signer: this.formSignerPayload(), deliver: 'url', fileName: wantName, saveToProject: !!(this.current && ['unsafeconditions', 'finalcompletion'].includes(this.formEd.key)) },
         });
         if (!res.ok) throw new Error('bad');
         const ctype = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
@@ -6054,7 +6180,8 @@ createApp({
             const href = API + '/projectreports/downloadfile?u=' + encodeURIComponent(d.url) + '&n=' + encodeURIComponent(d.fileName || wantName);
             this.formEd.lastFileUrl = href;      // keeps a real link on screen as a fallback
             window.location.href = href;
-            this.toast('Report ready \u2014 downloading.');
+            this.toast(d.reportId ? 'Report ready \u2014 downloading. It is also saved under Report Files; release it to the client once signed.' : 'Report ready \u2014 downloading.');
+            if (d.reportId) { try { this.loadReports(); } catch (e) { /* list refresh only */ } }
             return;
           }
         }
