@@ -361,6 +361,37 @@ router.post("/item/review", async (req, res) => {
   }
 });
 
+// POST /api/repairs/items/accept { projectId, sectionIds: [...] | all: true, note }  - supervisor
+// Nov 1 2026 (David): accept several repair items at once instead of one at a time.
+router.post("/items/accept", async (req, res) => {
+  try {
+    const actor = await actorOf(req);
+    if (actor.kind !== "client") return fail(res, 403, "Only the client's supervisor reviews repairs.");
+    const b = req.body || {};
+    const p = await accessibleProject(actor, b.projectId);
+    if (!p) return fail(res, 404, "Property not found.");
+    if ((await jobOf(p)).status !== "open") return fail(res, 409, "These repairs were already submitted.");
+    const items = await buildItems(p.id);
+    const want = b.all === true ? null : new Set((Array.isArray(b.sectionIds) ? b.sectionIds : []).map(String).slice(0, 2000));
+    if (want && !want.size) return fail(res, 400, "Choose the items to accept.");
+    const now = new Date().toISOString();
+    let n = 0;
+    for (const it of items) {
+      if (want && !want.has(it.sectionId)) continue;
+      if (it.status === "accepted" || it.status === "approved") continue;
+      it.status = "accepted"; it.acceptedBy = actor.name; it.acceptedAt = now;
+      if (b.note !== undefined) it.supervisorNote = String(b.note || "").slice(0, 1000);
+      await repairs.saveItem(recordOf(p, it));
+      n++;
+    }
+    const left = items.filter((i) => i.status !== "accepted" && i.status !== "approved").length;
+    return res.status(200).json({ ok: 1, accepted: n, itemsLeft: left });
+  } catch (e) {
+    console.error("repairs bulk accept:", e && e.message);
+    return fail(res, 500, "Could not accept the items.");
+  }
+});
+
 // POST /api/repairs/job/submit { projectId, note }  - supervisor: "Repairs complete - request Final"
 router.post("/job/submit", async (req, res) => {
   try {
