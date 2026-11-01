@@ -326,7 +326,41 @@ async function notifyFinalRequested(project, job, clientName) {
   return { sent, recipients: to.length };
 }
 
+// SIGNED FINAL UPLOADED (David, Nov 1 2026): when the client calls or emails instead of using
+// the portal, the inspector runs the normal process and uploads the signed Final under the
+// project's Documents. That upload is the "Final is done" signal: release it to the client
+// portal (PDF, email) and close any open repair request for the property as "Final issued".
+const FINAL_KINDS = ["final", "finalcompletion", "finalrepairs"];
+function isSignedFinalName(name, url) {
+  const n = String(name || "");
+  if (!/final/i.test(n) || /proposal|invoice|template|draft/i.test(n)) return false;
+  return /\.(pdf|docx?|docm)(\?|$)/i.test(String(url || n)) || /\.(pdf|docx?|docm)$/i.test(n);
+}
+async function autoReleaseSignedFinal(staff, docId, name, url) {
+  if (!isSignedFinalName(name, url)) return null;
+  const rec = await getRecord(docId);
+  if (!rec) return null;
+  const repairs = require("../model/repairs");
+  const job = await repairs.getJob(String(rec.project_id)).catch(() => null);
+  let kind = guessKind(name);
+  if (!FINAL_KINDS.includes(kind)) kind = "final";
+  if (kind === "final" && job && job.method === "onsite") kind = "finalrepairs";
+  if (kind === "final" && job && job.method === "photos") kind = "finalcompletion";
+  const out = await release(staff, { id: rec.id, kind, notify: true });
+  let closed = false;
+  if (job && job.status !== "issued") {
+    job.status = "issued"; job.finalReportId = rec.id;
+    job.issuedAt = new Date().toISOString(); job.issuedBy = staff.name || staff.username || "";
+    job.history = (job.history || []).slice(-60);
+    job.history.push({ at: job.issuedAt, by: job.issuedBy, role: "staff", what: "Signed Final uploaded - issued to the client", note: "" });
+    await repairs.saveJob(job);
+    closed = true;
+  }
+  return { released: true, kind, label: out.release && out.release.label, emailed: out.emailed || null, requestClosed: closed };
+}
+
 module.exports = {
+  autoReleaseSignedFinal, isSignedFinalName,
   KINDS, guessKind, getRecord, getProject, filesOf, release, clientList, clientLink, makeDownloadHandler,
   notifyClients, notifyFinalRequested, companyAdmins, clientRecipients,
   // tests
