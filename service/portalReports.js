@@ -312,12 +312,15 @@ async function notifyFinalRequested(project, job, clientName) {
       lines: [
         `Hello${r.first ? " " + r.first : ""},`,
         `${job.submittedBy || "The property owner"}${clientName ? " (" + clientName + ")" : ""} reports that the repairs at ${project.name || "a property"}${project.address ? " (" + project.address + ")" : ""} are complete and requests the Final Report.`,
+        job.method === "onsite"
+          ? `They request an ON-SITE Final Inspection${job.methodReason === "unsafe" ? " - required: unsafe conditions were reported here, so the repairs must be inspected on site and reported to the local building department" : " (usually needed for a mortgage lender)"}. Schedule the visit from Final Reports in E3 Web.`
+          : "They request the Final Report Upon Completion from the owner-supplied photos (inspector sign-off for the building department).",
         `${job.itemsTotal || 0} repair item${job.itemsTotal === 1 ? "" : "s"} with photos are waiting for your review under Final Reports in E3 Web.`,
         job.note ? `Note from the client: ${job.note}` : "",
       ],
       button: "Open E3 Web", url: mail.APP,
     });
-    const res = await mail.send({ to: r.email, subject: `Final Report requested - ${project.name || "property"}`, text: body.text, html: body.html, kind: "final-request" });
+    const res = await mail.send({ to: r.email, subject: `${job.method === "onsite" ? "On-site Final Inspection" : "Final Report (owner photos)"} requested - ${project.name || "property"}`, text: body.text, html: body.html, kind: "final-request" });
     if (res && res.sent) sent++;
   }
   return { sent, recipients: to.length };
