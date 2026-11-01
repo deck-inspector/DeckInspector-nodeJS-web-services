@@ -594,6 +594,7 @@ input,select{font-family:inherit;font-size:16px}
 .cv-rep .ic{font-size:22px}
 .cv-rep .nm{flex:1;min-width:180px}.cv-rep .nm b{display:block}.cv-rep .nm small{color:var(--ink-soft)}
 .cv-rep.unsafe .nm b{color:#9b1c1c}
+.cv-rep .nm a{color:var(--brand);font-weight:600;text-decoration:none}
 .rp-st.issued{background:#0B7A5C;color:#fff}
 .cv-field{font-size:14px;margin:4px 0}
 .cv-field b{color:var(--ink-soft);font-weight:600;margin-right:6px}
@@ -787,7 +788,7 @@ input,select{font-family:inherit;font-size:16px}
       <div class="cv-banner" v-if="bill.data && bill.data.enabled && bill.data.state === 'past_due'" style="background:#fff3e0;color:#8a4b00">Your last payment did not go through. <a href="#" @click.prevent="billingManage()" style="font-weight:700">Update your payment method</a> to keep your access.</div>
       <!-- Repairs: every property's repair status -->
       <template v-if="cv.view==='repairs'">
-        <div class="page-head"><h2>Repairs <span class="count" v-if="!rp.loading">({{ rp.list.length }})</span></h2></div>
+        <div class="page-head"><h2>Repairs <span class="count" v-if="!rp.loading">({{ rpClientFiltered.length }})</span></h2></div>
         <div class="cv-banner">Your contractor (or you) adds photos of each completed repair. Open a property to accept each item (or send it back), then press <b>Repairs complete &mdash; request Final Report</b>. The inspector is notified by email, reviews the photos, and the signed Final Report appears here and under <b>Reports</b>.</div>
         <div class="cv-search" v-if="rp.list.length > 1"><input v-model.trim="cv.q" placeholder="&#128269; Search by name, address, city, ZIP, property ID or status"><span class="chip" v-if="cv.q" @click="cv.q=''">&#10005; Clear</span></div>
         <div class="empty" v-if="rp.loading">Loading&hellip;</div>
