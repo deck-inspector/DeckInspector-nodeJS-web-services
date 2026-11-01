@@ -2607,6 +2607,21 @@ input,select{font-family:inherit;font-size:16px}
     </div>
   </div>
 
+  <!-- ============ CLIENT PORTAL PDF VIEWER (Nov 1 2026) - the signed report opens right in the portal ============ -->
+  <div class="overlay" v-if="user && crp.viewer" @click.self="crpClose()" style="z-index:90;padding:12px">
+    <div class="modal" style="max-width:1100px;width:100%;height:92vh;display:flex;flex-direction:column;padding:14px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px">
+        <b style="flex:1;min-width:200px;font-size:16px">{{ crp.viewer.title }}<span v-if="crp.viewer.sub" class="hint" style="margin:0 0 0 8px;font-weight:400">{{ crp.viewer.sub }}</span></b>
+        <a class="btn-dl" v-if="crp.viewer.src" :href="crp.viewer.src" target="_blank" rel="noopener" style="text-decoration:none">Open in new tab</a>
+        <button class="btn-dl" :disabled="!!crp.busy" @click="crpOpen(crp.viewer.id, true)">Download PDF</button>
+        <button class="btn-cancel" @click="crpClose()">Close</button>
+      </div>
+      <div class="empty" v-if="crp.viewer.loading" style="flex:1">Preparing the report&hellip; a Word report is converted to PDF the first time, which can take up to a minute.</div>
+      <div class="panel" v-else-if="crp.viewer.error" style="flex:1">{{ crp.viewer.error }}</div>
+      <iframe v-else :src="crp.viewer.src" title="Report" style="flex:1;width:100%;border:1px solid var(--line);border-radius:10px;background:#fff"></iframe>
+    </div>
+  </div>
+
   <!-- ============ LIGHTBOX ============ -->
   <!-- Lightbox with ZOOM (David, Aug 23): click a photo to open; click the
        photo to zoom in and again to zoom back out; mouse wheel zooms; drag to
@@ -3249,7 +3264,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.7';
+const APP_BUILD = '2026-11-01.8';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3322,7 +3337,7 @@ createApp({
       portalAs: null,
       mv: { open: false, loading: false, q: '', ctFor: '', ctLoading: false, contractors: [] },
       // Repairs portal (Oct 23 2026)
-      crp: { list: [], loading: false, busy: '', at: 0 }, // client portal signed reports (Nov 1 2026)
+      crp: { list: [], loading: false, busy: '', at: 0, viewer: null }, // client portal signed reports (Nov 1 2026)
       pr: { files: [], kinds: {}, kind: {}, loading: false, busy: '', confirm: '', pid: '' }, // inspector: release to client (Nov 1 2026)
       rp: { issue: null, list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
       ct: { list: [], loading: false, form: null, busy: false, msg: '' },
@@ -4005,19 +4020,41 @@ createApp({
       finally { this.crp.loading = false; }
     },
     // Open (or download) a signed report: the server hands back a 15-minute PDF link for this login.
+    // Open a signed report INSIDE the portal (viewer with the PDF), or download it. The server
+    // hands back a 15-minute PDF link for this login; Open fetches it and shows it in place
+    // (David, Nov 1: the new-tab version did not open on the website).
     async crpOpen(id, download) {
       if (!id || this.crp.busy) return;
       if (this.portalAs) { this.toast('In master view, open reports from the project\'s Report Files.', 'err'); return; }
-      const w = download ? null : window.open('about:blank', '_blank');
+      const rec = this.crp.list.find((r) => r.id === id) || {};
+      if (!download) {
+        this.crpClose();
+        this.crp.viewer = { id, title: rec.label || 'Report', sub: rec.property || '', loading: true, error: '', src: '' };
+      }
       this.crp.busy = id;
       try {
         const res = await this.api('/portal/reports/' + encodeURIComponent(id) + '/link');
         const j = await res.json().catch(() => ({}));
-        if (!res.ok || !j.url) { if (w) w.close(); this.toast(j.message || 'This report is not available.', 'err'); return; }
-        if (download) { const a = document.createElement('a'); a.href = j.url + '?dl=1'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
-        else if (w) w.location.href = j.url; else window.location.href = j.url;
-      } catch (e) { if (w) w.close(); if (e.message !== 'auth') this.toast('Could not open the report.', 'err'); }
-      finally { this.crp.busy = ''; }
+        if (!res.ok || !j.url) throw new Error(j.message || 'This report is not available.');
+        if (download) {
+          const a = document.createElement('a'); a.href = j.url + '?dl=1'; a.rel = 'noopener';
+          document.body.appendChild(a); a.click(); a.remove();
+          return;
+        }
+        const pr = await fetch(j.url, { cache: 'no-store' });
+        if (!pr.ok) throw new Error((await pr.text().catch(() => '')) || 'The report could not be prepared. Please try again in a few minutes.');
+        const blob = new Blob([await pr.arrayBuffer()], { type: 'application/pdf' });
+        if (!this.crp.viewer || this.crp.viewer.id !== id) return;
+        this.crp.viewer = Object.assign({}, this.crp.viewer, { loading: false, src: URL.createObjectURL(blob) });
+      } catch (e) {
+        if (e.message === 'auth') return;
+        if (download || !this.crp.viewer) this.toast(e.message || 'Could not open the report.', 'err');
+        else this.crp.viewer = Object.assign({}, this.crp.viewer, { loading: false, error: e.message || 'Could not open the report.' });
+      } finally { this.crp.busy = ''; }
+    },
+    crpClose() {
+      if (this.crp.viewer && this.crp.viewer.src) { try { URL.revokeObjectURL(this.crp.viewer.src); } catch (e) { /* */ } }
+      this.crp.viewer = null;
     },
     cvReports() { history.pushState({ v: 'cv-reports' }, ''); this.cv.view = 'reports'; if (!this.cv.props.length) this.cvLoadProps(); this.crpLoad(true); },
     cvOpenPropId(pid) { const p = this.cv.props.find((x) => x.id === pid); if (p) this.cvOpenProp(p); },
