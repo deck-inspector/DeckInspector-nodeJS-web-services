@@ -2394,8 +2394,8 @@ input,select{font-family:inherit;font-size:16px}
             <button class="kind" v-for="f in [['submitted','Requested \u2014 review'],['onsite','On-site needed'],['approved','Ready to sign & issue'],['issued','Issued'],['all','All']]" :key="f[0]" :class="{on: rp.filter===f[0]}" @click="rp.filter=f[0]">{{ f[1] }}</button>
           </div>
         </div>
-        <div class="empty" v-if="rp.loading">Loading&hellip;</div>
         <div class="cv-banner" style="margin-top:4px">Clients press <b>Repairs complete &mdash; request Final Report</b> in their portal; you get an email and the request lands under <b>Requested</b>. Review the photos, then sign the Final and press <b>Issue Final to client</b> &mdash; it appears in their portal and they are emailed.</div>
+        <div class="empty" v-if="rp.loading">Loading&hellip;</div>
         <div class="panel" v-else-if="!rpQueue.length">Nothing here.</div>
         <div class="rp-list" v-else>
           <div class="rp-card" v-for="j in rpQueue" :key="j.projectId" @click="rpOpen(j.projectId)">
