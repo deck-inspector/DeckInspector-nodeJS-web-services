@@ -128,6 +128,17 @@ async function setQuantityAndPrice(itemId, quantity, p) {
   });
 }
 
+// Fee waiver (Nov 1 2026): stop charging a subscription - invoices made while paused
+// are voided - optionally until `resumesAt` (unix seconds), when Stripe resumes by itself.
+async function pauseCollection(subscriptionId, resumesAt) {
+  const pc = { behavior: "void" };
+  if (resumesAt) pc.resumes_at = resumesAt;
+  return call("POST", "/subscriptions/" + encodeURIComponent(subscriptionId), { pause_collection: pc });
+}
+async function resumeCollection(subscriptionId) {
+  return call("POST", "/subscriptions/" + encodeURIComponent(subscriptionId), { pause_collection: "" }); // empty = unset
+}
+
 // A reusable introductory-price coupon (percent off for N months). Created once per
 // (percent, months) pair; the id is deterministic so repeat calls find it.
 async function ensureIntroCoupon(percentOff, months) {
@@ -169,6 +180,7 @@ function verifyWebhook(raw, header, toleranceSec) {
 module.exports = {
   configured, testMode, form,
   createCheckoutSession, createPortalSession, getSubscription, setQuantity, setQuantityAndPrice, ensureIntroCoupon,
+  pauseCollection, resumeCollection,
   createProduct, createCustomer, createInvoiceSubscription,
   verifyWebhook,
 };

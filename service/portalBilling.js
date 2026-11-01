@@ -322,6 +322,7 @@ async function clientStatus(rec) {
       cancelAtPeriodEnd: !!bill.cancelAtPeriodEnd,
     } : null,
     canManage: !!bill.stripeCustomerId,
+    waivedUntil: v.state === "complimentary" ? (bill.waivedUntil || null) : null,
   });
 }
 
@@ -393,6 +394,7 @@ async function applySubscription(subId, emailHint) {
     interval: item && item.price && item.price.recurring ? item.price.recurring.interval : bill.interval,
     currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : bill.currentPeriodEnd,
     cancelAtPeriodEnd: !!sub.cancel_at_period_end, testMode: !sub.livemode,
+    stripePaused: !!sub.pause_collection, stripeResumesAt: sub.pause_collection && sub.pause_collection.resumes_at ? new Date(sub.pause_collection.resumes_at * 1000).toISOString() : null,
     collection: sub.collection_method || bill.collection,
   });
   if (prevStatus !== sub.status) logTo(bill, "subscription", "stripe", `${prevStatus || "none"} -> ${sub.status}`);
@@ -440,6 +442,7 @@ function summary(bill, cfg) {
     email: bill.email, state: v.state, allowed: v.allowed, status: bill.status || "", interval: bill.interval || "", quantity: bill.quantity || 0,
     trialEndsAt: bill.trialEndsAt || null, waived: !!bill.waived, waivedUntil: bill.waivedUntil || null, waivedNote: bill.waivedNote || "",
     currentPeriodEnd: bill.currentPeriodEnd || null, collection: bill.collection || "", testMode: !!bill.testMode,
+    stripePaused: !!bill.stripePaused, stripeResumesAt: bill.stripeResumesAt || null,
   };
 }
 // Read-only: an email's billing standing WITHOUT creating a billing record (Portal
@@ -473,10 +476,24 @@ async function waive(email, waived, note, until, by) {
   const cfg = await getConfig();
   const rec = await recFor(email);
   const bill = await ensureBill(rec, cfg);
+  const untilIso = waived && until ? new Date(until).toISOString() : null;
+  if (untilIso && !(Date.parse(untilIso) > Date.now())) { const e = new Error("The end date must be in the future."); e.status = 400; throw e; }
+  // A client already subscribed must not be charged while fees are waived (David, Nov 1
+  // 2026): Stripe stops charging (invoices are voided) and, with an end date, resumes
+  // on that date by itself. Done FIRST so a Stripe failure leaves nothing half-changed.
+  const live = bill.subscriptionId && (GOOD.includes(bill.status) || bill.status === "past_due") && !!bill.testMode === stripe.testMode();
+  if (live) {
+    const sub = waived
+      ? await stripe.pauseCollection(bill.subscriptionId, untilIso ? Math.floor(Date.parse(untilIso) / 1000) : null)
+      : await stripe.resumeCollection(bill.subscriptionId);
+    bill.stripePaused = !!(sub && sub.pause_collection);
+    bill.stripeResumesAt = sub && sub.pause_collection && sub.pause_collection.resumes_at ? new Date(sub.pause_collection.resumes_at * 1000).toISOString() : null;
+  }
   bill.waived = !!waived;
   bill.waivedNote = String(note || "").slice(0, 300);
-  bill.waivedUntil = waived && until ? new Date(until).toISOString() : null;
-  logTo(bill, waived ? "waived" : "waiver-removed", by, bill.waivedNote + (bill.waivedUntil ? " until " + bill.waivedUntil : ""));
+  bill.waivedUntil = untilIso;
+  logTo(bill, waived ? "waived" : "waiver-removed", by,
+    bill.waivedNote + (bill.waivedUntil ? " until " + bill.waivedUntil : "") + (live ? (waived ? " - Stripe charging paused" : " - Stripe charging resumed") : ""));
   await saveBill(bill);
   return summary(bill, cfg);
 }
