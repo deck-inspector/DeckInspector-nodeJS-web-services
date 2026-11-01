@@ -502,6 +502,8 @@ input,select{font-family:inherit;font-size:16px}
 .rp-meth.on{border-color:var(--brand);background:var(--brand-soft)}.rp-meth.off{opacity:.5;cursor:not-allowed}
 .rp-meth b{display:block;font-size:15px}.rp-meth small{color:var(--ink-soft);display:block;margin-top:2px}
 .rp-meth input{margin:4px 0 0;flex:none;width:18px;height:18px}.rp-meth span{flex:1}
+.rp-bulk{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:10px 14px;margin:0 0 12px;position:sticky;top:0;z-index:2}
+.rp-bulk label{display:flex;gap:8px;align-items:center;font-weight:600;cursor:pointer}.rp-bulk input{width:18px;height:18px}
 .rp-banner.ok{background:#e3f4ee;color:#0B7A5C}.rp-banner.warn{background:#FFF4E0;color:#8a5300}.rp-banner.bad{background:#fde8e8;color:#9b1c1c}
 .rp-item{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:14px}
 .rp-item h4{margin:0 0 4px;font-size:16px}
@@ -2493,8 +2495,16 @@ input,select{font-family:inherit;font-size:16px}
         <div class="hint" style="margin:0 0 12px">{{ rp.data.summary.total }} repair item{{ rp.data.summary.total===1 ? '' : 's' }} &middot; {{ rp.data.summary.withPhotos }} with photos<span v-if="rp.data.summary.accepted"> &middot; {{ rp.data.summary.accepted }} accepted</span><span v-if="rp.data.summary.approved"> &middot; {{ rp.data.summary.approved }} approved</span></div>
         <div class="panel" v-if="!rp.data.items.length">No repair items on this property &mdash; nothing was rated Bad or Failed.</div>
 
+        <!-- accept several at once (David, Nov 1 2026) -->
+        <div class="rp-bulk" v-if="rpKind==='client' && rp.data.job.status==='open' && rpNotAccepted">
+          <label><input type="checkbox" :checked="rpSelCount && rpSelCount===rpNotAccepted" @change="rpSelAll($event.target.checked)"> Select all ({{ rpNotAccepted }})</label>
+          <span style="flex:1"></span>
+          <button class="btn-edit" :disabled="!!rp.busy || !rpSelCount" @click="rpAcceptMany(false)">{{ rp.busy==='bulk' ? 'Accepting&hellip;' : 'Accept selected (' + rpSelCount + ')' }}</button>
+          <button class="btn-dl" :disabled="!!rp.busy" @click="rpAcceptMany(true)">Accept all remaining</button>
+        </div>
         <div class="rp-item" v-for="it in rp.data.items" :key="it.sectionId">
           <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+            <input type="checkbox" v-if="rpKind==='client' && rp.data.job.status==='open' && it.status!=='accepted' && it.status!=='approved'" :checked="!!rp.sel[it.sectionId]" @change="rpSelToggle(it, $event.target.checked)" style="width:20px;height:20px;margin-top:4px" title="Select to accept several at once">
             <div style="flex:1;min-width:200px">
               <div class="where">{{ [it.building, it.locationName].filter(Boolean).join(' · ') }}</div>
               <h4>{{ it.name }}</h4>
@@ -3280,7 +3290,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.10';
+const APP_BUILD = '2026-11-01.11';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3355,7 +3365,7 @@ createApp({
       // Repairs portal (Oct 23 2026)
       crp: { list: [], loading: false, busy: '', at: 0, viewer: null }, // client portal signed reports (Nov 1 2026)
       pr: { files: [], kinds: {}, kind: {}, loading: false, busy: '', confirm: '', pid: '' }, // inspector: release to client (Nov 1 2026)
-      rp: { method: '', issue: null, list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
+      rp: { sel: {}, method: '', issue: null, list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
       ct: { list: [], loading: false, form: null, busy: false, msg: '' },
       addPropQ: '',
       // Portal access on the staff client page
@@ -3451,6 +3461,7 @@ createApp({
       return this.clients.filter((c) => c.isActive !== false && (!q || (c.name || '').toLowerCase().includes(q)));
     },
     rpKind() { return this.isContractor ? 'contractor' : (this.isClient ? 'client' : 'staff'); },
+    rpSelCount() { const d = this.rp.data; if (!d) return 0; return d.items.filter((i) => this.rp.sel[i.sectionId] && i.status !== 'accepted' && i.status !== 'approved').length; },
     rpNotAccepted() {
       const d = this.rp.data; if (!d) return 0;
       return d.items.filter((i) => i.status !== 'accepted' && i.status !== 'approved').length;
@@ -4147,7 +4158,7 @@ createApp({
     },
     rpReadyCount(j) { const by = (j && j.counts && j.counts.byStatus) || {}; return j && j.job && j.job.status === 'open' ? (by.done || 0) : 0; },
     async rpOpen(pid) {
-      this.rp.open = true; this.rp.pid = pid; this.rp.data = null; this.rp.notes = {}; this.rp.decisions = {}; this.rp.confirm = false; this.rp.mailto = '';
+      this.rp.open = true; this.rp.pid = pid; this.rp.data = null; this.rp.sel = {}; this.rp.notes = {}; this.rp.decisions = {}; this.rp.confirm = false; this.rp.mailto = '';
       await this.rpReload();
     },
     async rpReload() {
@@ -4216,6 +4227,14 @@ createApp({
     async rpDone(it) {
       const j = await this.rpPost('item/done', { sectionId: it.sectionId, note: this.rp.notes[it.sectionId] || it.contractorNote || '' }, it.sectionId);
       if (j) { await this.rpReload(); this.toast(j.itemsLeft ? 'Marked done - ' + j.itemsLeft + ' item' + (j.itemsLeft === 1 ? '' : 's') + ' to go.' : 'All items done - your supervisor can review them now.'); }
+    },
+    rpSelToggle(it, on) { this.rp.sel = Object.assign({}, this.rp.sel, { [it.sectionId]: !!on }); },
+    rpSelAll(on) { const o = {}; if (on && this.rp.data) for (const i of this.rp.data.items) if (i.status !== 'accepted' && i.status !== 'approved') o[i.sectionId] = true; this.rp.sel = o; },
+    async rpAcceptMany(all) {
+      const ids = all ? [] : Object.keys(this.rp.sel).filter((k) => this.rp.sel[k]);
+      if (!all && !ids.length) return;
+      const j = await this.rpPost('items/accept', all ? { all: true } : { sectionIds: ids }, 'bulk');
+      if (j) { this.rp.sel = {}; await this.rpReload(); this.toast(j.accepted + ' item' + (j.accepted === 1 ? '' : 's') + ' accepted.' + (j.itemsLeft ? ' ' + j.itemsLeft + ' left.' : ' All items accepted \u2014 press Repairs complete at the bottom.')); }
     },
     async rpReview(it, decision) {
       const j = await this.rpPost('item/review', { sectionId: it.sectionId, decision, note: this.rp.notes[it.sectionId] || '' }, it.sectionId);
