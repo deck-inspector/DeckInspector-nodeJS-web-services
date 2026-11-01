@@ -2584,7 +2584,7 @@ input,select{font-family:inherit;font-size:16px}
     <div class="overlay" v-if="rp.confirm" @click.self="rp.confirm=false">
       <div class="modal" style="max-width:600px">
         <h3>Repairs complete &mdash; request the Final</h3>
-        <p>You are confirming that the repairs at <b>{{ rp.data && rp.data.project.name }}</b> are complete and that you accept the contractor&rsquo;s work shown in the photos. Choose how the Final is done:</p>
+        <p>You are confirming that the repairs at <b>{{ rp.data && rp.data.project.name }}</b> are complete and that you accept the contractor&rsquo;s work. Choose how the Final is done:</p>
         <div class="rp-banner bad" v-if="rp.data && rp.data.job.unsafeItems">&#9888; <b>Unsafe conditions were reported at this property.</b> Emergency repairs must be inspected on site by the inspector and reported to the local building department, so an <b>on-site Final Inspection</b> is required.</div>
         <label class="rp-meth" :class="{on: rp.method==='onsite'}"><input type="radio" value="onsite" v-model="rp.method"><span><b>On-site Final Inspection</b>
           <small>The inspector visits the property, inspects the repairs and signs the Final. Required by mortgage lenders (refinance or sale) and for any unsafe condition.</small></span></label>
