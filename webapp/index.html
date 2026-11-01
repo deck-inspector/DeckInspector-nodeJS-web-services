@@ -581,6 +581,20 @@ input,select{font-family:inherit;font-size:16px}
 .cv-prop .bd{padding:12px 14px}
 .cv-prop .bd b{display:block;font-size:16px}
 .cv-prop .bd small{color:var(--ink-soft)}
+/* Client portal reports + search (Nov 1 2026) */
+.cv-search{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px}
+.cv-search input{flex:1;min-width:220px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font:inherit;background:var(--card);color:var(--ink)}
+.cv-search .chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer;color:var(--ink-soft)}
+.cv-pid{display:inline-block;margin-top:4px;font-size:11px;letter-spacing:.06em;color:var(--ink-soft);background:var(--bg);border-radius:6px;padding:1px 6px}
+.cv-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.cv-unsafe{background:#fde8e8;color:#9b1c1c;border:1.5px solid #f5b5b5;border-radius:10px;padding:12px 14px;margin:0 0 14px;font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.cv-reps{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:6px 18px;margin:0 0 16px}
+.cv-rep{display:flex;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.cv-rep:last-child{border-bottom:0}
+.cv-rep .ic{font-size:22px}
+.cv-rep .nm{flex:1;min-width:180px}.cv-rep .nm b{display:block}.cv-rep .nm small{color:var(--ink-soft)}
+.cv-rep.unsafe .nm b{color:#9b1c1c}
+.rp-st.issued{background:#0B7A5C;color:#fff}
 .cv-field{font-size:14px;margin:4px 0}
 .cv-field b{color:var(--ink-soft);font-weight:600;margin-right:6px}
 .cv-inv{border:2px solid #C00000;border-radius:10px;padding:10px 12px;margin-top:10px;background:#fff8f8}
@@ -729,6 +743,7 @@ input,select{font-family:inherit;font-size:16px}
       <div class="logo" style="cursor:pointer" title="My properties" @click="cvHome()"><img :src="logoE3" alt="E3 Inspection Reporting Solutions" style="height:48px"></div>
       <nav style="display:flex;gap:4px;margin-left:10px">
         <button class="btn-ghost" :class="{navon: cv.view==='list' || cv.view==='prop' || cv.view==='unit'}" @click="cvHome()">My Properties</button>
+        <button class="btn-ghost" :class="{navon: cv.view==='reports'}" @click="cvReports()">&#128196; Reports<span v-if="crp.list.length" class="rp-st submitted" style="margin-left:6px">{{ crp.list.length }}</span></button>
         <button class="btn-ghost" :class="{navon: cv.view==='repairs'}" @click="cvRepairs()">&#128295; Repairs</button>
         <button class="btn-ghost" :class="{navon: cv.view==='contractors'}" @click="cvContractors()">&#128119; My Contractors</button>
       </nav>
@@ -773,15 +788,37 @@ input,select{font-family:inherit;font-size:16px}
       <!-- Repairs: every property's repair status -->
       <template v-if="cv.view==='repairs'">
         <div class="page-head"><h2>Repairs <span class="count" v-if="!rp.loading">({{ rp.list.length }})</span></h2></div>
-        <div class="cv-banner">Your contractor adds photos of each completed repair. Open a property to accept each item (or send it back), then press <b>Repairs complete</b> to send it to the inspector.</div>
+        <div class="cv-banner">Your contractor (or you) adds photos of each completed repair. Open a property to accept each item (or send it back), then press <b>Repairs complete &mdash; request Final Report</b>. The inspector is notified by email, reviews the photos, and the signed Final Report appears here and under <b>Reports</b>.</div>
+        <div class="cv-search" v-if="rp.list.length > 1"><input v-model.trim="cv.q" placeholder="&#128269; Search by name, address, city, ZIP, property ID or status"><span class="chip" v-if="cv.q" @click="cv.q=''">&#10005; Clear</span></div>
         <div class="empty" v-if="rp.loading">Loading&hellip;</div>
         <div class="panel" v-else-if="!rp.list.length">No properties yet.</div>
+        <div class="panel" v-else-if="!rpClientFiltered.length">No property matches &ldquo;{{ cv.q }}&rdquo;.</div>
         <div class="rp-list" v-else>
-          <div class="rp-card" v-for="j in rp.list" :key="j.projectId" @click="rpOpen(j.projectId)">
+          <div class="rp-card" v-for="j in rpClientFiltered" :key="j.projectId" @click="rpOpen(j.projectId)">
             <b>{{ j.name }}</b><small>{{ j.address }}</small>
             <span class="rp-st" :class="j.job.status">{{ rpJobLabel(j.job.status) }}</span>
+            <button class="btn-dl" v-if="j.job.status==='issued' && j.job.finalReportId" style="margin-left:6px" @click.stop="crpOpen(j.job.finalReportId)">&#128196; Open Final Report</button>
             <span class="rp-st done" v-if="rpReadyCount(j)" style="margin-left:6px">{{ rpReadyCount(j) }} ready for your review</span>
             <div class="hint" style="margin:6px 0 0;font-size:12px">{{ rpCountLine(j) }}</div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Reports (Nov 1 2026): every SIGNED report of every property -->
+      <template v-else-if="cv.view==='reports'">
+        <div class="page-head"><h2>Reports <span class="count" v-if="!crp.loading">({{ crpFiltered.length }})</span></h2></div>
+        <div class="cv-banner">Signed reports from your inspector &mdash; Final Reports, Final Repairs and any Notice of Unsafe Conditions. Each opens as a PDF. A report appears here as soon as the inspector signs it.</div>
+        <div class="cv-search" v-if="crp.list.length > 1 || cv.props.length > 1"><input v-model.trim="cv.q" placeholder="&#128269; Search by property name, address, city, ZIP, property ID or report"><span class="chip" v-if="cv.q" @click="cv.q=''">&#10005; Clear</span></div>
+        <div class="empty" v-if="crp.loading">Loading&hellip;</div>
+        <div class="panel" v-else-if="portalAs">In master view the client&rsquo;s reports are listed on each property page; the client opens them as PDFs here.</div>
+        <div class="panel" v-else-if="!crp.list.length">No signed reports yet. They appear here once your inspector signs them.</div>
+        <div class="panel" v-else-if="!crpFiltered.length">No report matches &ldquo;{{ cv.q }}&rdquo;.</div>
+        <div class="cv-reps" v-else>
+          <div class="cv-rep" v-for="r in crpFiltered" :key="r.id" :class="{unsafe: r.kind==='unsafe'}">
+            <span class="ic">{{ r.kind==='unsafe' ? '&#9888;' : '&#128196;' }}</span>
+            <div class="nm"><b>{{ r.label }}</b><small><a href="#" @click.prevent="cvOpenPropId(r.projectId)">{{ r.property }}</a><span v-if="r.address"> &middot; {{ r.address }}</span> &middot; signed {{ niceDate(r.signedAt) }}<span v-if="r.signedBy"> by {{ r.signedBy }}</span></small></div>
+            <button class="btn-edit" :disabled="crp.busy===r.id" @click="crpOpen(r.id)">{{ crp.busy===r.id ? 'Preparing&hellip;' : 'Open' }}</button>
+            <button class="btn-dl" :disabled="crp.busy===r.id" @click="crpOpen(r.id, true)">Download PDF</button>
           </div>
         </div>
       </template>
@@ -848,16 +885,23 @@ input,select{font-family:inherit;font-size:16px}
         <div class="page-head">
           <h2>My Properties <span class="count" v-if="!cv.loading">({{ cvFiltered.length }})</span></h2>
           <div class="spacer" style="flex:1"></div>
-          <div class="search" v-if="cv.props.length > 6"><input v-model.trim="cv.q" placeholder="Search by name or address"></div>
         </div>
-        <div class="cv-banner">View only &mdash; inspection findings appear here as the inspectors enter them.</div>
+        <div class="cv-banner">View only &mdash; inspection findings appear here as the inspectors enter them. Signed reports are under <b>Reports</b>.</div>
+        <div class="cv-search" v-if="cv.props.length > 1"><input v-model.trim="cv.q" placeholder="&#128269; Search by name, address, city, ZIP, property ID, type or status"><span class="chip" v-if="cv.q" @click="cv.q=''">&#10005; Clear</span></div>
         <div class="empty" v-if="cv.loading">Loading your properties&hellip;</div>
         <div class="panel" v-else-if="!cv.props.length">No properties are linked to your account yet. Please contact your inspection company.</div>
+        <div class="panel" v-else-if="!cvFiltered.length">No property matches &ldquo;{{ cv.q }}&rdquo;. Try part of the name, the street, the city, the ZIP code or the property ID.</div>
         <div class="cv-props" v-else>
           <div class="cv-prop" v-for="p in cvFiltered" :key="p.id" @click="cvOpenProp(p)">
             <img v-if="hasImage(p)" :src="thumb(p.url)" loading="lazy" alt="" @error="thumbErr($event, p.url)">
             <div class="ph" v-else>&#127970;</div>
-            <div class="bd"><b>{{ p.name }}</b><small>{{ p.address || '' }}</small></div>
+            <div class="bd"><b>{{ p.name }}</b><small>{{ p.address || '' }}</small>
+              <div><span class="cv-pid" :title="'Property ID ' + p.id">ID {{ cvShortId(p.id) }}</span></div>
+              <div class="cv-tags">
+                <span class="rp-st onsite" v-if="crpUnsafe(p.id)">&#9888; Unsafe conditions</span>
+                <span class="rp-st" v-if="cvJobOf(p.id) && cvJobOf(p.id).status !== 'open'" :class="cvJobOf(p.id).status">{{ rpJobLabel(cvJobOf(p.id).status) }}</span>
+                <span class="rp-st submitted" v-if="crpCount(p.id)">{{ crpCount(p.id) }} signed report{{ crpCount(p.id) === 1 ? '' : 's' }}</span>
+              </div></div>
           </div>
         </div>
       </template>
@@ -866,7 +910,19 @@ input,select{font-family:inherit;font-size:16px}
       <template v-else-if="cv.view==='prop' && cv.prop">
         <button class="back" @click="cvHome()">&#8592; My Properties</button>
         <div class="page-head"><h2>{{ cv.prop.name }}</h2></div>
-        <div class="hint" v-if="cv.prop.address" style="margin:-6px 0 12px">{{ cv.prop.address }}</div>
+        <div class="hint" v-if="cv.prop.address" style="margin:-6px 0 12px">{{ cv.prop.address }} &middot; <span class="cv-pid" style="margin:0">ID {{ cvShortId(cv.prop.id) }}</span></div>
+        <div class="cv-unsafe" v-if="crpUnsafe(cv.prop.id)"><b>&#9888; Unsafe conditions were reported at this property.</b> Read the signed Notice of Unsafe Conditions below and follow its instructions.
+          <span style="flex:1"></span><button class="btn-dl" @click="crpOpen(crpUnsafe(cv.prop.id).id)">Open the Notice</button></div>
+        <div class="cv-reps" v-if="crpFor(cv.prop.id).length">
+          <div class="grouphead" style="margin:10px 0 2px">&#128196; Signed reports</div>
+          <div class="cv-rep" v-for="r in crpFor(cv.prop.id)" :key="r.id" :class="{unsafe: r.kind==='unsafe'}">
+            <span class="ic">{{ r.kind==='unsafe' ? '&#9888;' : '&#128196;' }}</span>
+            <div class="nm"><b>{{ r.label }}</b><small>Signed {{ niceDate(r.signedAt) }}<span v-if="r.signedBy"> by {{ r.signedBy }}</span></small></div>
+            <button class="btn-edit" :disabled="crp.busy===r.id" @click="crpOpen(r.id)">{{ crp.busy===r.id ? 'Preparing&hellip;' : 'Open' }}</button>
+            <button class="btn-dl" :disabled="crp.busy===r.id" @click="crpOpen(r.id, true)">Download PDF</button>
+          </div>
+        </div>
+        <div class="hint" v-else-if="!crp.loading && !portalAs" style="margin:0 0 14px">Signed reports for this property will appear here (and under <b>Reports</b>) once the inspector signs them.</div>
         <div class="empty" v-if="cv.loadingStruct">Loading the inspection&hellip;</div>
         <template v-else>
           <div class="panel" v-if="!cv.structure.subProjects.length && !cv.structure.locations.length">No inspection findings have been entered for this property yet.</div>
@@ -2384,6 +2440,7 @@ input,select{font-family:inherit;font-size:16px}
         <div class="rp-banner" v-else-if="rp.data.job.status==='submitted'">Submitted to the inspector {{ niceDate(rp.data.job.submittedAt) }} by {{ rp.data.job.submittedBy }}.<span v-if="rpKind==='staff'"> Choose for each item: <b>Approve</b> from the photos, ask for <b>New photos</b>, or check it <b>On site</b>.</span><span v-else> No changes can be made while the inspector reviews them.</span></div>
         <div class="rp-banner ok" v-else-if="rp.data.job.status==='approved'">Approved by the inspector {{ niceDate(rp.data.job.reviewedAt) }}. <span v-if="rpKind==='staff'">Create the Final Report Upon Completion with these photos (button at the bottom).</span><span v-else>The Final Inspection report will follow.</span></div>
         <div class="rp-banner bad" v-else-if="rp.data.job.status==='onsite'">The inspector will do an on-site Final Inspection.</div>
+        <div class="rp-banner ok" v-else-if="rp.data.job.status==='issued'">Final Report signed and issued {{ niceDate(rp.data.job.issuedAt) }}<span v-if="rp.data.job.finalReport && rp.data.job.finalReport.signedBy"> by {{ rp.data.job.finalReport.signedBy }}</span>.<span v-if="rpKind==='client'"> Open it below or under <b>Reports</b>.</span></div>
         <div class="rp-note insp" v-if="rp.data.job.reviewNote" style="margin-bottom:14px"><b>Inspector:</b> {{ rp.data.job.reviewNote }}</div>
         <div class="hint" style="margin:0 0 12px">{{ rp.data.summary.total }} repair item{{ rp.data.summary.total===1 ? '' : 's' }} &middot; {{ rp.data.summary.withPhotos }} with photos<span v-if="rp.data.summary.accepted"> &middot; {{ rp.data.summary.accepted }} accepted</span><span v-if="rp.data.summary.approved"> &middot; {{ rp.data.summary.approved }} approved</span></div>
         <div class="panel" v-if="!rp.data.items.length">No repair items on this property &mdash; nothing was rated Bad or Failed.</div>
@@ -2457,7 +2514,12 @@ input,select{font-family:inherit;font-size:16px}
     <div class="rp-foot" v-if="rp.data">
       <template v-if="rpKind==='client' && rp.data.job.status==='open' && rp.data.items.length">
         <span class="hint" style="margin:0;flex:1" v-if="rpNotAccepted">{{ rpNotAccepted }} item{{ rpNotAccepted===1 ? '' : 's' }} still to accept.</span>
-        <button class="rp-big" :disabled="!!rpNotAccepted || !!rp.busy" @click="rp.confirm=true">Repairs complete &mdash; request Final Inspection</button>
+        <button class="rp-big" :disabled="!!rpNotAccepted || !!rp.busy" @click="rp.confirm=true">Repairs complete &mdash; request Final Report</button>
+      </template>
+      <template v-if="rp.data.job.status==='issued' && rp.data.job.finalReport && rpKind==='client'">
+        <span style="flex:1"></span>
+        <button class="btn-dl" @click="crpOpen(rp.data.job.finalReport.id, true)">Download PDF</button>
+        <button class="rp-big" @click="crpOpen(rp.data.job.finalReport.id)">&#128196; Open {{ rp.data.job.finalReport.label || 'Final Report' }}</button>
       </template>
       <template v-if="rpKind==='staff' && rp.data.job.status==='submitted'">
         <button class="btn-dl" @click="rpDecAll('approve')">Approve all</button>
@@ -2473,7 +2535,7 @@ input,select{font-family:inherit;font-size:16px}
     <div class="overlay" v-if="rp.confirm" @click.self="rp.confirm=false">
       <div class="modal" style="max-width:520px">
         <h3>Repairs complete?</h3>
-        <p>You are confirming that the repairs at <b>{{ rp.data && rp.data.project.name }}</b> are complete and that you accept the contractor&rsquo;s work shown in the photos. They go to the inspector for the Final Inspection. Your name and the time are recorded.</p>
+        <p>You are confirming that the repairs at <b>{{ rp.data && rp.data.project.name }}</b> are complete and that you accept the contractor&rsquo;s work shown in the photos. They go to the inspector, who is notified by email, reviews the photos and prepares the Final Report (or schedules an on-site Final Inspection). Your name and the time are recorded.</p>
         <div class="field"><label>Note to the inspector (optional)</label><textarea v-model="rp.submitNote" rows="2" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit"></textarea></div>
         <div class="mrow"><button class="btn-cancel" @click="rp.confirm=false">Cancel</button><button class="rp-big" :disabled="!!rp.busy" @click="rpSubmit()">{{ rp.busy==='submit' ? 'Sending…' : 'Yes, send to the inspector' }}</button></div>
       </div>
@@ -3122,7 +3184,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.5';
+const APP_BUILD = '2026-11-01.6';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3195,6 +3257,7 @@ createApp({
       portalAs: null,
       mv: { open: false, loading: false, q: '', ctFor: '', ctLoading: false, contractors: [] },
       // Repairs portal (Oct 23 2026)
+      crp: { list: [], loading: false, busy: '', at: 0 }, // client portal signed reports (Nov 1 2026)
       rp: { list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
       ct: { list: [], loading: false, form: null, busy: false, msg: '' },
       addPropQ: '',
@@ -3330,11 +3393,11 @@ createApp({
       const words = q.split(/\s+/).filter(Boolean);
       return this.addableProjects.filter((p) => { const t = ((p.name || '') + ' ' + (p.address || '')).toLowerCase(); return words.every((w) => t.includes(w)); }).slice(0, 15);
     },
-    cvFiltered() {
-      const q = (this.cv.q || '').toLowerCase();
-      if (!q) return this.cv.props;
-      return this.cv.props.filter((p) => ((p.name || '') + ' ' + (p.address || '')).toLowerCase().includes(q));
-    },
+    // SEARCH (David, Nov 1 2026): name, address (street / city / ZIP), property ID (full or the
+    // short ID shown on the card), type, repair status and signed report names. Every word must match.
+    cvFiltered() { return this.cv.props.filter((p) => this.cvMatch(p.id, p)); },
+    rpClientFiltered() { return this.rp.list.filter((j) => this.cvMatch(j.projectId, j)); },
+    crpFiltered() { return this.crp.list.filter((r) => this.cvMatch(r.projectId, r, r.label + ' ' + r.kind + (r.kind === 'unsafe' ? ' unsafe notice' : ''))); },
     // Every other unit in this project a section could be moved to, labelled
     // "Building › Unit" so identically-named units stay tellable apart.
     // Total units across every building, and how many are fully inspected
@@ -3539,6 +3602,8 @@ createApp({
       this.cv.view = 'list';
       history.replaceState({ v: 'cv-list' }, '');
       this.cvLoadProps();
+      this.crpLoad(true);
+      this.rpLoadQueueQuiet();
     },
     // ---- PR 3: client billing (Stripe) - prices and trial length come from the server settings ----
     billMoney(c) { return '$' + (Number(c || 0) / 100).toFixed(2).replace(/\.00$/, ''); },
@@ -3604,10 +3669,12 @@ createApp({
         this.user = Object.assign({}, this.user, { token: j.token, companyIdentifier: j.companyIdentifier, clientId: j.clientId });
         localStorage.setItem('e3v2_user', JSON.stringify(this.user));
         this.cv.props = []; this.cv.prop = null; this.cv.unit = null;
+        this.crp.list = []; this.crp.at = 0; this.rp.list = [];
         const l = this.links.list.find((x) => x.companyIdentifier === j.companyIdentifier && x.clientId === j.clientId);
         this.toast('Now showing ' + ((l && l.inspector) || 'this inspector') + "'s inspections.", 'ok');
         this.loadBranding();
         this.cvHome();
+        this.crpLoad(true); this.rpLoadQueueQuiet();
       } catch (e) { if (e.message !== 'auth') this.toast('Could not reach the server.', 'err'); }
       finally { this.links.busy = false; }
     },
@@ -3636,6 +3703,7 @@ createApp({
       this.cv.prop = p; this.cv.view = 'prop'; this.cv.unit = null;
       if (changed) this.cv.structure = { subProjects: [], locations: [] };
       this.cvLoadStruct();
+      this.crpLoad();
     },
     async cvLoadStruct() {
       const pid = this.cv.prop && this.cv.prop.id;
@@ -3695,6 +3763,7 @@ createApp({
     },
     cvOnPop(st) {
       if (st.v === 'cv-repairs') { this.cv.view = 'repairs'; this.rpLoadList(); return; }
+      if (st.v === 'cv-reports') { this.cv.view = 'reports'; this.crpLoad(true); return; }
       if (st.v === 'cv-contractors') { this.cv.view = 'contractors'; this.ctLoad(); return; }
       if (st.v === 'cv-unit' && st.loc) {
         const p = this.cv.props.find((x) => x.id === st.pid);
@@ -3821,7 +3890,71 @@ createApp({
     cvRepairs() { history.pushState({ v: 'cv-repairs' }, ''); this.cv.view = 'repairs'; this.rpLoadList(); },
     cvContractors() { history.pushState({ v: 'cv-contractors' }, ''); this.cv.view = 'contractors'; if (!this.cv.props.length) this.cvLoadProps(); this.ctLoad(); },
     cvPropName(pid) { const p = this.cv.props.find((x) => x.id === pid); return p ? p.name : 'Property'; },
-    rpJobLabel(s) { return ({ open: 'In progress', submitted: 'Waiting for the inspector', approved: 'Approved', onsite: 'On-site Final required' })[s] || 'In progress'; },
+    rpJobLabel(s) {
+      if (this.isClient || this.isContractor) return ({ open: 'Repairs in progress', submitted: 'Final requested', approved: 'Approved \u2014 Final Report in preparation', onsite: 'On-site Final Inspection needed', issued: 'Final Report issued' })[s] || 'Repairs in progress';
+      return ({ open: 'In progress', submitted: 'Waiting for the inspector', approved: 'Approved', onsite: 'On-site Final required', issued: 'Final issued' })[s] || 'In progress';
+    },
+    // ---- client portal: signed reports + search (Nov 1 2026) ----
+    cvShortId(id) { return String(id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase(); },
+    cvJobOf(pid) { const j = this.rp.list.find((x) => x.projectId === pid); return j ? j.job : null; },
+    cvHay(pid, rec) {
+      const p = this.cv.props.find((x) => x.id === pid) || {};
+      const parts = [p.name, p.address, rec && rec.name, rec && rec.address, rec && rec.property, pid, this.cvShortId(pid), p.projecttype];
+      const ci = p.clientInfo;
+      if (ci && typeof ci === 'object') for (const k of Object.keys(ci)) if (typeof ci[k] === 'string') parts.push(ci[k]);
+      const job = this.cvJobOf(pid);
+      if (job) parts.push(this.rpJobLabel(job.status), job.status === 'issued' ? 'final issued' : '');
+      for (const r of this.crp.list) if (r.projectId === pid) parts.push(r.label, r.kind === 'unsafe' ? 'unsafe' : '');
+      return parts.filter(Boolean).join(' ').toLowerCase().replace(/[,#.]/g, ' ');
+    },
+    cvMatch(pid, rec, extra) {
+      const q = String(this.cv.q || '').toLowerCase().replace(/[,#]/g, ' ').trim();
+      if (!q) return true;
+      const hay = this.cvHay(pid, rec) + ' ' + String(extra || '').toLowerCase();
+      return q.split(/\s+/).every((w) => hay.includes(w));
+    },
+    crpFor(pid) { return this.crp.list.filter((r) => r.projectId === pid); },
+    crpCount(pid) { return this.crpFor(pid).length; },
+    crpUnsafe(pid) { return this.crp.list.find((r) => r.projectId === pid && r.kind === 'unsafe') || null; },
+    async crpLoad(force) {
+      if (!this.isClient) return;
+      if (this.portalAs) { // master view: read the released files property by property (staff route)
+        const pid = this.cv.prop && this.cv.prop.id;
+        if (!pid) return;
+        try {
+          const res = await this.api('/portalreports/project/' + encodeURIComponent(pid));
+          const j = res.ok ? await res.json() : null;
+          const rel = ((j && j.files) || []).filter((f) => f.release).map((f) => ({ id: f.id, projectId: pid, property: this.cv.prop.name, address: this.cv.prop.address || '', kind: f.release.kind, label: f.release.label, signedAt: f.release.signedAt, signedBy: f.release.signedBy }));
+          this.crp.list = this.crp.list.filter((r) => r.projectId !== pid).concat(rel);
+        } catch (e) { /* preview only */ }
+        return;
+      }
+      if (!force && this.crp.at && Date.now() - this.crp.at < 60000) return;
+      this.crp.loading = !this.crp.list.length;
+      try {
+        const res = await this.api('/portal/reports');
+        const j = res.ok ? await res.json() : null;
+        if (j && Array.isArray(j.reports)) { this.crp.list = j.reports; this.crp.at = Date.now(); }
+      } catch (e) { /* the list just stays as it was */ }
+      finally { this.crp.loading = false; }
+    },
+    // Open (or download) a signed report: the server hands back a 15-minute PDF link for this login.
+    async crpOpen(id, download) {
+      if (!id || this.crp.busy) return;
+      if (this.portalAs) { this.toast('In master view, open reports from the project\'s Report Files.', 'err'); return; }
+      const w = download ? null : window.open('about:blank', '_blank');
+      this.crp.busy = id;
+      try {
+        const res = await this.api('/portal/reports/' + encodeURIComponent(id) + '/link');
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j.url) { if (w) w.close(); this.toast(j.message || 'This report is not available.', 'err'); return; }
+        if (download) { const a = document.createElement('a'); a.href = j.url + '?dl=1'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
+        else if (w) w.location.href = j.url; else window.location.href = j.url;
+      } catch (e) { if (w) w.close(); if (e.message !== 'auth') this.toast('Could not open the report.', 'err'); }
+      finally { this.crp.busy = ''; }
+    },
+    cvReports() { history.pushState({ v: 'cv-reports' }, ''); this.cv.view = 'reports'; if (!this.cv.props.length) this.cvLoadProps(); this.crpLoad(true); },
+    cvOpenPropId(pid) { const p = this.cv.props.find((x) => x.id === pid); if (p) this.cvOpenProp(p); },
     rpItemLabel(s) { return ({ open: 'Needs photos', done: 'Done - waiting for supervisor', returned: 'Sent back', accepted: 'Accepted', approved: 'Approved by inspector', rephoto: 'Inspector asked for new photos', onsite: 'On-site check' })[s] || s; },
     rpCountLine(j) {
       const c = (j && j.counts) || {}; const by = c.byStatus || {};
