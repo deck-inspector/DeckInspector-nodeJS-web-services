@@ -107,11 +107,18 @@ router.route("/login").post(async function (req, res) {
     // the session starts on the first active linked inspector instead.
     let loginCompany = record.companyIdentifier, loginClientId = record.clientId || null;
     let loginAllowed = await Tenants.isTenantActive(record.companyIdentifier);
-    if ((!loginAllowed.success || !loginAllowed.allowLogin) && portalRole === "client") {
+    // The owner's login outlives any one inspector (Nov 1 2026): when the first
+    // inspector ended its access, start on the next active one.
+    const primaryEnded = portalRole === "client" && record.primaryActive === false;
+    if ((primaryEnded || !loginAllowed.success || !loginAllowed.allowLogin) && portalRole === "client") {
       const links = require("../model/portalLinks");
+      loginAllowed = { success: false };
       for (const l of links.linksOf(record).filter((x) => !x.primary && x.active)) {
         const t = await Tenants.isTenantActive(l.companyIdentifier).catch(() => ({ success: false }));
         if (t && t.success && t.allowLogin) { loginAllowed = t; loginCompany = l.companyIdentifier; loginClientId = l.clientId; break; }
+      }
+      if (!loginAllowed.success && primaryEnded) { // password already checked above
+        return res.status(409).send("No inspector is sharing properties with your login right now. Your login is kept: when an inspector invites this email again, sign in with this same password.");
       }
     }
     if (!loginAllowed.success || !loginAllowed.allowLogin) {

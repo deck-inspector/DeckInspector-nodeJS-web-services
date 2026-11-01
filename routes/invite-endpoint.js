@@ -281,6 +281,8 @@ publicRouter.post("/:code/accept", async (req, res) => {
       }
       if (!links.hasLink(existing, inv.companyIdentifier, inv.clientId)) {
         await links.addLink(existing.id, { companyIdentifier: inv.companyIdentifier, clientId: inv.clientId, memberUsername: inv.member && inv.member.username, invitationId: inv.id });
+      } else if (!links.linkFor(existing, inv.companyIdentifier, inv.clientId)) {
+        await links.setAccess(existing, inv.companyIdentifier, inv.clientId, true); // the inspector had ended access; a new invitation reopens it
       }
       const name = [existing.first_name, existing.last_name].filter(Boolean).join(" ") || existing.username;
       const owner = { userId: existing.id, username: existing.username, email: existing.email, name };

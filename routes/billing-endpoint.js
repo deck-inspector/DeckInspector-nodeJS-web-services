@@ -9,6 +9,9 @@
 //   POST /admin/waive             E3 ADMIN ONLY - complimentary on/off ({ email, waived, note, until })
 //   POST /admin/recount           E3 ADMIN ONLY - re-count properties -> subscription quantity
 //   POST /admin/invoice           E3 ADMIN ONLY - invoice billing for a large client
+//   GET  /admin/clients           E3 ADMIN ONLY - every portal client login + inspectors + billing
+//   GET  /admin/client?id=        E3 ADMIN ONLY - one portal client, with billing history
+//   POST /admin/client/login      E3 ADMIN ONLY - the whole login on/off ({ id, active })
 //
 // "E3 Admin" = a SuperUsers record (the E3 Multi-Tenant admin site login). A tenant
 // administrator - the inspecting member - is NOT E3 Admin and has no route here, so a
@@ -19,6 +22,7 @@ const jwt = require("jsonwebtoken");
 const couchbase = require("../database/couchbase");
 const stripe = require("../service/stripeApi");
 const billing = require("../service/portalBilling");
+const portalClients = require("../service/portalClients");
 
 const router = express.Router();
 const superCache = new Map(); // lower(username) -> { ok, at }
@@ -114,6 +118,21 @@ router.post("/admin/waive", e3Admin, async (req, res) => {
 
 router.post("/admin/recount", e3Admin, async (req, res) => {
   try { res.status(200).json({ success: true, account: await billing.adminRecount((req.body || {}).email, req.e3admin) }); } catch (e) { fail(res, e, "recount"); }
+});
+
+// PORTAL CLIENTS (Nov 1 2026) - every property-owner login, its inspectors and billing.
+router.get("/admin/clients", e3Admin, async (req, res) => {
+  try { res.status(200).json({ success: true, clients: await portalClients.list() }); } catch (e) { fail(res, e, "clients"); }
+});
+router.get("/admin/client", e3Admin, async (req, res) => {
+  try { res.status(200).json({ success: true, client: await portalClients.view(req.query.id) }); } catch (e) { fail(res, e, "client"); }
+});
+// The whole login on/off - E3 Admin only (an inspector only ends its own access).
+router.post("/admin/client/login", e3Admin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    res.status(200).json({ success: true, client: await portalClients.setLogin(b.id, b.active !== false, req.e3admin) });
+  } catch (e) { fail(res, e, "client login"); }
 });
 
 router.post("/admin/invoice", e3Admin, async (req, res) => {

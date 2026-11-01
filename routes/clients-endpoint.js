@@ -119,7 +119,9 @@ router.get("/:id/logins", async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
     const cur = await clientOf(req, res); if (!cur) return;
-    const own = await users.getClientUsers(company(req), cur.id);
+    // An owner login stays switched on when its first inspector ends access (Nov 1 2026):
+    // to that inspector it shows as off.
+    const own = (await users.getClientUsers(company(req), cur.id)).map((u) => Object.assign({}, u, { isActive: u.isActive !== false && u.primaryActive !== false }));
     let linked = [];
     try { linked = await portalLinks.linkedUsers(company(req), cur.id); } catch (e) { console.error("linked logins:", e && e.message); }
     res.status(200).json(own.concat(linked));
@@ -172,6 +174,15 @@ router.post("/:id/logins/status", async (req, res) => {
       forgetUser(rec.username);
       return res.status(200).json({ ok: 1, message: active ? "Access to your properties turned on." : "Access to your properties turned off. The login itself still works for their other inspectors.", username: rec.username });
     }
+    // The property owner's login belongs to the owner, not to the inspector who created
+    // it (David, Nov 1 2026): this inspector only ends ITS access. The login, the owner's
+    // other inspectors and their portal billing stay. Only E3 Admin turns a login off.
+    if (String(rec.role || "").toLowerCase() === "client" && rec.isActive !== false) {
+      await portalLinks.setPrimaryActive(rec.id, active);
+      forgetUser(rec.username);
+      return res.status(200).json({ ok: 1, message: active ? "Access to your properties turned on." : "Access to your properties turned off. The owner keeps their login for any other inspectors.", username: rec.username });
+    }
+    if (rec.adminDisabledAt) return res.status(409).json({ message: "E3 Admin turned this login off. Contact E3 to turn it back on." });
     const r = await users.setActive(rec, active, req.body.newUsername);
     forgetUser(rec.username); // takes effect on the client's next request
     if (r.status !== 201) return res.status(r.status).json(r);
