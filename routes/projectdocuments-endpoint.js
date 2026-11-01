@@ -32,7 +32,22 @@ try {
             res.status(err.status).send(err.message); 
         }
         if (result){
-            res.status(201).json(result);
+            // Nov 1 2026: an uploaded SIGNED FINAL goes to the client portal automatically
+            // (service/portalReports.js autoReleaseSignedFinal). Never blocks the upload.
+            (async () => {
+              let portal = null;
+              try {
+                const company = req.user && req.user.company;
+                const users = require('../model/user');
+                const me = company ? await users.getUserbyUsername(req.user.username) : null;
+                const role = String((me && me.role) || '').toLowerCase();
+                if (me && role !== 'client' && role !== 'contractor') {
+                  const staff = { company, username: me.username, name: [me.first_name, me.last_name].filter(Boolean).join(' ') || me.username };
+                  portal = await require('../service/portalReports').autoReleaseSignedFinal(staff, result.insertedId, name, url);
+                }
+              } catch (e) { console.error('signed final auto-release:', e && e.message); }
+              res.status(201).json(Object.assign({}, result, portal ? { portal } : {}));
+            })();
         }
     });
     

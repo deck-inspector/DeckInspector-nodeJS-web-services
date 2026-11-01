@@ -3212,6 +3212,7 @@ input,select{font-family:inherit;font-size:16px}
     <div class="modal" style="max-width:560px">
       <h3>Project Documents</h3>
       <p style="margin-bottom:14px"><b>{{ docsProject ? docsProject.name : '' }}</b> &mdash; contracts, layouts, and signed reports live here.</p>
+      <div class="cv-banner" style="margin:-4px 0 12px">&#11088; A <b>signed Final</b> (PDF or Word with &ldquo;Final&rdquo; in the file name) uploaded here goes to the client&rsquo;s portal automatically: they get it as a PDF with an email, and any open Final request closes as issued &mdash; even when the client called or emailed instead of using the portal.</div>
       <div class="docdrop" :class="{drag:docDrag}" @click="$refs.docUp.click()"
            @dragover.prevent="docDrag=true" @dragleave.prevent="docDrag=false" @drop.prevent="onDocDrop">
         <input type="file" ref="docUp" multiple style="display:none" @change="onDocFile">
@@ -3292,7 +3293,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.12';
+const APP_BUILD = '2026-11-01.13';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -8659,6 +8660,8 @@ createApp({
             });
             if (!res.ok) throw new Error('bad');
             item.status = 'Done'; done++;
+            // Nov 1 2026: a signed Final goes to the client portal automatically
+            try { const dj = await res.json(); if (dj && dj.portal && dj.portal.released) { this.toast('Signed Final \u201c' + item.name + '\u201d sent to the client portal' + (dj.portal.emailed && dj.portal.emailed.sent ? ' \u2014 client emailed.' : '.') + (dj.portal.requestClosed ? ' The Final request is closed as issued.' : '')); } } catch (e) { /* message only */ }
           } catch (e) {
             if (e.message === 'auth') throw e;
             item.status = 'Failed'; failed++;
