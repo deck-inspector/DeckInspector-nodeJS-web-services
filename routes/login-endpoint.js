@@ -338,10 +338,19 @@ router.route("/superUserPassword").post(async function (req, res) {
     }
     pwFails.delete(key);
     const hash = await bcrypt.hash(next, 10);
-    await couchbaseDb.cluster.query(
-      `UPDATE \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.SuperUsers AS u USE KEYS $1 SET u.password = $2, u.passwordChangedAt = $3`,
-      { parameters: [record.id, hash, new Date().toISOString()] }
+    // Direct document update (no query text): the N1QL UPDATE failed to parse live.
+    // Same scope + collection the login lookup reads (getCouchbaseSuperUser).
+    const { MutateInSpec } = require("couchbase");
+    const keys = await couchbaseDb.cluster.query(
+      `SELECT RAW META(u).id FROM \`${process.env.DB_BUCKET_NAME}\`.${process.env.DB_PROD_SCOPE_NAME || "inventory"}.SuperUsers u WHERE LOWER(u.username) = LOWER($1) OR LOWER(u.email) = LOWER($1) LIMIT 1`,
+      { parameters: [p.username] }
     );
+    const docKey = keys.rows && keys.rows[0];
+    if (!docKey) throw new Error("super user key not found");
+    await couchbaseDb.prod_scope.collection("SuperUsers").mutateIn(String(docKey), [
+      MutateInSpec.replace("password", hash),
+      MutateInSpec.upsert("passwordChangedAt", new Date().toISOString()),
+    ]);
     console.log("E3 Admin password changed:", record.username);
     res.status(200).json({ ok: 1, message: "Password changed." });
   } catch (err) {
