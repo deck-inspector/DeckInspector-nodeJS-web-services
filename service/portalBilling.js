@@ -46,6 +46,8 @@ const DEFAULTS = {
   introMonths: 12,
   annualDiscountMonths: 2, // annual price = monthly x (12 - this) unless annualCents is set
   annualCents: null,
+  volumeMinProperties: 25, // accounts with at least this many properties get volumePercent off (0 = off)
+  volumePercent: 25,       // % off the unit price, monthly and yearly; the intro coupon applies on top
   stripeProducts: {},      // { test: "prod_..", live: "prod_.." } created on first use
   history: [],
 };
@@ -96,12 +98,26 @@ function introPercent(cfg) {
   }
   return 0;
 }
-function pricing(cfg) {
+// Volume discount (% off the unit price) for an account with this many properties; 0 = none.
+function volumePercent(cfg, properties) {
+  const min = Number(cfg.volumeMinProperties) || 0;
+  const pct = Number(cfg.volumePercent) || 0;
+  return min > 0 && pct > 0 && Number(properties) >= min ? pct : 0;
+}
+const pctOff = (cents, pct) => (pct ? Math.max(1, Math.round((cents * (100 - pct)) / 100)) : cents);
+// Prices per property. With `properties` the numbers are what THAT account pays (volume
+// discount applied); without it they are the list prices (E3 Admin config, invitation text).
+function pricing(cfg, properties) {
+  const vol = properties === undefined ? 0 : volumePercent(cfg, properties);
+  const ip = introPercent(cfg);
+  const monthly = pctOff(cfg.monthlyCents, vol);
+  const annual = pctOff(annualCents(cfg), vol);
   return {
     currency: cfg.currency, trialDays: cfg.trialDays,
-    monthlyCents: cfg.monthlyCents,
-    introMonthlyCents: introPercent(cfg) ? cfg.introMonthlyCents : 0, introMonths: cfg.introMonths,
-    annualCents: annualCents(cfg), annualPerMonthCents: Math.round(annualCents(cfg) / 12),
+    monthlyCents: monthly,
+    introMonthlyCents: ip ? pctOff(monthly, ip) : 0, introMonths: cfg.introMonths,
+    annualCents: annual, annualPerMonthCents: Math.round(annual / 12),
+    volumeMinProperties: Number(cfg.volumeMinProperties) || 0, volumePercent: Number(cfg.volumePercent) || 0, volumeApplied: vol,
   };
 }
 // The sentence shown on the invitation email / accept page - always from the settings.
@@ -110,7 +126,9 @@ function priceLine(cfg) {
   const p = pricing(c);
   let s = `Your first ${c.trialDays} days are free. After that the portal is ${money(p.monthlyCents)} per property per month`;
   if (p.introMonthlyCents) s += `, with an introductory rate of ${money(p.introMonthlyCents)} per property per month for your first ${p.introMonths} months`;
-  return s + ".";
+  s += ".";
+  if (p.volumeMinProperties && p.volumePercent) s += ` Accounts with ${p.volumeMinProperties} or more properties get ${p.volumePercent}% off.`;
+  return s;
 }
 
 const NUM = (v, lo, hi, name) => {
@@ -128,6 +146,8 @@ async function saveConfig(patch, by) {
   if (p.introMonths !== undefined) next.introMonths = NUM(p.introMonths, 1, 36, "Introductory months");
   if (p.annualDiscountMonths !== undefined) next.annualDiscountMonths = NUM(p.annualDiscountMonths, 0, 11, "Annual discount months");
   if (p.annualCents !== undefined) next.annualCents = p.annualCents === null || p.annualCents === "" ? null : NUM(p.annualCents, 100, 1000000, "Annual price (cents)");
+  if (p.volumeMinProperties !== undefined) next.volumeMinProperties = NUM(p.volumeMinProperties, 0, 100000, "Volume discount minimum properties");
+  if (p.volumePercent !== undefined) next.volumePercent = NUM(p.volumePercent, 0, 90, "Volume discount percent");
   if (next.introMonthlyCents && next.introMonthlyCents >= next.monthlyCents) throw new Error("The introductory price must be lower than the regular price (or 0 for none).");
   if (p.enabled !== undefined) {
     const on = !!p.enabled;
@@ -259,15 +279,28 @@ async function standing(rec) {
 function forget(email) { standingCache.delete(String(email || "").trim().toLowerCase()); }
 
 // --------------------------------------------------------- what the client sees
-async function syncQuantity(rec, bill, force) {
+// Keeps the subscription's property count in step with the portal. When the count crosses
+// the volume-discount line (either way) the unit price moves with it; otherwise the price
+// the client signed up at is left alone (a later list-price change does not reprice anyone).
+async function syncQuantity(rec, bill, force, cfg) {
   try {
     if (!bill.subscriptionId || !bill.itemId || !(GOOD.includes(bill.status) || bill.status === "past_due")) return bill;
     if (!force && bill.quantitySyncedAt && Date.now() - Date.parse(bill.quantitySyncedAt) < SYNC_EVERY_MS) return bill;
+    const c = cfg || (await getConfig());
     const n = Math.max(1, await countProperties(rec));
     bill.quantitySyncedAt = nowIso();
     if (n !== bill.quantity) {
-      await stripe.setQuantity(bill.itemId, n);
-      logTo(bill, "quantity", "system", `${bill.quantity} -> ${n} properties`);
+      const tierChanged = volumePercent(c, bill.quantity || 0) !== volumePercent(c, n);
+      if (tierChanged && bill.unitAmount && (bill.interval === "month" || bill.interval === "year")) {
+        const p = pricing(c, n);
+        const unit = bill.interval === "year" ? p.annualCents : p.monthlyCents;
+        await stripe.setQuantityAndPrice(bill.itemId, n, { currency: c.currency, unitAmount: unit, interval: bill.interval, product: await productId(c) });
+        logTo(bill, "quantity", "system", `${bill.quantity} -> ${n} properties, ${money(bill.unitAmount)} -> ${money(unit)} per property (volume discount ${p.volumeApplied ? "on" : "off"})`);
+        bill.unitAmount = unit;
+      } else {
+        await stripe.setQuantity(bill.itemId, n);
+        logTo(bill, "quantity", "system", `${bill.quantity} -> ${n} properties`);
+      }
       bill.quantity = n;
     }
     await saveBill(bill);
@@ -279,11 +312,11 @@ async function clientStatus(rec) {
   const cfg = await getConfig();
   if (!cfg.enabled || !stripe.configured()) return { success: true, enabled: false, state: "off", allowed: true };
   let bill = await ensureBill(rec, cfg);
-  bill = await syncQuantity(rec, bill, false);
+  bill = await syncQuantity(rec, bill, false, cfg);
   const v = evaluate(bill, cfg);
   const properties = await countProperties(rec);
   return Object.assign({ success: true, enabled: true }, v, {
-    properties, pricing: pricing(cfg), testMode: stripe.testMode(),
+    properties, pricing: pricing(cfg, properties), testMode: stripe.testMode(),
     subscription: bill.subscriptionId ? {
       status: bill.status, interval: bill.interval, quantity: bill.quantity, currentPeriodEnd: bill.currentPeriodEnd || null,
       cancelAtPeriodEnd: !!bill.cancelAtPeriodEnd,
@@ -315,7 +348,7 @@ async function startCheckout(rec, interval) {
   const properties = await countProperties(rec);
   if (properties < 1) { const e = new Error("You have no properties linked to your login yet."); e.status = 409; throw e; }
   const yearly = interval === "year";
-  const p = pricing(cfg);
+  const p = pricing(cfg, properties);
   const product = await productId(cfg);
   const params = {
     email: bill.email, reference: bill.id, customerId: bill.stripeCustomerId || null,
@@ -420,7 +453,8 @@ async function adminView(email) {
   const cfg = await getConfig();
   const rec = await recFor(email);
   const bill = await ensureBill(rec, cfg);
-  return Object.assign(summary(bill, cfg), { properties: await countProperties(rec), log: bill.log || [], pricing: pricing(cfg) });
+  const properties = await countProperties(rec);
+  return Object.assign(summary(bill, cfg), { properties, log: bill.log || [], pricing: pricing(cfg, properties) });
 }
 // Only E3 Admin reaches this (routes/billing-endpoint.js). Inspectors have no route to it.
 async function waive(email, waived, note, until, by) {
@@ -438,7 +472,7 @@ async function adminRecount(email, by) {
   const cfg = await getConfig();
   const rec = await recFor(email);
   const bill = await ensureBill(rec, cfg);
-  await syncQuantity(rec, bill, true);
+  await syncQuantity(rec, bill, true, cfg);
   logTo(bill, "recount", by, "");
   await saveBill(bill);
   return summary(bill, cfg);
@@ -452,7 +486,7 @@ async function adminInvoiceBilling(email, interval, daysUntilDue, by) {
   if (bill.subscriptionId && (GOOD.includes(bill.status) || bill.status === "past_due")) { const e = new Error("This client already has a subscription."); e.status = 409; throw e; }
   const properties = Math.max(1, await countProperties(rec));
   const yearly = interval === "year";
-  const p = pricing(cfg);
+  const p = pricing(cfg, properties);
   let customerId = bill.stripeCustomerId;
   if (!customerId) { const c = await stripe.createCustomer(bill.email, [rec.first_name, rec.last_name].filter(Boolean).join(" "), { e3_email: bill.email }); customerId = c.id; bill.stripeCustomerId = customerId; }
   const sub = await stripe.createInvoiceSubscription({
@@ -467,7 +501,7 @@ async function adminInvoiceBilling(email, interval, daysUntilDue, by) {
 }
 
 module.exports = {
-  getConfig, saveConfig, peekConfig, pricing, priceLine, introPercent, annualCents,
+  getConfig, saveConfig, peekConfig, pricing, priceLine, introPercent, annualCents, volumePercent,
   standing, forget, clientStatus, startCheckout, openPortal, handleEvent,
   adminList, adminView, waive, adminRecount, adminInvoiceBilling,
 };

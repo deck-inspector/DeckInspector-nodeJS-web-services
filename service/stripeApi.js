@@ -120,6 +120,14 @@ async function setQuantity(itemId, quantity) {
   });
 }
 
+// Same, plus a new unit price (the account crossed the volume-discount line). Pro-rated by Stripe.
+async function setQuantityAndPrice(itemId, quantity, p) {
+  return call("POST", "/subscription_items/" + encodeURIComponent(itemId), {
+    quantity, proration_behavior: "create_prorations",
+    price_data: { currency: p.currency, unit_amount: p.unitAmount, recurring: { interval: p.interval }, product: p.product },
+  });
+}
+
 // A reusable introductory-price coupon (percent off for N months). Created once per
 // (percent, months) pair; the id is deterministic so repeat calls find it.
 async function ensureIntroCoupon(percentOff, months) {
@@ -160,7 +168,7 @@ function verifyWebhook(raw, header, toleranceSec) {
 
 module.exports = {
   configured, testMode, form,
-  createCheckoutSession, createPortalSession, getSubscription, setQuantity, ensureIntroCoupon,
+  createCheckoutSession, createPortalSession, getSubscription, setQuantity, setQuantityAndPrice, ensureIntroCoupon,
   createProduct, createCustomer, createInvoiceSubscription,
   verifyWebhook,
 };
