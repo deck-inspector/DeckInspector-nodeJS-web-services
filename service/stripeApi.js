@@ -81,7 +81,8 @@ async function createCheckoutSession(p) {
   };
   if (p.customerId) params.customer = p.customerId; else params.customer_email = p.email;
   if (p.trialEnd) params.subscription_data.trial_end = p.trialEnd;
-  if (p.couponId) params.discounts = [{ coupon: p.couponId }];
+  // Stripe refuses a Checkout Session that has both discounts and allow_promotion_codes.
+  if (p.couponId) { params.discounts = [{ coupon: p.couponId }]; delete params.allow_promotion_codes; }
   return call("POST", "/checkout/sessions", params);
 }
 
