@@ -498,10 +498,10 @@ input,select{font-family:inherit;font-size:16px}
 .rp-head{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:10px clamp(16px,4vw,40px);display:flex;align-items:center;gap:12px;z-index:2}
 .rp-body{max-width:980px;margin:0 auto;padding:16px clamp(16px,4vw,40px) 120px}
 .rp-banner{border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:14px;background:var(--brand-soft);color:var(--brand)}
-.rp-meth{display:block;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 10px;cursor:pointer;background:var(--card)}
+.rp-meth{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 10px;cursor:pointer;background:var(--card)}
 .rp-meth.on{border-color:var(--brand);background:var(--brand-soft)}.rp-meth.off{opacity:.5;cursor:not-allowed}
 .rp-meth b{display:block;font-size:15px}.rp-meth small{color:var(--ink-soft);display:block;margin-top:2px}
-.rp-meth input{margin-right:8px}
+.rp-meth input{margin:4px 0 0;flex:none;width:18px;height:18px}.rp-meth span{flex:1}
 .rp-banner.ok{background:#e3f4ee;color:#0B7A5C}.rp-banner.warn{background:#FFF4E0;color:#8a5300}.rp-banner.bad{background:#fde8e8;color:#9b1c1c}
 .rp-item{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:14px}
 .rp-item h4{margin:0 0 4px;font-size:16px}
@@ -2586,11 +2586,11 @@ input,select{font-family:inherit;font-size:16px}
         <h3>Repairs complete &mdash; request the Final</h3>
         <p>You are confirming that the repairs at <b>{{ rp.data && rp.data.project.name }}</b> are complete and that you accept the contractor&rsquo;s work shown in the photos. Choose how the Final is done:</p>
         <div class="rp-banner bad" v-if="rp.data && rp.data.job.unsafeItems">&#9888; <b>Unsafe conditions were reported at this property.</b> Emergency repairs must be inspected on site by the inspector and reported to the local building department, so an <b>on-site Final Inspection</b> is required.</div>
-        <label class="rp-meth" :class="{on: rp.method==='onsite'}"><input type="radio" value="onsite" v-model="rp.method"><b>On-site Final Inspection</b>
-          <small>The inspector visits the property, inspects the repairs and signs the Final. Required by mortgage lenders (refinance or sale) and for any unsafe condition.</small></label>
-        <label class="rp-meth" :class="{on: rp.method==='photos', off: rp.data && rp.data.job.unsafeItems}"><input type="radio" value="photos" v-model="rp.method" :disabled="rp.data && rp.data.job.unsafeItems"><b>Final Report Upon Completion &mdash; owner-supplied photos</b>
+        <label class="rp-meth" :class="{on: rp.method==='onsite'}"><input type="radio" value="onsite" v-model="rp.method"><span><b>On-site Final Inspection</b>
+          <small>The inspector visits the property, inspects the repairs and signs the Final. Required by mortgage lenders (refinance or sale) and for any unsafe condition.</small></span></label>
+        <label class="rp-meth" :class="{on: rp.method==='photos', off: rp.data && rp.data.job.unsafeItems}"><input type="radio" value="photos" v-model="rp.method" :disabled="rp.data && rp.data.job.unsafeItems"><span><b>Final Report Upon Completion &mdash; owner-supplied photos</b>
           <small>The inspector reviews your contractor&rsquo;s repair photos and signs off that the repairs were made, for the building department. Usual for apartments and portfolio managers. Not accepted by mortgage lenders.</small>
-          <small v-if="rp.data && rp.data.job.unsafeItems" style="color:#9b1c1c">Not available &mdash; unsafe conditions must be inspected on site.</small></label>
+          <small v-if="rp.data && rp.data.job.unsafeItems" style="color:#9b1c1c">Not available &mdash; unsafe conditions must be inspected on site.</small></span></label>
         <div class="field"><label>Note to the inspector (optional)</label><textarea v-model="rp.submitNote" rows="2" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font-family:inherit" placeholder="e.g. lender name and deadline, best days for the visit"></textarea></div>
         <p class="hint" style="margin:0 0 6px">The inspector is notified by email. Your name and the time are recorded.</p>
         <div class="mrow"><button class="btn-cancel" @click="rp.confirm=false">Cancel</button><button class="rp-big" :disabled="!!rp.busy || !rp.method" @click="rpSubmit()">{{ rp.busy==='submit' ? 'Sending…' : (rp.method==='onsite' ? 'Request on-site Final Inspection' : (rp.method==='photos' ? 'Request Final from photos' : 'Choose how the Final is done')) }}</button></div>
