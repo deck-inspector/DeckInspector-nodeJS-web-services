@@ -132,6 +132,8 @@ input,select{font-family:inherit;font-size:16px}
 .progress{display:flex;align-items:center;gap:12px;background:var(--brand-soft);border-radius:12px;padding:14px 18px;margin-top:16px;font-weight:600;color:var(--brand-dark)}
 .spinner{width:20px;height:20px;border:3px solid rgba(31,111,84,.25);border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
+@keyframes deepFlash{0%,100%{box-shadow:0 0 0 3px var(--brand)}50%{box-shadow:0 0 0 7px rgba(41,44,116,.35)}}
+.pcard.deeplink{animation:deepFlash 1.2s ease-in-out 4;outline:3px solid var(--brand);outline-offset:2px}
 .rlist{list-style:none}
 .rlist li{display:flex;align-items:center;gap:14px;padding:14px 6px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .rlist li:last-child{border-bottom:none}
@@ -1094,7 +1096,7 @@ input,select{font-family:inherit;font-size:16px}
                empty space and the project NAME are all click targets. Buttons,
                the assign dropdown, inspector tags, and the address/status/date
                text keep their own behavior - cardClick filters those out. -->
-          <div class="pcard" :class="{finalinsp: isFinalInsp(p), upcoming: !isFinalInsp(p) && isUpcoming(p), needsfinal: !isFinalInsp(p) && needsFinal(p), reportready: !isFinalInsp(p) && reportReady(p)}" v-for="p in g.items" :key="p.id" @click="cardClick(p, $event)">
+          <div class="pcard" :data-pid="projectId(p)" :class="{finalinsp: isFinalInsp(p), upcoming: !isFinalInsp(p) && isUpcoming(p), needsfinal: !isFinalInsp(p) && needsFinal(p), reportready: !isFinalInsp(p) && reportReady(p), deeplink: deep.flash === projectId(p)}" v-for="p in g.items" :key="p.id" @click="cardClick(p, $event)">
             <div class="thumb" :style="thumbStyle(p)" style="cursor:pointer">
               <div class="noimg" v-if="!hasImage(p)">&#127959;</div>
               <span class="paybadge" v-if="payOf(p)" :class="payOf(p).paid ? 'paid' : 'unpaid'" :title="payTitle(p)">{{ payOf(p).paid ? '$\u2713' : '$' }}</span>
@@ -3290,7 +3292,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.11';
+const APP_BUILD = '2026-11-01.12';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3405,7 +3407,7 @@ createApp({
              inspectionAmount: '', reportAmount: '',
              creating: false, error: '', message: '' },
       formEd: { open: false, loading: false, key: '', label: '', ext: 'docx', tokenHtml: '', renderedHtml: '', controls: {}, rcByRow: {}, values: {}, photos: {}, ownerPhotos: [], opBusy: '', opOver: false, annex: false, busy: false, busyKind: '' },
-      filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
+      deep: { pid: '', why: '', flash: '' }, filterMode: 'active', addOpen: false, savingProject: false, deletingProject: null,
       addForm: { name: '', address: '', description: '', projecttype: 'multilevel', formId: null, inspDate: '', inspTime: '', url: '' },
       forms: [], photoBusy: false,
       structOpen: false, structBusy: false, structDelete: null,
@@ -3680,6 +3682,18 @@ createApp({
         const im = /^\/invite\/([A-Za-z0-9-]+)/.exec(location.pathname);
         if (im) { this.invite.code = im[1].toUpperCase(); this.inviteLoad(); }
       } catch (e) { /* ignore */ }
+      // EMAIL LINKS (Nov 1 2026): ?property=<projectId>[&why=final|report] opens that property.
+      // Kept in sessionStorage so it survives the sign-in screen; the URL is cleaned at once.
+      try {
+        const qs = new URLSearchParams(location.search);
+        const pid = qs.get('property');
+        if (pid) {
+          sessionStorage.setItem('e3_deeplink', JSON.stringify({ pid, why: qs.get('why') || '' }));
+          history.replaceState(history.state, '', location.pathname);
+        }
+        const dl = JSON.parse(sessionStorage.getItem('e3_deeplink') || 'null');
+        if (dl && dl.pid) this.deep = { pid: String(dl.pid), why: String(dl.why || ''), flash: '' };
+      } catch (e) { /* ignore */ }
       const saved = localStorage.getItem('e3v2_user');
       if (saved && !this.invite.code) { this.user = JSON.parse(saved); if (this.isContractor || this.isClient) this.portalEnter(); else { this.loadProjects(); this.loadBranding(); this.checkSyncHealth(); this.rpLoadQueueQuiet(); } }
     } catch (e) { /* ignore */ }
@@ -3795,6 +3809,7 @@ createApp({
         const list = (Array.isArray(data) ? data : (data.projects || [])).filter((p) => !p.isdeleted);
         list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { numeric: true, sensitivity: 'base' }));
         this.cv.props = list;
+        this.deepApplyClient();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not load your properties.', 'err');
       } finally { this.cv.loading = false; }
@@ -5128,9 +5143,36 @@ createApp({
         this.sweepFinalReports();
         this.loadPayStatus();
         this.loadProposals();   // lets the home search find a project by proposal number
+        this.deepApplyStaff();
       } catch (e) {
         if (e.message !== 'auth') this.toast('Could not load projects.', 'err');
       } finally { this.loadingProjects = false; }
+    },
+    deepClear() { this.deep.pid = ''; try { sessionStorage.removeItem('e3_deeplink'); } catch (e) { /* */ } },
+    // Inspector side: show the property's own card on the Projects page (search filled in,
+    // card scrolled into view and outlined) - David, Nov 1 2026.
+    deepApplyStaff() {
+      const pid = this.deep.pid; if (!pid || this.isClient || this.isContractor) return;
+      const p = this.projects.find((x) => this.projectId(x) === pid);
+      this.deepClear();
+      if (!p) { this.toast('That property is not in your projects list.', 'err'); return; }
+      this.view = 'projects'; this.filterMode = 'all'; this.clientFilter = ''; this.query = p.name || '';
+      this.deep.flash = pid;
+      this.$nextTick(() => {
+        const el = document.querySelector('.pcard[data-pid="' + (window.CSS && CSS.escape ? CSS.escape(pid) : pid) + '"]');
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+      if (this.deep.why === 'final') this.toast('Final Report requested for ' + (p.name || 'this property') + ' \u2014 review it under Final Reports.');
+      setTimeout(() => { this.deep.flash = ''; }, 6000);
+    },
+    // Client side: open the property page (or the Reports tab for a report email).
+    deepApplyClient() {
+      const pid = this.deep.pid; if (!pid || !this.isClient) return;
+      const why = this.deep.why;
+      this.deepClear();
+      const p = this.cv.props.find((x) => x.id === pid);
+      if (!p) return;
+      this.cvOpenProp(p);
     },
     hasImage(p) { return p && p.url && (/^https?:/i.test(p.url) || /^\/api\/pphoto\//.test(p.url)); },
     /* ---------- billing cycles + paid badge (David, Oct 22 2026) ----------
