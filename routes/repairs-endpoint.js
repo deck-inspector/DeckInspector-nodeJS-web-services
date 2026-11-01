@@ -228,7 +228,8 @@ router.get("/job/:projectId", async (req, res) => {
       job: { status: job.status, round: job.round || 1, submittedBy: job.submittedBy || "", submittedAt: job.submittedAt || "",
         reviewedBy: job.reviewedBy || "", reviewedAt: job.reviewedAt || "", reviewNote: job.reviewNote || "", history: job.history || [],
         issuedAt: job.issuedAt || "", issuedBy: job.issuedBy || "", finalReport: await finalReportOf(job),
-        method: job.method || "", methodReason: job.methodReason || "", unsafeItems: items.filter((i) => i.finding && i.finding.unsafe).length },
+        method: job.method || "", methodReason: job.methodReason || "", unsafeItems: items.filter((i) => i.finding && i.finding.unsafe).length,
+        noPhotoItems: items.filter((i) => !(i.photos && i.photos.length)).length },
       items, summary: summarize(items), you: { kind: actor.kind, username: actor.username },
     });
   } catch (e) {
@@ -345,7 +346,8 @@ router.post("/item/review", async (req, res) => {
     const it = found.item;
     if (it.status === "approved") return fail(res, 409, "The inspector already approved this item.");
     if (b.decision === "accept") {
-      if (!it.photos.length) return fail(res, 400, "This item has no photos yet.");
+      // Nov 1 2026 (David): the owner can accept a repair without photos - the inspector then
+      // checks it on site. Photos are only needed for a Final from owner-supplied photos (submit).
       it.status = "accepted"; it.acceptedBy = actor.name; it.acceptedAt = new Date().toISOString();
     } else {
       it.status = "returned"; it.acceptedBy = ""; it.acceptedAt = "";
@@ -383,6 +385,8 @@ router.post("/job/submit", async (req, res) => {
     let method = b.method === "onsite" ? "onsite" : (b.method === "photos" ? "photos" : "");
     if (!method) return fail(res, 400, "Choose how the Final is done: owner-supplied photos or an on-site Final Inspection.");
     if (method === "photos" && unsafeItems) return fail(res, 409, "Unsafe conditions were reported at this property - those repairs must be inspected on site by the inspector. Choose the on-site Final Inspection.");
+    const noPhotos = items.filter((i) => !(i.photos && i.photos.length)).length;
+    if (method === "photos" && noPhotos) return fail(res, 409, `${noPhotos} repair item${noPhotos === 1 ? " has" : "s have"} no photos. Add photos of the completed repair, or choose the on-site Final Inspection.`);
     job.method = method; job.methodReason = unsafeItems ? "unsafe" : String(b.methodReason || "").slice(0, 40);
     job.unsafeItems = unsafeItems;
     job.status = "submitted"; job.itemsTotal = items.length;
@@ -428,6 +432,7 @@ router.post("/job/decide", async (req, res) => {
       // (must be inspected by the inspector) - it cannot be approved from photos.
       if (d === "approve" && job.method === "onsite") return fail(res, 409, "The client requested an on-site Final Inspection - choose On-site Final for everything.");
       if (d === "approve" && it.finding && it.finding.unsafe) return fail(res, 409, `"${it.locationName} - ${it.name}" was an unsafe condition - it must be inspected on site.`);
+      if (d === "approve" && !(it.photos && it.photos.length)) return fail(res, 409, `"${it.locationName} - ${it.name}" has no photos - check it on site or ask for new photos.`);
       it.status = d === "approve" ? "approved" : d;
       it.reviewNote = String((decisions[it.sectionId] && decisions[it.sectionId].note) || "").slice(0, 1000);
       if (d === "approve") nApprove++; else if (d === "rephoto") nRephoto++; else nOnsite++;
