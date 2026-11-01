@@ -409,7 +409,9 @@ function clientGuard(req, res, next) {
     // The token names the inspector being viewed: the login's own (primary)
     // inspector, or - client logins only (PR 2) - one of its active links.
     let company = rec.companyIdentifier, clientId = rec.clientId;
-    if (isClientRecord(rec) && (payload.company !== rec.companyIdentifier || (payload.clientId && payload.clientId !== rec.clientId))) {
+    if (isClientRecord(rec)) {
+      // any inspector - the first one included - can end its access while the login
+      // stays (Nov 1 2026), so every client token is checked against an ACTIVE link
       const link = links.linkFor(rec, payload.company, payload.clientId || undefined);
       if (!link) return deny(res, 403, "This inspector is no longer linked to your login. Sign in again.");
       company = link.companyIdentifier; clientId = link.clientId;

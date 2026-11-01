@@ -442,6 +442,18 @@ function summary(bill, cfg) {
     currentPeriodEnd: bill.currentPeriodEnd || null, collection: bill.collection || "", testMode: !!bill.testMode,
   };
 }
+// Read-only: an email's billing standing WITHOUT creating a billing record (Portal
+// Clients page). null when billing has never seen this login.
+async function peekAccount(email, properties) {
+  const cfg = await getConfig();
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) return null;
+  const bill = await getByKey(billKey(e));
+  const base = { enabled: !!cfg.enabled, pricing: pricing(cfg, properties === undefined ? undefined : Number(properties) || 0) };
+  if (!bill) return Object.assign(base, { state: cfg.enabled ? "not-started" : "off", email: e, log: [] });
+  return Object.assign(base, summary(bill, cfg), { log: bill.log || [] });
+}
+
 async function adminList() {
   const cfg = await getConfig();
   const idx = (await getByKey(INDEX_KEY)) || { emails: {} };
@@ -503,5 +515,5 @@ async function adminInvoiceBilling(email, interval, daysUntilDue, by) {
 module.exports = {
   getConfig, saveConfig, peekConfig, pricing, priceLine, introPercent, annualCents, volumePercent,
   standing, forget, clientStatus, startCheckout, openPortal, handleEvent,
-  adminList, adminView, waive, adminRecount, adminInvoiceBilling,
+  adminList, adminView, peekAccount, waive, adminRecount, adminInvoiceBilling,
 };

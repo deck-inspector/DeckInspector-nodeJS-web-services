@@ -334,9 +334,16 @@ function makePhotoHandler(lookupUser) {
     if (!p) return res.status(410).type("text/plain").send("This photo link has expired. Reload the page.");
     let rec;
     try { rec = await lookupUser(p.v); } catch (e) { return res.status(503).type("text/plain").send("Please try again in a moment."); }
-    if (!rec || rec.isActive === false || rec.companyIdentifier !== p.c) return res.status(403).type("text/plain").send("This login no longer has access.");
+    if (!rec || rec.isActive === false) return res.status(403).type("text/plain").send("This login no longer has access.");
+    let viaClientId = rec.clientId;
+    if (String(rec.role || "").toLowerCase() === "client") {
+      // a client login may view several inspectors; the one named in the link must still be active
+      const link = require("../model/portalLinks").linkFor(rec, p.c);
+      if (!link) return res.status(403).type("text/plain").send("This login no longer has access.");
+      viaClientId = link.clientId;
+    } else if (rec.companyIdentifier !== p.c) return res.status(403).type("text/plain").send("This login no longer has access.");
     const size = req.query && req.query.s === "t" ? "t" : "f";
-    const viewer = { username: rec.username, company: rec.companyIdentifier, clientId: rec.clientId, role: String(rec.role || "").toLowerCase(), name: [rec.first_name, rec.last_name].filter(Boolean).join(" ") };
+    const viewer = { username: rec.username, company: p.c, clientId: viaClientId, role: String(rec.role || "").toLowerCase(), name: [rec.first_name, rec.last_name].filter(Boolean).join(" ") };
     if (!allow(rec.username, size === "t" ? "thumb" : "full")) {
       note(viewer, "throttled", { req });
       return res.status(429).type("text/plain").send("Too many photos opened - please slow down.");

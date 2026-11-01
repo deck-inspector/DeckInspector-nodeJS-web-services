@@ -29,16 +29,20 @@ function str(v, max = 200) { return String(v == null ? "" : v).trim().slice(0, m
 
 // Every inspector a login can see, primary first. Inactive links are kept
 // (flagged) so the client can be told why one inspector is missing.
+// The LOGIN belongs to the property owner (David, Nov 1 2026): when the first
+// ("primary") inspector ends the relationship only `primaryActive` goes false -
+// the login, its other inspectors and its billing stay. Only E3 Admin turns the
+// whole login off (isActive).
 function linksOf(rec) {
   if (!rec) return [];
   const out = [];
   if (rec.companyIdentifier && rec.clientId) {
-    out.push({ companyIdentifier: rec.companyIdentifier, clientId: rec.clientId, primary: true, active: rec.isActive !== false });
+    out.push({ companyIdentifier: rec.companyIdentifier, clientId: rec.clientId, primary: true, active: rec.isActive !== false && rec.primaryActive !== false, changedAt: rec.primaryChangedAt || null, linkedAt: rec.createdAt || null });
   }
   for (const l of Array.isArray(rec.portalLinks) ? rec.portalLinks : []) {
     if (!l || !l.companyIdentifier || !l.clientId) continue;
     if (out.some((o) => o.companyIdentifier === l.companyIdentifier && o.clientId === l.clientId)) continue;
-    out.push(Object.assign({}, l, { primary: false, active: l.active !== false }));
+    out.push(Object.assign({}, l, { primary: false, active: rec.isActive !== false && l.active !== false, changedAt: l.activeChangedAt || null }));
   }
   return out;
 }
@@ -81,6 +85,38 @@ async function setLinkActive(userId, companyIdentifier, clientId, active) {
   return { ok: 1 };
 }
 
+// The first inspector's access on/off for a client login (the login itself stays).
+async function setPrimaryActive(userId, active) {
+  await q(`UPDATE ${USERS_KS()} AS u USE KEYS $1 SET u.primaryActive = $2, u.primaryChangedAt = $3`, [userId, !!active, new Date().toISOString()]);
+  return { ok: 1 };
+}
+
+// Switch one inspector's access for a login, whichever kind of link it is.
+async function setAccess(rec, companyIdentifier, clientId, active) {
+  if (rec.companyIdentifier === companyIdentifier && rec.clientId === clientId) return setPrimaryActive(rec.id, active);
+  return setLinkActive(rec.id, companyIdentifier, clientId, active);
+}
+
+// Every client (property owner) login, for E3 Admin's Portal Clients page.
+async function allClientLogins() {
+  return q(`SELECT META(u).id AS id, u.username, u.formerUsername, u.first_name, u.last_name, u.email, u.mobile,
+      u.isActive, u.primaryActive, u.primaryChangedAt, u.createdAt, u.companyIdentifier, u.clientId, u.portalLinks,
+      u.adminDisabledAt, u.adminDisabledBy
+    FROM ${USERS_KS()} u WHERE u.\`role\` = 'client'`);
+}
+async function clientLoginById(id) {
+  const rows = await q(`SELECT META(u).id AS id, u.* FROM ${USERS_KS()} u USE KEYS $1 WHERE u.\`role\` = 'client'`, [String(id || "")]);
+  return rows.length ? rows[0] : null;
+}
+// E3 Admin only: the whole login on/off. The email is kept (unlike staff logins) so the
+// owner's billing record and history stay attached and the login can be turned back on.
+async function setLoginActive(id, active, by) {
+  const t = new Date().toISOString();
+  if (active) await q(`UPDATE ${USERS_KS()} AS u USE KEYS $1 SET u.isActive = true, u.reactivatedAt = $2 UNSET u.adminDisabledAt, u.adminDisabledBy`, [id, t]);
+  else await q(`UPDATE ${USERS_KS()} AS u USE KEYS $1 SET u.isActive = false, u.adminDisabledAt = $2, u.adminDisabledBy = $3`, [id, t, String(by || "")]);
+  return { ok: 1 };
+}
+
 // Client logins that reach this inspector's client THROUGH A LINK (their primary
 // inspector is someone else). Same shape as model/user.getClientUsers + link info.
 async function linkedUsers(companyIdentifier, clientId) {
@@ -105,4 +141,4 @@ async function activeClientByEmail(email) {
   return rows.length ? rows[0] : null;
 }
 
-module.exports = { linksOf, linkFor, hasLink, addLink, setLinkActive, linkedUsers, activeClientByEmail };
+module.exports = { linksOf, linkFor, hasLink, addLink, setLinkActive, setPrimaryActive, setAccess, linkedUsers, activeClientByEmail, allClientLogins, clientLoginById, setLoginActive };
