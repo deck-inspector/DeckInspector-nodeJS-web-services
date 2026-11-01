@@ -204,7 +204,8 @@ router.get("/jobs", async (req, res) => {
     const counts = await repairs.itemCounts(ids);
     return res.status(200).json(projects.map((p) => ({
       projectId: p.id, name: p.name, address: p.address || "", url: p.url || "",
-      job: jobs.get(p.id) ? { status: jobs.get(p.id).status, itemsTotal: jobs.get(p.id).itemsTotal, submittedAt: jobs.get(p.id).submittedAt || "", reviewedAt: jobs.get(p.id).reviewedAt || "" } : { status: "open" },
+      job: jobs.get(p.id) ? { status: jobs.get(p.id).status, itemsTotal: jobs.get(p.id).itemsTotal, submittedAt: jobs.get(p.id).submittedAt || "", reviewedAt: jobs.get(p.id).reviewedAt || "",
+        issuedAt: jobs.get(p.id).issuedAt || "", finalReportId: jobs.get(p.id).finalReportId || "" } : { status: "open" },
       counts: counts[p.id] || { withPhotos: 0, byStatus: {} },
     })));
   } catch (e) {
@@ -225,7 +226,8 @@ router.get("/job/:projectId", async (req, res) => {
     return res.status(200).json({
       project: { id: p.id, name: p.name, address: p.address || "", url: p.url || "" },
       job: { status: job.status, round: job.round || 1, submittedBy: job.submittedBy || "", submittedAt: job.submittedAt || "",
-        reviewedBy: job.reviewedBy || "", reviewedAt: job.reviewedAt || "", reviewNote: job.reviewNote || "", history: job.history || [] },
+        reviewedBy: job.reviewedBy || "", reviewedAt: job.reviewedAt || "", reviewNote: job.reviewNote || "", history: job.history || [],
+        issuedAt: job.issuedAt || "", issuedBy: job.issuedBy || "", finalReport: await finalReportOf(job) },
       items, summary: summarize(items), you: { kind: actor.kind, username: actor.username },
     });
   } catch (e) {
@@ -373,9 +375,18 @@ router.post("/job/submit", async (req, res) => {
     job.status = "submitted"; job.itemsTotal = items.length;
     job.submittedBy = actor.name; job.submittedByUser = actor.username; job.submittedAt = new Date().toISOString();
     job.reviewedBy = ""; job.reviewedAt = ""; job.reviewNote = "";
+    job.note = String(b.note || "").slice(0, 1000);
+    job.finalReportId = ""; job.issuedAt = ""; job.issuedBy = "";
     logTo(job, actor, "submitted", b.note);
     await repairs.saveJob(job);
-    return res.status(200).json({ ok: 1, job: { status: job.status, submittedAt: job.submittedAt, submittedBy: job.submittedBy } });
+    // Nov 1 2026: tell the inspection company (its admins) - the request used to show only as a badge
+    let emailed = null;
+    try {
+      const clients = require("../model/clients");
+      const c = await clients.getClientById(actor.clientId).catch(() => null);
+      emailed = await require("../service/portalReports").notifyFinalRequested(p, job, (c && c.name) || "");
+    } catch (e) { console.error("repairs submit notify:", e && e.message); }
+    return res.status(200).json({ ok: 1, job: { status: job.status, submittedAt: job.submittedAt, submittedBy: job.submittedBy }, emailed });
   } catch (e) {
     console.error("repairs submit:", e && e.message);
     return fail(res, 500, "Could not submit the repairs.");
@@ -414,6 +425,52 @@ router.post("/job/decide", async (req, res) => {
   } catch (e) {
     console.error("repairs decide:", e && e.message);
     return fail(res, 500, "Could not save the decision.");
+  }
+});
+
+// The signed Final attached to a job (Nov 1 2026), or null - only while it is still released.
+async function finalReportOf(job) {
+  if (!job || !job.finalReportId) return null;
+  try {
+    const rec = await require("../service/portalReports").getRecord(job.finalReportId);
+    const rel = rec && rec.clientRelease;
+    if (!rel || !rel.released) return null;
+    return { id: rec.id, label: rel.label || "", kind: rel.kind || "", signedAt: rel.signedAt || "", signedBy: rel.signedBy || "" };
+  } catch (e) { return null; }
+}
+
+// POST /api/repairs/job/issue { projectId, reportId, kind?, title? }  - staff
+// Nov 1 2026: the inspector signs the Final Report (owner-supplied photos or on-site) and
+// issues it: the report is released to the client, the client is emailed and the job
+// closes as "issued". The coming auto-signature will call the same release step.
+const FINAL_KINDS = ["final", "finalcompletion", "finalrepairs"];
+router.post("/job/issue", async (req, res) => {
+  try {
+    const actor = await actorOf(req);
+    if (actor.kind !== "staff") return fail(res, 403, "Only the inspection company issues the Final Report.");
+    const b = req.body || {};
+    const p = await accessibleProject(actor, b.projectId);
+    if (!p) return fail(res, 404, "Property not found.");
+    const job = await jobOf(p);
+    if (!["approved", "onsite", "issued"].includes(job.status)) return fail(res, 409, "Review the repairs first (approve them or call for an on-site Final).");
+    const reports = require("../service/portalReports");
+    const rec = await reports.getRecord(String(b.reportId || ""));
+    if (!rec || String(rec.project_id) !== String(p.id)) return fail(res, 404, "Choose a report file of this property.");
+    let kind = FINAL_KINDS.includes(b.kind) ? b.kind : reports.guessKind(rec.name);
+    if (!FINAL_KINDS.includes(kind)) kind = job.status === "onsite" ? "finalrepairs" : "finalcompletion";
+    const out = await reports.release(actor, { id: rec.id, kind, title: b.title, notify: false });
+    const prevId = job.finalReportId || "";
+    job.status = "issued"; job.finalReportId = rec.id;
+    job.issuedAt = new Date().toISOString(); job.issuedBy = actor.name;
+    logTo(job, actor, prevId && prevId !== rec.id ? "Final Report re-issued" : "Final Report signed and issued to the client", b.note);
+    await repairs.saveJob(job);
+    let emailed = null;
+    try { emailed = await reports.notifyClients(p, Object.assign({ label: out.release.label })); } catch (e) { console.error("repairs issue notify:", e && e.message); }
+    return res.status(200).json({ ok: 1, job: { status: job.status, issuedAt: job.issuedAt, finalReport: { id: rec.id, ...out.release } }, emailed });
+  } catch (e) {
+    if (e && e.status) return fail(res, e.status, e.message);
+    console.error("repairs issue:", e && e.message);
+    return fail(res, 500, "Could not issue the Final Report.");
   }
 });
 

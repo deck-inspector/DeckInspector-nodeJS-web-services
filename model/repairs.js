@@ -35,7 +35,8 @@ async function upsert(id, doc) {
 const ITEM_STATUSES = ["open", "done", "returned", "accepted", "approved", "rephoto", "onsite"];
 // ---- job statuses ----------------------------------------------------------
 // open | submitted (waiting for Deck) | approved (all items) | onsite (on-site Final needed)
-const JOB_STATUSES = ["open", "submitted", "approved", "onsite"];
+// | issued (Nov 1 2026: the signed Final Report was released to the client - the cycle is closed)
+const JOB_STATUSES = ["open", "submitted", "approved", "onsite", "issued"];
 
 const itemId = (sectionId) => `repitem::${sectionId}`;
 const jobId = (projectId) => `repjob::${projectId}`;
@@ -82,7 +83,7 @@ async function itemCounts(projectIds) {
 }
 async function submittedJobs(companyIdentifier) {
   return await q(`SELECT r.* FROM ${coll()} r WHERE r.docType = 'RepairJob' AND r.companyIdentifier = $1
-    AND r.status IN ['submitted', 'approved', 'onsite'] ORDER BY r.submittedAt DESC LIMIT 300`, [companyIdentifier]);
+    AND r.status IN ['submitted', 'approved', 'onsite', 'issued'] ORDER BY r.submittedAt DESC LIMIT 300`, [companyIdentifier]);
 }
 
 module.exports = {

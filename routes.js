@@ -28,7 +28,9 @@ const inviteRoutes = require("./routes/invite-endpoint");
 // Client portal billing (Nov 1 2026): Stripe webhook + E3 Admin fee controls (routes/billing-endpoint.js)
 const billingRoutes = require("./routes/billing-endpoint");
 // Client portal (Oct 23 2026): read-only owner / property-manager logins.
-const { clientGuard, portalPhoto } = require("./service/clientAccess");
+const { clientGuard, portalPhoto, portalReport } = require("./service/clientAccess");
+// Client portal reports (Nov 1 2026): inspector signs + releases report files (routes/portalreports-endpoint.js)
+const portalReportsRouter = require("./routes/portalreports-endpoint");
 const portalShield = require("./service/portalShield");
 const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
@@ -45,6 +47,10 @@ module.exports = function (app) {
   // storage addresses - expiring, watermarked, reduced size. The signed link is
   // the permission (an <img> can't send a token). See service/portalShield.js.
   app.get("/api/pphoto/:tok", portalPhoto);
+  // PORTAL REPORTS (Nov 1 2026): signed reports released to the client stream as PDF
+  // through an expiring per-login link (service/portalReports.js).
+  app.get("/api/preport/:tok", portalReport);
+  app.use("/api/portalreports", authenticateToken, portalReportsRouter);
   // Portal terms of use - staff can read them too (portal logins are answered
   // by clientGuard, which also records their acceptance).
   app.get("/api/portal/terms", authenticateToken, (req, res) => res.status(200).json(portalShield.TERMS));
