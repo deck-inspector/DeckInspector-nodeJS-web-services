@@ -280,7 +280,7 @@ async function notifyClients(project, rel) {
     const body = mailBody({
       heading: `${rel.label} is ready`,
       lines: [`Hello${r.first ? " " + r.first : ""},`, `${who} has signed the ${rel.label} for ${project.name || "your property"}${project.address ? " (" + project.address + ")" : ""}.`, "You can open and download it in your E3 Property Owner Portal."],
-      button: "Open my portal", url: mail.APP,
+      button: "Open the property", url: `${mail.APP}/?property=${encodeURIComponent(project.id)}&why=report`,
     });
     const res = await mail.send({ to: r.email, subject: `${rel.label} - ${project.name || "your property"}`, text: body.text, html: body.html, kind: "report" });
     if (res && res.sent) sent++;
@@ -318,7 +318,7 @@ async function notifyFinalRequested(project, job, clientName) {
         `${job.itemsTotal || 0} repair item${job.itemsTotal === 1 ? "" : "s"} with photos are waiting for your review under Final Reports in E3 Web.`,
         job.note ? `Note from the client: ${job.note}` : "",
       ],
-      button: "Open E3 Web", url: mail.APP,
+      button: "Open the property in E3 Web", url: `${mail.APP}/?property=${encodeURIComponent(project.id)}&why=final`,
     });
     const res = await mail.send({ to: r.email, subject: `${job.method === "onsite" ? "On-site Final Inspection" : "Final Report (owner photos)"} requested - ${project.name || "property"}`, text: body.text, html: body.html, kind: "final-request" });
     if (res && res.sent) sent++;
