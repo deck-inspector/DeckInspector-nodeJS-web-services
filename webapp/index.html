@@ -3958,7 +3958,7 @@ createApp({
     cvPropName(pid) { const p = this.cv.props.find((x) => x.id === pid); return p ? p.name : 'Property'; },
     rpJobLabel(s) {
       if (this.isClient || this.isContractor) return ({ open: 'Repairs in progress', submitted: 'Final requested', approved: 'Approved \u2014 Final Report in preparation', onsite: 'On-site Final Inspection needed', issued: 'Final Report issued' })[s] || 'Repairs in progress';
-      return ({ open: 'In progress', submitted: 'Waiting for the inspector', approved: 'Approved', onsite: 'On-site Final required', issued: 'Final issued' })[s] || 'In progress';
+      return ({ open: 'In progress', submitted: 'Requested \u2014 review', approved: 'Ready to sign & issue', onsite: 'On-site Final needed', issued: 'Final issued' })[s] || 'In progress';
     },
     // ---- client portal: signed reports + search (Nov 1 2026) ----
     cvShortId(id) { return String(id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase(); },
