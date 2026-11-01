@@ -1807,7 +1807,30 @@ router.route('/clientformfill')
           });
           const parsed = JSON.parse(result);
           if (!parsed || !parsed.url) throw new Error('upload returned no url');
-          return res.status(200).json({ url: parsed.url, fileName: base + '.' + fileExt });
+          // SAVE TO THE PROPERTY (Nov 1 2026): the Notice of Unsafe Conditions and the
+          // Final Report Upon Completion / Repairs used to be download-only, so nothing
+          // tied them to the property and they could never reach the client portal.
+          // With saveToProject they become a Report File of the project (not shared with
+          // the client until the inspector signs / releases it).
+          let reportId = null;
+          if (req.body.saveToProject && req.body.projectId) {
+            try {
+              const portalReports = require('../service/portalReports');
+              const proj = await portalReports.getProject(String(req.body.projectId));
+              if (proj && proj.companyIdentifier === (req.user && req.user.company)) {
+                const label = req.body.includeAnnex ? 'Final Report Upon Repairs, Onsite Visit' : (form.label || 'Report');
+                const added = await new Promise((resolve) => projectReports.addProjectReport({
+                  project_id: proj.id, name: (proj.name || 'Project') + ' - ' + label, url: parsed.url,
+                  uploader: (req.user && req.user.username) || '', timestamp: new Date().toISOString(),
+                  formKey: String(req.body.key || ''),
+                }, (e, r) => resolve(e ? null : r)));
+                reportId = (added && added.insertedId) || null;
+              }
+            } catch (saveErr) {
+              console.error('clientformfill: save to project failed:', saveErr && saveErr.message);
+            }
+          }
+          return res.status(200).json({ url: parsed.url, fileName: base + '.' + fileExt, reportId });
         } catch (upErr) {
           // Storage hiccup: fall through and send the bytes as before rather
           // than failing the download outright.

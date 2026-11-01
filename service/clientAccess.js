@@ -28,6 +28,8 @@ const shield = require("./portalShield");
 // inspectors; the token names the inspector currently being viewed.
 const links = require("../model/portalLinks");
 const billing = require("./portalBilling");
+// Nov 1 2026: signed reports released to the client (service/portalReports.js)
+const portalReports = require("./portalReports");
 
 const USER_TTL_MS = 60 * 1000;
 const MAX_IDS = 500;
@@ -336,6 +338,29 @@ async function handleClient(req, res, next, client) {
     return deny(res, 429, "Too many requests - please slow down and try again in a few minutes.");
   }
 
+  // signed reports of the client's own properties (Nov 1 2026) - list + an expiring download link
+  if (client.role === "client" && method === "GET" && /^\/portal\/reports$/i.test(path)) {
+    try {
+      const pid = req.query && typeof req.query.projectId === "string" ? req.query.projectId.trim() : "";
+      const list = await portalReports.clientList(client, pid || null);
+      shield.note(client, "api", { req, projectIds: pid ? [pid] : [] });
+      return res.status(200).json({ success: true, reports: list });
+    } catch (e) {
+      if (e && e.status) return deny(res, e.status, e.message);
+      throw e;
+    }
+  }
+  const rl = client.role === "client" && method === "GET" ? /^\/portal\/reports\/([^/]+)\/link$/i.exec(path) : null;
+  if (rl) {
+    try {
+      let id = ""; try { id = decodeURIComponent(rl[1]); } catch (e) { id = ""; }
+      return res.status(200).json(Object.assign({ success: true }, await portalReports.clientLink(client, id, shield.originOf(req))));
+    } catch (e) {
+      if (e && e.status) return deny(res, e.status, e.message);
+      throw e;
+    }
+  }
+
   // photo links the page sends back (remove photo, thumbnail pre-build) -> storage address
   if (req.body && typeof req.body === "object") shield.unsignPhotos(req.body, client);
 
@@ -433,5 +458,7 @@ function clientGuard(req, res, next) {
 
 // GET /api/pphoto/:tok - the watermarked, expiring portal photo (service/portalShield.js)
 const portalPhoto = shield.makePhotoHandler(lookupUser);
+// GET /api/preport/:tok - a released, signed report as PDF (service/portalReports.js)
+const portalReport = portalReports.makeDownloadHandler(lookupUser);
 
-module.exports = { clientGuard, portalPhoto, isClientRecord, isContractorRecord, isPortalRecord, forgetUser, scrub, resolveProjects, projectAllowed, RULES, CONTRACTOR_RULES };
+module.exports = { clientGuard, portalPhoto, portalReport, isClientRecord, isContractorRecord, isPortalRecord, forgetUser, scrub, resolveProjects, projectAllowed, RULES, CONTRACTOR_RULES };
