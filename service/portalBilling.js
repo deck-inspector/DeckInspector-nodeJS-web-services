@@ -201,7 +201,7 @@ async function ensureBill(rec, cfg) {
   // a subscription made with TEST keys means nothing once live keys are in use
   if (bill.subscriptionId && !!bill.testMode !== stripe.testMode()) {
     logTo(bill, "stale-subscription-cleared", "", `${bill.subscriptionId} was made in ${bill.testMode ? "test" : "live"} mode`);
-    ["subscriptionId", "itemId", "status", "interval", "quantity", "unitAmount", "currentPeriodEnd", "cancelAtPeriodEnd", "stripeCustomerId"].forEach((k) => delete bill[k]);
+    ["subscriptionId", "itemId", "status", "interval", "quantity", "unitAmount", "currentPeriodEnd", "cancelAtPeriodEnd", "stripeCustomerId", "everSubscribed", "stripePaused", "stripeResumesAt"].forEach((k) => delete bill[k]);
     bill.goLive = null; dirty = true;
   }
   if (!bill.subscriptionId && (!bill.trialEndsAt || bill.goLive !== (cfg.goLiveAt || null))) {
@@ -316,7 +316,8 @@ async function clientStatus(rec) {
   const v = evaluate(bill, cfg);
   const properties = await countProperties(rec);
   return Object.assign({ success: true, enabled: true }, v, {
-    properties, pricing: pricing(cfg, properties), testMode: stripe.testMode(),
+    properties, testMode: stripe.testMode(),
+    pricing: (bill.subscriptionId || bill.everSubscribed) ? Object.assign(pricing(cfg, properties), { introMonthlyCents: 0 }) : pricing(cfg, properties),
     subscription: bill.subscriptionId ? {
       status: bill.status, interval: bill.interval, quantity: bill.quantity, currentPeriodEnd: bill.currentPeriodEnd || null,
       cancelAtPeriodEnd: !!bill.cancelAtPeriodEnd,
@@ -356,9 +357,13 @@ async function startCheckout(rec, interval) {
     successUrl: appUrl() + "/?billing=success", cancelUrl: appUrl() + "/?billing=cancel",
     lines: [{ quantity: properties, unitAmount: yearly ? p.annualCents : p.monthlyCents, currency: cfg.currency, interval: yearly ? "year" : "month", product }],
   };
+  // The free days and the intro price are for a login's FIRST subscription only: a client
+  // who cancels and subscribes again pays from day one, at the regular price (found in
+  // testing, Nov 1 2026 - re-subscribing offered the free days and 12 intro months again).
+  const returning = !!(bill.subscriptionId || bill.everSubscribed);
   const trialEnd = bill.trialEndsAt ? Date.parse(bill.trialEndsAt) : 0;
-  if (trialEnd > Date.now() + 49 * 3600 * 1000) params.trialEnd = Math.floor(trialEnd / 1000); // card now, first charge when the free days end
-  if (!yearly && introPercent(cfg)) params.couponId = (await stripe.ensureIntroCoupon(introPercent(cfg), cfg.introMonths)).id;
+  if (!returning && trialEnd > Date.now() + 49 * 3600 * 1000) params.trialEnd = Math.floor(trialEnd / 1000); // card now, first charge when the free days end
+  if (!returning && !yearly && introPercent(cfg)) params.couponId = (await stripe.ensureIntroCoupon(introPercent(cfg), cfg.introMonths)).id;
   const s = await stripe.createCheckoutSession(params);
   logTo(bill, "checkout-started", rec.username, `${yearly ? "yearly" : "monthly"} x ${properties}`);
   await saveBill(bill);
@@ -396,6 +401,7 @@ async function applySubscription(subId, emailHint) {
     cancelAtPeriodEnd: !!sub.cancel_at_period_end, testMode: !sub.livemode,
     stripePaused: !!sub.pause_collection, stripeResumesAt: sub.pause_collection && sub.pause_collection.resumes_at ? new Date(sub.pause_collection.resumes_at * 1000).toISOString() : null,
     collection: sub.collection_method || bill.collection,
+    everSubscribed: true,
   });
   if (prevStatus !== sub.status) logTo(bill, "subscription", "stripe", `${prevStatus || "none"} -> ${sub.status}`);
   await saveBill(bill);
@@ -521,7 +527,7 @@ async function adminInvoiceBilling(email, interval, daysUntilDue, by) {
   const sub = await stripe.createInvoiceSubscription({
     customerId, email: bill.email, quantity: properties, currency: cfg.currency, interval: yearly ? "year" : "month",
     unitAmount: yearly ? p.annualCents : p.monthlyCents, product: await productId(cfg), daysUntilDue: Number(daysUntilDue) || 15,
-    couponId: !yearly && introPercent(cfg) ? (await stripe.ensureIntroCoupon(introPercent(cfg), cfg.introMonths)).id : null,
+    couponId: !yearly && introPercent(cfg) && !(bill.subscriptionId || bill.everSubscribed) ? (await stripe.ensureIntroCoupon(introPercent(cfg), cfg.introMonths)).id : null,
   });
   logTo(bill, "invoice-billing", by, `${yearly ? "yearly" : "monthly"} x ${properties}, due in ${Number(daysUntilDue) || 15} days`);
   await saveBill(bill);
