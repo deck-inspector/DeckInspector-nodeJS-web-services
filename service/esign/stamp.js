@@ -63,14 +63,20 @@ async function fonts(doc) {
   doc.registerFontkit(fontkit);
   const scriptBytes = fs.readFileSync(path.join(__dirname, "assets", "MrsSaintDelafield.woff"));
   let logo = null;
-  for (const n of ["e3-association-logo.png", "e3-association-logo.jpg"]) {
+  // David's own artwork (Illustrator -> SVG with type as outlines -> PDF): embedded as VECTORS.
+  const vec = path.join(__dirname, "assets", "e3-association-logo.pdf");
+  if (fs.existsSync(vec)) {
+    try { const [pg] = await doc.embedPdf(fs.readFileSync(vec), [0]); logo = { kind: "pdf", page: pg }; } catch (e) { logo = null; }
+  }
+  if (!logo) for (const n of ["e3-association-logo.png", "e3-association-logo.jpg"]) {
     const p = path.join(__dirname, "assets", n);
     if (!fs.existsSync(p)) continue;
     try { const b = fs.readFileSync(p); logo = n.endsWith(".png") ? await doc.embedPng(b) : await doc.embedJpg(b); } catch (e) { logo = null; }
     if (logo) break;
   }
   return {
-    logo: "vector", // the redrawn Association logo (the image file is the fallback reference only)
+    // the Association's own artwork when present; otherwise the vector redraw
+    logo: logo && logo.kind === "pdf" ? logo : "vector",
     serif: await doc.embedFont(StandardFonts.TimesRomanBold),
     reg: await doc.embedFont(StandardFonts.Helvetica),
     bold: await doc.embedFont(StandardFonts.HelveticaBold),
@@ -139,6 +145,13 @@ function drawAssocLogo(page, f, cx, cy, d, opacity = 1) {
 
 function drawSeal(page, f, cx, cy, d, color = ACCENT, logo = null, opacity = 1) {
   const r = d / 2;
+  if (logo && logo.kind === "pdf") {
+    page.drawCircle({ x: cx, y: cy, size: r - 0.75, borderColor: color, borderWidth: Math.max(1.2, d / 30), borderOpacity: opacity });
+    const box = d * 0.84, pg = logo.page;
+    const sc = Math.min(box / pg.width, box / pg.height);
+    page.drawPage(pg, { x: cx - (pg.width * sc) / 2, y: cy - (pg.height * sc) / 2, xScale: sc, yScale: sc, opacity });
+    return;
+  }
   if (logo === "vector") {
     page.drawCircle({ x: cx, y: cy, size: r - 0.75, borderColor: color, borderWidth: Math.max(1.2, d / 30), borderOpacity: opacity });
     drawAssocLogo(page, f, cx, cy, d * 0.92, opacity);
