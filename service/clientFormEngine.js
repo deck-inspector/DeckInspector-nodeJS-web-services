@@ -889,6 +889,10 @@ function applySigners(xml, signers, selected, opts) {
   const chosen = resolveSigner(list.length ? list : (selected ? [selected] : []), selected);
   const keepList = !!(opts && opts.keepMasterList) && !list.length;
   let rewritten = 0;
+  // David, Nov 1 2026: the license prints "DM, CA CSLB GC 714639". Masters uploaded earlier (Master
+  // Forms, blob) still carry "DM CA GC 714639" - correct it at generation, whatever master is live.
+  const fixedLic = xml.replace(/(?:DM,? )?CA (?:CSLB )?GC 714639/g, 'DM, CA CSLB GC 714639');
+  if (fixedLic !== xml) { xml = fixedLic; rewritten++; }
   for (const r of allSdtRanges(xml)) {
     let block = xml.slice(r.start, r.end);
     if (!/<w:(dropDownList|comboBox)\b/.test(block.slice(0, block.indexOf('<w:sdtContent>') === -1 ? block.length : block.indexOf('<w:sdtContent>')))) continue;
@@ -918,7 +922,8 @@ function applySigners(xml, signers, selected, opts) {
     xml = xml.replace(/(<w:t(?:\s[^>]*)?>)([^<]*)(<\/w:t>)/g, (m, a, txt, z) => {
       let t = txt;
       if (/David Mazor/.test(t)) t = t.replace(/David Mazor/g, xmlEscape(nm));
-      if (/(?:DM )?CA GC 714639/.test(t)) t = t.replace(/(?:DM )?CA GC 714639/g, xmlEscape(lic));
+      // Nov 1 2026: masters now print "DM, CA CSLB GC 714639" (older copies "DM CA GC 714639")
+      if (/(?:DM,? )?CA (?:CSLB )?GC 714639/.test(t)) t = t.replace(/(?:DM,? )?CA (?:CSLB )?GC 714639/g, xmlEscape(lic));
       return t === txt ? m : a + t + z;
     });
     if (xml !== before) rewritten++;
