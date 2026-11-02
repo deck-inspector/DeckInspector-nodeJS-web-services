@@ -25,7 +25,7 @@ const GREEN = rgb(0x0f / 255, 0x6e / 255, 0x5c / 255);
 const RED = rgb(0xb0 / 255, 0x00 / 255, 0x20 / 255);
 const ACCENT = rgb(0x1d / 255, 0x5f / 255, 0xa8 / 255);
 const IN = 72;
-const SEAL_FADE = Number(process.env.ESIGN_SEAL_OPACITY || 0.38); // how faded the seal is under the signature
+const SEAL_FADE = Number(process.env.ESIGN_SEAL_OPACITY || 0.45); // how faded the seal is under the signature
 
 // Helvetica / Courier only encode WinAnsi - keep every string printable.
 function safe(s) {
@@ -146,9 +146,9 @@ function drawAssocLogo(page, f, cx, cy, d, opacity = 1) {
 function drawSeal(page, f, cx, cy, d, color = ACCENT, logo = null, opacity = 1) {
   const r = d / 2;
   if (logo && logo.kind === "pdf") {
-    page.drawCircle({ x: cx, y: cy, size: r - 0.75, borderColor: color, borderWidth: Math.max(1.2, d / 30), borderOpacity: opacity });
-    const box = d * 0.84, pg = logo.page;
-    const sc = Math.min(box / pg.width, box / pg.height);
+    // David's artwork exactly as drawn: no added ring, ONE scale for width and height (never skewed)
+    const pg = logo.page;
+    const sc = Math.min(d / pg.width, d / pg.height);
     page.drawPage(pg, { x: cx - (pg.width * sc) / 2, y: cy - (pg.height * sc) / 2, xScale: sc, yScale: sc, opacity });
     return;
   }
@@ -272,7 +272,7 @@ async function drawFullBlock(page, doc, f, info, x, yTop, w = 6.4 * IN) {
 async function drawCellBlock(page, doc, f, info, box, side) {
   const { x, y, w, h } = box;
   const pad = Math.min(4, h * 0.07);
-  const seal = Math.min(h - pad * 2, 0.8 * IN);
+  const seal = Math.min((h - pad * 2) * 1.08, 0.95 * IN);
   // "overlap" (David, Nov 1): the signature is written ACROSS a faded Association seal, like an
   // engineer's stamp signed over. "side": seal and signature next to each other.
   const over = info.sealStyle !== "side" && f.logo;
@@ -284,7 +284,7 @@ async function drawCellBlock(page, doc, f, info, box, side) {
     const lineY = y + pad + 5;
     await drawSignature(page, doc, f, info.signer, sx, lineY + 2, sw, h - pad * 2 - 9);
     page.drawLine({ start: { x: sx, y: lineY }, end: { x: sx + sw, y: lineY }, thickness: 0.5, color: rgb(0.6, 0.65, 0.71) });
-    if (info.test) page.drawText("TEST - NOT VALID", { x: sx, y: y + h - pad - 6, size: 6, font: f.bold, color: RED });
+    if (info.test) { const t = "TEST - NOT VALID"; page.drawText(t, { x: x + w - pad - f.bold.widthOfTextAtSize(t, 5.5), y: y + pad, size: 5.5, font: f.bold, color: RED }); }
     // details panel beside the table
     const P = side;
     page.drawRectangle({ x: P.x, y: P.y, width: P.w, height: P.h, color: PANEL, borderColor: LINE, borderWidth: 0.9 });
