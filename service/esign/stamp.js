@@ -255,11 +255,13 @@ async function drawFullBlock(page, doc, f, info, x, yTop, w = 6.4 * IN) {
   const who = [info.signer.name, info.signer.license ? "License No. " + info.signer.license : ""].filter(Boolean).join(" · ");
   page.drawText(fit(f.bold, who, 10, tw), { x: tx, y: ty, size: 10, font: f.bold, color: INK });
   ty -= 0.17 * IN;
-  const line2 = [info.company, info.signer.title].filter(Boolean).join(" · ");
+  const line2 = [info.signer.title, "Signed " + pacific(info.signedAt).full].filter(Boolean).join(" \u00b7 ");
   page.drawText(fit(f.reg, line2, 8.5, tw), { x: tx, y: ty, size: 8.5, font: f.reg, color: SOFT });
-  ty -= 0.15 * IN;
-  page.drawText(fit(f.reg, "Signed " + pacific(info.signedAt).full, 8.5, tw), { x: tx, y: ty, size: 8.5, font: f.reg, color: SOFT });
-  ty -= 0.15 * IN;
+  ty -= 0.16 * IN;
+  page.drawText(fit(f.reg, info.company, 7.5, tw), { x: tx, y: ty, size: 7.5, font: f.reg, color: SOFT });
+  ty -= 0.12 * IN;
+  page.drawText(fit(f.reg, "Certified through the E3 Inspection Association", 7.5, tw), { x: tx, y: ty, size: 7.5, font: f.reg, color: ACCENT });
+  ty -= 0.14 * IN;
   page.drawText(fit(f.mono, "Document ID " + info.documentId, 7.5, tw), { x: tx, y: ty, size: 7.5, font: f.mono, color: MUTED });
   if (info.test) testMark(page, f, x + pad + seal + 0.25 * IN, y + h - 0.16 * IN, w * 0.5);
   return h;
@@ -300,15 +302,16 @@ async function drawCellBlock(page, doc, f, info, box, side) {
     page.drawText(fit(f.bold, info.signer.name, 8.5, tw), { x: tx, y: ty, size: 8.5, font: f.bold, color: INK });
     if (info.signer.license) { ty -= 10; page.drawText(fit(f.reg, "License No. " + info.signer.license, 7, tw), { x: tx, y: ty, size: 7, font: f.reg, color: SOFT }); }
     ty -= 10;
-    page.drawText(fit(f.reg, info.company, 7, tw), { x: tx, y: ty, size: 7, font: f.reg, color: SOFT });
-    ty -= 10;
     page.drawText(fit(f.reg, `Signed ${d.date} ${d.time} ${d.tz}`, 7, tw), { x: tx, y: ty, size: 7, font: f.reg, color: SOFT });
     const by = P.y + 7;
+    // David, Nov 1: the company is NOT the license holder - it sits with the Association line,
+    // away from the inspector's name and license.
+    page.drawText(fit(f.reg, info.company, 6.4, tw), { x: tx, y: by + 27, size: 6.4, font: f.reg, color: SOFT });
     page.drawText("Document ID", { x: tx, y: by + 8.5, size: 5.8, font: f.bold, color: MUTED });
     let ms = 6.4; while (ms > 4.6 && f.mono.widthOfTextAtSize(info.documentId, ms) > P.w - 16) ms -= 0.2;
     page.drawText(info.documentId, { x: tx, y: by, size: ms, font: f.mono, color: INK });
     page.drawText(fit(f.reg, "Certified through the E3 Inspection Association", 5.6, tw), { x: tx, y: by + 19, size: 5.6, font: f.reg, color: ACCENT });
-    if (info.test) page.drawText("TEST SIGNATURE - NOT VALID", { x: tx, y: by + 28, size: 6, font: f.bold, color: RED });
+    if (info.test) page.drawText("TEST SIGNATURE - NOT VALID", { x: tx, y: by + 37, size: 6, font: f.bold, color: RED });
     return;
   }
   // compact: everything in the cell
@@ -420,7 +423,7 @@ async function addCertificatePage(doc, f, info, size) {
   y -= 4;
   page.drawText("Signer", { x: m, y, size: 11.5, font: f.bold, color: INK });
   y -= 12;
-  const cardH = 1.15 * IN;
+  const cardH = 1.3 * IN;
   page.drawRectangle({ x: m, y: y - cardH, width: cw, height: cardH, color: PANEL, borderColor: LINE, borderWidth: 1 });
   const cx = m + 14;
   let cy = y - 20;
@@ -428,9 +431,11 @@ async function addCertificatePage(doc, f, info, size) {
   cy -= 15;
   const t2 = [info.signer.title, info.signer.license ? "License No. " + info.signer.license : ""].filter(Boolean).join(" · ");
   if (t2) { page.drawText(fit(f.reg, t2, 9, cw * 0.55), { x: cx, y: cy, size: 9, font: f.reg, color: SOFT }); cy -= 13; }
-  page.drawText(fit(f.reg, info.company, 9, cw * 0.55), { x: cx, y: cy, size: 9, font: f.reg, color: SOFT });
-  cy -= 13;
   page.drawText(fit(f.reg, `Approved by E3 login: ${info.approvedBy}`, 9, cw * 0.55), { x: cx, y: cy, size: 9, font: f.reg, color: SOFT });
+  cy -= 15;
+  page.drawText(fit(f.reg, info.company, 8.5, cw * 0.55), { x: cx, y: cy, size: 8.5, font: f.reg, color: SOFT });
+  cy -= 11;
+  page.drawText(fit(f.reg, "Certified through the E3 Inspection Association", 8.5, cw * 0.55), { x: cx, y: cy, size: 8.5, font: f.reg, color: ACCENT });
   const sx = m + cw * 0.6, sw = cw * 0.4 - 16;
   await drawSignature(page, doc, f, info.signer, sx, y - 0.72 * IN, sw, 0.5 * IN);
   page.drawLine({ start: { x: sx, y: y - 0.76 * IN }, end: { x: sx + sw, y: y - 0.76 * IN }, thickness: 0.7, color: rgb(0.6, 0.65, 0.71) });
