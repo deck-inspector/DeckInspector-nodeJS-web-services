@@ -2097,7 +2097,8 @@ input,select{font-family:inherit;font-size:16px}
              Until the auto-signature exists, the inspector presses "Signed - release to client". -->
         <div class="panel" v-if="!isClient && !isContractor">
           <h3>Client Portal &mdash; signed reports</h3>
-          <div class="hint">When a report or uploaded document is <b>signed</b>, press <b>Signed &ndash; release to client</b>. The owner / property manager sees it in their portal as a PDF and is emailed. Nothing here is visible to the client until you release it.</div>
+          <div class="hint">Sign a report right here with <b>&#9997; E3 Sign</b> &mdash; including reports printed earlier and never signed. Or, when a report was signed elsewhere, press <b>Signed &ndash; release to client</b>. The owner / property manager sees it in their portal as a PDF and is emailed. Nothing here is visible to the client until you release it.</div>
+          <div v-if="esUnsignedFinals.length > 1" style="margin:0 0 10px"><button class="btn-dl" @click="esOpenSign(esUnsignedFinals)">&#9997; Sign all unsigned Finals ({{ esUnsignedFinals.length }})</button></div>
           <div class="empty" v-if="pr.loading && !pr.files.length">Loading&hellip;</div>
           <div class="empty" v-else-if="!pr.files.length">No report files yet.</div>
           <ul class="rlist" v-else>
@@ -2106,10 +2107,13 @@ input,select{font-family:inherit;font-size:16px}
               <div class="rinfo">
                 <div class="rname">{{ f.name }}</div>
                 <div class="rdate">{{ niceDate(f.timestamp) }} &middot; {{ f.source==='document' ? 'Uploaded document' : 'Report file' }}<span v-if="!f.pdf"> &middot; Word (the client gets a PDF)</span></div>
+                <div v-if="f.e3Signed && !f.e3Signed.test" style="margin-top:4px"><span class="rp-st approved">&#9997; E3 signed &middot; {{ f.e3Signed.signer }}</span> <a class="hint" style="margin:0;font-size:12px" :href="'/v/' + f.e3Signed.documentId" target="_blank" rel="noopener">{{ f.e3Signed.documentId }}</a></div>
+                <div v-if="f.e3SignedCopy" style="margin-top:4px"><span class="rp-st" :class="f.e3SignedCopy.test ? '' : 'approved'">{{ f.e3SignedCopy.test ? 'E3 TEST signature - not valid' : '&#9997; E3 signed copy' }}</span> <a class="hint" style="margin:0;font-size:12px" :href="'/v/' + f.e3SignedCopy.documentId" target="_blank" rel="noopener">Verify {{ f.e3SignedCopy.documentId }}</a></div>
                 <div v-if="f.release" style="margin-top:4px"><span class="rp-st approved">Shared with client &middot; {{ f.release.label }}</span> <span class="hint" style="margin:0;font-size:12px">signed {{ niceDate(f.release.signedAt) }}<span v-if="f.release.signedBy"> by {{ f.release.signedBy }}</span></span></div>
               </div>
               <div class="rbtns" style="flex-wrap:wrap">
-                <template v-if="!f.release">
+                <button class="btn-edit" v-if="esCanSign(f)" :disabled="!!pr.busy" @click="esOpenSign([f])">&#9997; E3 Sign</button>
+                <template v-if="!f.release && !(f.e3SignedCopy && f.e3SignedCopy.test)">
                   <select v-model="pr.kind[f.id]" style="padding:7px 8px;border:1.5px solid var(--line);border-radius:8px;max-width:230px">
                     <option v-for="(lab, k) in pr.kinds" :key="k" :value="k">{{ lab }}</option>
                   </select>
@@ -3057,13 +3061,82 @@ input,select{font-family:inherit;font-size:16px}
         <div style="flex:2;min-width:170px"><label style="font-size:11px">Inspector Name</label><input v-model.trim="r.name" placeholder="Jane Smith"></div>
         <div style="flex:2;min-width:170px"><label style="font-size:11px">Qualifying Title</label><input v-model.trim="r.title" placeholder="General Contractor"></div>
         <div style="flex:2;min-width:170px"><label style="font-size:11px">License #</label><input v-model.trim="r.license" placeholder="CA GC 000000"></div>
+        <button class="btn-dl" v-if="r.id" :title="esHasImage(r.id) ? 'Change the adopted signature' : 'Adopt a signature for E3 E-Sign'" @click="esOpenPad(r)">&#9997; {{ esHasImage(r.id) ? 'Signature &#10003;' : 'Signature' }}</button>
         <button class="btn-del" title="Remove this signer" @click="sgEd.rows.splice(i,1)">&#215;</button>
       </div>
       <div v-if="!sgEd.rows.length" class="hint">No signers yet &mdash; add one below.</div>
+      <div class="hint" style="margin:4px 0 10px">&#9997; <b>Signature</b> &mdash; each signer adopts a signature once (draw it or upload a scan). E3 E-Sign writes it across the E3 Association seal when a report is signed. A new signer: save first, then add the signature.</div>
       <button class="btn-dl" @click="sgEd.rows.push({ id: '', name: '', title: '', license: '' })">+ Add signer</button>
       <div class="mrow">
         <button class="btn-cancel" @click="sgEd.open=false">Cancel</button>
         <button class="btn-dl" :disabled="sgEd.saving" @click="sgEdSave">{{ sgEd.saving ? 'Saving&hellip;' : '&#10003; Save Signers' }}</button>
+      </div>
+    </div>
+  </div>
+  <!-- ============ E3 E-SIGN: ADOPT A SIGNATURE (Nov 1 2026) ============ -->
+  <div class="overlay" v-if="es.pad.open" @click.self="esClosePad" style="z-index:60">
+    <div class="modal" style="max-width:680px">
+      <h3>&#9997; Adopt signature &mdash; {{ es.pad.name }}</h3>
+      <p class="hint" style="margin-top:0">Sign in the box with a mouse, finger or pen &mdash; or upload a scan of the signature (PNG with a clear background is best). It is stored privately for your company and used only when E3 E-Sign signs a report.</p>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="kind" :class="{on: es.pad.mode==='draw'}" @click="esPadMode('draw')">Draw</button>
+        <button class="kind" :class="{on: es.pad.mode==='upload'}" @click="esPadMode('upload')">Upload</button>
+        <button class="kind" v-if="es.pad.current" :class="{on: es.pad.mode==='current'}" @click="esPadMode('current')">Current</button>
+      </div>
+      <div v-show="es.pad.mode==='draw'">
+        <canvas ref="esCanvas" width="1200" height="400" style="width:100%;height:auto;aspect-ratio:3/1;border:1.5px dashed var(--line);border-radius:10px;background:#fff;touch-action:none;cursor:crosshair;display:block"></canvas>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><span class="hint" style="margin:0">Sign above the line, as you would on paper.</span><button class="btn-cancel" @click="esPadClear">Clear</button></div>
+      </div>
+      <div v-show="es.pad.mode==='upload'">
+        <label class="docdrop" style="display:block;cursor:pointer"><input type="file" accept="image/png,image/jpeg" style="display:none" @change="esPadFile">Choose a PNG or JPG of the signature&hellip;</label>
+        <img v-if="es.pad.upload" :src="es.pad.upload" alt="Uploaded signature" style="max-width:100%;max-height:160px;display:block;margin:10px auto;background:#fff">
+      </div>
+      <div v-show="es.pad.mode==='current'" style="text-align:center">
+        <img v-if="es.pad.current" :src="es.pad.current" alt="Current signature" style="max-width:100%;max-height:160px;background:#fff">
+        <div><button class="btn-del" :disabled="es.pad.saving" @click="esPadRemove" style="margin-top:8px">Remove this signature</button></div>
+      </div>
+      <div class="mrow">
+        <button class="btn-cancel" @click="esClosePad">Cancel</button>
+        <button class="btn-dl" v-if="es.pad.mode!=='current'" :disabled="es.pad.saving" @click="esPadSave">{{ es.pad.saving ? 'Saving&hellip;' : '&#10003; Adopt signature' }}</button>
+      </div>
+    </div>
+  </div>
+  <!-- ============ E3 E-SIGN: APPROVE & SIGN (Nov 1 2026) ============ -->
+  <div class="overlay" v-if="es.sign.open" @click.self="es.sign.busy || (es.sign.open=false)">
+    <div class="modal" style="max-width:640px">
+      <h3>&#9997; E3 E-Sign &mdash; Approve &amp; Sign</h3>
+      <div v-if="es.status && es.status.test" class="cv-banner" style="background:#fdecec;border-color:#b00020;color:#7a0016;margin:0 0 12px"><b>Test mode</b> &mdash; the E3 signing certificate is not installed yet. Signed copies are marked TEST SIGNATURE, are not valid, and are not sent to clients.</div>
+      <p class="hint" style="margin-top:0">E3 adds the signature to the report's Signature block (across the E3 Association seal), adds the Certificate of Completion page and seals the PDF with the E3 certificate. The signed PDF is saved as a new document; the original is kept.</p>
+      <div style="margin:0 0 10px"><b>{{ es.sign.files.length === 1 ? 'Report' : es.sign.files.length + ' reports' }}</b>
+        <ul style="margin:6px 0 0;padding-left:18px">
+          <li v-for="f in es.sign.files" :key="f.id" style="margin:2px 0">{{ f.name }}
+            <span v-if="es.sign.state[f.id]==='busy'" class="hint" style="margin:0"> &mdash; signing&hellip;</span>
+            <span v-else-if="es.sign.state[f.id]==='done'" style="color:var(--ok,#0f6e5c);font-weight:700"> &mdash; &#10003; signed</span>
+            <span v-else-if="es.sign.state[f.id]" style="color:#b00020;font-weight:700"> &mdash; {{ es.sign.state[f.id] }}</span>
+          </li>
+        </ul>
+      </div>
+      <label style="font-size:12px">Signing inspector</label>
+      <select v-model="es.sign.signerId" @change="esPreview" :disabled="es.sign.busy" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:6px">
+        <option value="" disabled>Pick the inspector&hellip;</option>
+        <option v-for="sg in es.signers" :key="sg.id" :value="sg.id">{{ sg.name }}{{ sg.license ? ' \u00b7 ' + sg.license : '' }}{{ sg.hasImage ? '' : ' (no signature adopted - typed)' }}</option>
+      </select>
+      <div v-if="es.sign.preview" style="text-align:center;margin:4px 0 10px"><img :src="es.sign.preview" alt="Adopted signature" style="max-height:70px;max-width:100%"></div>
+      <div v-else-if="es.sign.signerId" class="hint" style="margin:0 0 10px">No adopted signature &mdash; the name is written in a script font. Add one with Manage Signers &rarr; &#9997; Signature.</div>
+      <template v-if="es.sign.files.length===1">
+        <label style="font-size:12px">Report type (printed on the certificate)</label>
+        <select v-model="es.sign.kind" :disabled="es.sign.busy" style="width:100%;padding:10px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:10px">
+          <option v-for="(lab, k) in pr.kinds" :key="k" :value="k">{{ lab }}</option>
+        </select>
+      </template>
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:14px;margin:4px 0 6px" :style="es.status && es.status.test ? 'opacity:.5' : ''">
+        <input type="checkbox" v-model="es.sign.release" :disabled="es.sign.busy || (es.status && es.status.test)" style="width:auto;margin-top:3px">
+        <span>Release the signed report to the client portal now (the client is emailed; an open Final request closes as issued)</span>
+      </label>
+      <p class="hint">By pressing <b>Approve &amp; Sign</b> you confirm you reviewed the report and that the selected inspector authorizes this signature. Your E3 login, the time and your IP address are recorded on the certificate.</p>
+      <div class="mrow">
+        <button class="btn-cancel" :disabled="es.sign.busy" @click="es.sign.open=false">{{ es.sign.finished ? 'Close' : 'Cancel' }}</button>
+        <button class="btn-dl" v-if="!es.sign.finished" :disabled="es.sign.busy || !es.sign.signerId" @click="esSign">{{ es.sign.busy ? 'Signing&hellip;' : '&#9997; Approve &amp; Sign' }}</button>
       </div>
     </div>
   </div>
@@ -3293,7 +3366,7 @@ const { createApp } = Vue;
 // Build stamp: bump on every deploy. The page checks the server for a newer
 // stamp when the tab regains focus (and every 10 min) and offers a reload -
 // so a fix is never silently missed because the page was never reloaded.
-const APP_BUILD = '2026-11-01.13';
+const APP_BUILD = '2026-11-01.14';
 
 // ---- Final Upon Completion: side-menu field labels + section grouping ----
 // Control IDs are stable in the 5.0 master. Labels below make the side menu
@@ -3368,6 +3441,10 @@ createApp({
       // Repairs portal (Oct 23 2026)
       crp: { list: [], loading: false, busy: '', at: 0, viewer: null }, // client portal signed reports (Nov 1 2026)
       pr: { files: [], kinds: {}, kind: {}, loading: false, busy: '', confirm: '', pid: '' }, // inspector: release to client (Nov 1 2026)
+      // E3 E-Sign (Nov 1 2026): sign reports inside E3 + each signer's adopted signature
+      es: { status: null, signers: [], at: 0,
+            pad: { open: false, signerId: '', name: '', mode: 'draw', upload: '', current: '', saving: false, ink: false },
+            sign: { open: false, files: [], signerId: '', kind: 'final', release: true, busy: false, finished: false, state: {}, preview: '' } },
       rp: { sel: {}, method: '', issue: null, list: [], loading: false, open: false, pid: '', data: null, busy: '', notes: {}, decisions: {}, confirm: false, submitNote: '', filter: 'submitted', mailto: '' },
       ct: { list: [], loading: false, form: null, busy: false, msg: '' },
       addPropQ: '',
@@ -3454,6 +3531,11 @@ createApp({
     lightbox() { this.lbZoom = 1; this.lbX = 0; this.lbY = 0; this._lbDrag = false; this._lbMoved = false; },
   },
   computed: {
+    // E3 E-Sign: Final reports of this project that are not signed in E3 yet (batch "Sign all")
+    esUnsignedFinals() {
+      return (this.pr.files || []).filter((f) => !f.e3SignedCopy && !(f.e3Signed && !f.e3Signed.test) && !f.release
+        && ['final', 'finalcompletion', 'finalrepairs'].includes(f.suggestedKind) && !/signed/i.test(f.name || ''));
+    },
     portalMode() { return !!(this.isClient || this.isContractor); },
     // A client portal login (owner / property manager) - read-only view.
     isClient() { return !!(this.user && (String(this.user.role || '').toLowerCase() === 'client' || (this.portalAs && this.portalAs.kind === 'client'))); },
@@ -4110,6 +4192,7 @@ createApp({
     },
     async prLoad() {
       if (this.isClient || this.isContractor || !this.current) return;
+      this.esLoad();
       const pid = this.projectId(this.current);
       if (this.pr.pid !== pid) { this.pr.files = []; this.pr.confirm = ''; }
       this.pr.pid = pid; this.pr.loading = true;
@@ -4135,6 +4218,153 @@ createApp({
         await this.prLoad();
       } catch (e) { if (e.message !== 'auth') this.toast('Could not reach the server.', 'err'); }
       finally { this.pr.busy = ''; }
+    },
+    // ---- E3 E-SIGN (Nov 1 2026): sign a report in E3; each signer adopts a signature once ----
+    async esLoad(force) {
+      if (!force && this.es.at && Date.now() - this.es.at < 60000) return;
+      try {
+        const [st, sg] = await Promise.all([this.api('/esign/status'), this.api('/esign/signers')]);
+        const sj = await st.json().catch(() => null); const gj = await sg.json().catch(() => null);
+        if (sj && sj.success) this.es.status = sj;
+        if (gj && Array.isArray(gj.signers)) this.es.signers = gj.signers;
+        this.es.at = Date.now();
+      } catch (e) { /* the buttons still work; the server checks again */ }
+    },
+    esHasImage(id) { const s = this.es.signers.find((x) => x.id === id); return !!(s && s.hasImage); },
+    esCanSign(f) { return !f.e3SignedCopy && !(f.e3Signed && !f.e3Signed.test); },
+    async esImageUrl(signerId) {
+      try {
+        const res = await this.api('/esign/signer-image/' + encodeURIComponent(signerId));
+        if (!res.ok) return '';
+        return URL.createObjectURL(await res.blob());
+      } catch (e) { return ''; }
+    },
+    async esOpenSign(files) {
+      await this.esLoad(true);
+      if (!this.es.signers.length) { this.toast('Add your inspectors first: Reports page \u2192 Manage Signers.', 'err'); return; }
+      const f = files[0];
+      const pick = this.es.signers.some((s) => s.id === this.signerPick) ? this.signerPick : (this.es.signers.length === 1 ? this.es.signers[0].id : '');
+      this.es.sign = { open: true, files: files.slice(), signerId: pick, kind: this.pr.kind[f.id] || f.suggestedKind || 'final', release: !(this.es.status && this.es.status.test), busy: false, finished: false, state: {}, preview: '' };
+      this.esPreview();
+    },
+    async esPreview() {
+      if (this.es.sign.preview) { try { URL.revokeObjectURL(this.es.sign.preview); } catch (e) { /* */ } }
+      this.es.sign.preview = '';
+      const id = this.es.sign.signerId;
+      if (id && this.esHasImage(id)) { const u = await this.esImageUrl(id); if (this.es.sign.signerId === id) this.es.sign.preview = u; }
+    },
+    async esSign() {
+      const S = this.es.sign;
+      S.busy = true;
+      let ok = 0, released = 0, test = false;
+      for (const f of S.files) {
+        if (S.state[f.id] === 'done') continue;
+        S.state = Object.assign({}, S.state, { [f.id]: 'busy' });
+        try {
+          const kind = S.files.length === 1 ? S.kind : (this.pr.kind[f.id] || f.suggestedKind || 'final');
+          const res = await this.api('/esign/sign', { method: 'POST', json: { id: f.id, signerId: S.signerId, kind, release: !!S.release } });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(j.message || 'Could not sign.');
+          ok++; test = test || j.test; if (j.portal && j.portal.released) released++;
+          S.state = Object.assign({}, S.state, { [f.id]: 'done' });
+        } catch (e) {
+          if (e.message === 'auth') { S.busy = false; return; }
+          S.state = Object.assign({}, S.state, { [f.id]: e.message || 'failed' });
+        }
+      }
+      S.busy = false; S.finished = true;
+      if (ok) this.toast((ok === 1 ? 'Report signed' : ok + ' reports signed') + (test ? ' (TEST signature - not valid)' : '') + (released ? ' \u2014 released to the client portal.' : ' \u2014 the signed PDF is in Documents.'));
+      await this.prLoad();
+      if (this.loadReports) { try { this.loadReports(); } catch (e) { /* list refresh only */ } }
+    },
+    async esOpenPad(row) {
+      await this.esLoad(true);
+      const cur = this.esHasImage(row.id) ? await this.esImageUrl(row.id) : '';
+      this.es.pad = { open: true, signerId: row.id, name: row.name || 'signer', mode: cur ? 'current' : 'draw', upload: '', current: cur, saving: false, ink: false };
+      this.$nextTick(() => this.esPadInit());
+    },
+    esClosePad() {
+      if (this.es.pad.current) { try { URL.revokeObjectURL(this.es.pad.current); } catch (e) { /* */ } }
+      this.es.pad.open = false;
+    },
+    esPadMode(m) { this.es.pad.mode = m; if (m === 'draw') this.$nextTick(() => this.esPadInit()); },
+    esPadInit() {
+      const c = this.$refs.esCanvas; if (!c || c._esReady) return;
+      c._esReady = true;
+      const ctx = c.getContext('2d');
+      const line = () => { ctx.save(); ctx.strokeStyle = '#c9d2de'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(60, 300); ctx.lineTo(1140, 300); ctx.stroke(); ctx.restore(); };
+      c._esClear = () => { ctx.clearRect(0, 0, c.width, c.height); line(); c._esInk = []; this.es.pad.ink = false; };
+      c._esClear();
+      let drawing = false, last = null;
+      const pos = (ev) => { const r = c.getBoundingClientRect(); return { x: (ev.clientX - r.left) * c.width / r.width, y: (ev.clientY - r.top) * c.height / r.height }; };
+      c.addEventListener('pointerdown', (ev) => { drawing = true; last = pos(ev); c.setPointerCapture(ev.pointerId); });
+      c.addEventListener('pointermove', (ev) => {
+        if (!drawing) return;
+        const p = pos(ev);
+        const w = ev.pressure && ev.pointerType === 'pen' ? 3 + ev.pressure * 5 : 5;
+        ctx.strokeStyle = '#12203a'; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+        c._esInk.push([last, p, w]); last = p; this.es.pad.ink = true;
+      });
+      const end = () => { drawing = false; };
+      c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end); c.addEventListener('pointerleave', end);
+    },
+    esPadClear() { const c = this.$refs.esCanvas; if (c && c._esClear) c._esClear(); },
+    // The drawn strokes, re-drawn without the guide line on a transparent canvas, trimmed to the ink.
+    esPadDrawnPng() {
+      const c = this.$refs.esCanvas; if (!c || !c._esInk || !c._esInk.length) return '';
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (const [a, b, w] of c._esInk) { x0 = Math.min(x0, a.x - w, b.x - w); y0 = Math.min(y0, a.y - w, b.y - w); x1 = Math.max(x1, a.x + w, b.x + w); y1 = Math.max(y1, a.y + w, b.y + w); }
+      const pad = 12, W = Math.ceil(x1 - x0 + pad * 2), H = Math.ceil(y1 - y0 + pad * 2);
+      const o = document.createElement('canvas'); o.width = W; o.height = H;
+      const g = o.getContext('2d'); g.strokeStyle = '#12203a'; g.lineCap = 'round'; g.lineJoin = 'round';
+      for (const [a, b, w] of c._esInk) { g.lineWidth = w; g.beginPath(); g.moveTo(a.x - x0 + pad, a.y - y0 + pad); g.lineTo(b.x - x0 + pad, b.y - y0 + pad); g.stroke(); }
+      return o.toDataURL('image/png');
+    },
+    esPadFile(ev) {
+      const file = ev.target.files && ev.target.files[0]; ev.target.value = '';
+      if (!file) return;
+      if (!/^image\/(png|jpe?g)$/.test(file.type)) { this.toast('Use a PNG or JPG image.', 'err'); return; }
+      const img = new Image();
+      img.onload = () => {
+        const sc = Math.min(1, 1200 / img.width, 500 / img.height);
+        const o = document.createElement('canvas'); o.width = Math.round(img.width * sc); o.height = Math.round(img.height * sc);
+        const g = o.getContext('2d'); g.drawImage(img, 0, 0, o.width, o.height);
+        // a scan on white paper: make the white background transparent so it sits on the seal
+        try {
+          const d = g.getImageData(0, 0, o.width, o.height), a = d.data;
+          for (let i = 0; i < a.length; i += 4) { const l = (a[i] + a[i + 1] + a[i + 2]) / 3; if (l > 225) a[i + 3] = 0; else if (l > 180) a[i + 3] = Math.round(a[i + 3] * (225 - l) / 45); }
+          g.putImageData(d, 0, 0);
+        } catch (e) { /* keep as is */ }
+        this.es.pad.upload = o.toDataURL('image/png');
+        URL.revokeObjectURL(img.src);
+      };
+      img.onerror = () => this.toast('Could not read that image.', 'err');
+      img.src = URL.createObjectURL(file);
+    },
+    async esPadSave() {
+      const P = this.es.pad;
+      const dataUrl = P.mode === 'upload' ? P.upload : this.esPadDrawnPng();
+      if (!dataUrl) { this.toast(P.mode === 'upload' ? 'Choose an image first.' : 'Sign in the box first.', 'err'); return; }
+      P.saving = true;
+      try {
+        const res = await this.api('/esign/signer-image', { method: 'POST', json: { signerId: P.signerId, dataUrl } });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.message || 'Could not save the signature.');
+        this.toast('Signature adopted for ' + P.name + '.');
+        await this.esLoad(true);
+        this.esClosePad();
+      } catch (e) { if (e.message !== 'auth') this.toast(e.message, 'err'); }
+      finally { P.saving = false; }
+    },
+    async esPadRemove() {
+      const P = this.es.pad; P.saving = true;
+      try {
+        const res = await this.api('/esign/signer-image/' + encodeURIComponent(P.signerId), { method: 'DELETE' });
+        if (!res.ok) throw new Error('bad');
+        this.toast('Signature removed.'); await this.esLoad(true); this.esClosePad();
+      } catch (e) { if (e.message !== 'auth') this.toast('Could not remove the signature.', 'err'); }
+      finally { P.saving = false; }
     },
     async rpIssueOpen() {
       const pid = this.rp.pid;
