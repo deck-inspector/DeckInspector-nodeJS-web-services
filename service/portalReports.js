@@ -69,7 +69,7 @@ async function setRelease(id, release) {
 }
 // Every report file + document of one project, with its release state (staff screen).
 async function filesOf(projectId) {
-  const rows = await q(`SELECT META(r).id AS id, r.name, r.url, r.timestamp, r.docType, r.clientRelease
+  const rows = await q(`SELECT META(r).id AS id, r.name, r.url, r.timestamp, r.docType, r.clientRelease, r.e3Signed, r.e3SignedCopy
     FROM ${ks("ProjectReports")} r WHERE r.project_id = $1
     AND (r.docType IS MISSING OR r.docType IN ['ProjectReport', 'ProjectDocument'])`, [String(projectId)]);
   const failed = (r) => /FAILED/.test(r.name || "") || !r.url;
@@ -77,6 +77,8 @@ async function filesOf(projectId) {
     id: r.id, name: r.name || "", timestamp: r.timestamp || "", source: r.docType === "ProjectDocument" ? "document" : "report",
     pdf: /\.pdf(\?|$)/i.test(r.url || ""), suggestedKind: guessKind(r.name),
     release: r.clientRelease && r.clientRelease.released ? publicRelease(r.clientRelease) : null,
+    // E3 E-Sign (Nov 1 2026): e3Signed on an original, e3SignedCopy on the signed PDF made from it
+    e3Signed: r.e3Signed || null, e3SignedCopy: r.e3SignedCopy || null,
   })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 }
 function publicRelease(cr) {
@@ -359,7 +361,30 @@ async function autoReleaseSignedFinal(staff, docId, name, url) {
   return { released: true, kind, label: out.release && out.release.label, emailed: out.emailed || null, requestClosed: closed };
 }
 
+// E3 E-SIGN (Nov 1 2026): a report signed inside E3 goes to the client portal the same way -
+// release it, and close any open Final request for the property as issued.
+async function releaseSigned(staff, docId, kind, title) {
+  const rec = await getRecord(docId);
+  if (!rec) throw err(404, "Signed report not found.");
+  const out = await release(staff, { id: rec.id, kind, title, notify: true });
+  let closed = false;
+  if (FINAL_KINDS.includes(kind)) {
+    const repairs = require("../model/repairs");
+    const job = await repairs.getJob(String(rec.project_id)).catch(() => null);
+    if (job && job.status !== "issued") {
+      job.status = "issued"; job.finalReportId = rec.id;
+      job.issuedAt = new Date().toISOString(); job.issuedBy = staff.name || staff.username || "";
+      job.history = (job.history || []).slice(-60);
+      job.history.push({ at: job.issuedAt, by: job.issuedBy, role: "staff", what: "Final signed in E3 (E-Sign) - issued to the client", note: "" });
+      await repairs.saveJob(job);
+      closed = true;
+    }
+  }
+  return { released: true, kind, label: out.release && out.release.label, emailed: out.emailed || null, requestClosed: closed };
+}
+
 module.exports = {
+  releaseSigned,
   autoReleaseSignedFinal, isSignedFinalName,
   KINDS, guessKind, getRecord, getProject, filesOf, release, clientList, clientLink, makeDownloadHandler,
   notifyClients, notifyFinalRequested, companyAdmins, clientRecipients,

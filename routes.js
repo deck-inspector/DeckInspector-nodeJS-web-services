@@ -32,10 +32,14 @@ const { clientGuard, portalPhoto, portalReport } = require("./service/clientAcce
 // Client portal reports (Nov 1 2026): inspector signs + releases report files (routes/portalreports-endpoint.js)
 const portalReportsRouter = require("./routes/portalreports-endpoint");
 const portalShield = require("./service/portalShield");
+// E3 E-Sign (Nov 1 2026): sign reports inside E3 + public verification page (routes/esign-endpoint.js)
+const esignRoutes = require("./routes/esign-endpoint");
 const { authenticate } = require("passport");
 const jwt = require("jsonwebtoken");
 
 module.exports = function (app) {
+  // E3 E-Sign: an adopted signature image is larger than the default 100 kB JSON limit
+  app.use("/api/esign/signer-image", express.json({ limit: "3mb" }));
   // the Stripe webhook is signature-checked against the EXACT bytes Stripe sent, so keep them
   app.use(express.json({ verify: (req, res, buf) => { if (String(req.originalUrl || req.url || "").startsWith("/api/portalbilling/webhook")) req.rawBody = buf; } }));
   // CLIENT PORTAL LOCK (Oct 23 2026): runs before every router. Staff and
@@ -51,6 +55,10 @@ module.exports = function (app) {
   // through an expiring per-login link (service/portalReports.js).
   app.get("/api/preport/:tok", portalReport);
   app.use("/api/portalreports", authenticateToken, portalReportsRouter);
+  // E3 E-SIGN (Nov 1 2026): staff sign reports in E3; the public verify page (/v/<Document ID>,
+  // /verify) is what the QR code on a signed report opens - no login, no report content.
+  app.use("/api/esign", authenticateToken, esignRoutes.staffRouter);
+  app.use("/", esignRoutes.publicRouter);
   // Portal terms of use - staff can read them too (portal logins are answered
   // by clientGuard, which also records their acceptance).
   app.get("/api/portal/terms", authenticateToken, (req, res) => res.status(200).json(portalShield.TERMS));
